@@ -53,4 +53,5 @@ default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.tasks]
-parse = "python -c \"import sys; from cadl_frontend import parse_proc; ast = parse_proc(open(sys.argv[1]).read(), sys.argv[1]); print(f'Parsed {len(ast.flows)} flows, {len(ast.functions)} functions, {len(ast.statics)} statics, {len(ast.regfiles)} regfiles')\""
+parse = "python parse_with_errors.py"
+parse-summary = "python parse_with_errors.py --summary"

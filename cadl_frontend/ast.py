@@ -21,11 +21,21 @@ class Expr:
     """Base class for all expressions"""
     pass
 
+    def __str__(self) -> str:
+        """String representation for expressions"""
+        return self.__class__.__name__
+
 
 @dataclass
 class LitExpr(Expr):
     """Literal expression with proper type information"""
     literal: Literal
+    
+    def __str__(self) -> str:
+        lit_inner = self.literal.lit
+        if isinstance(lit_inner, (LiteralInner_Fixed, LiteralInner_Float)):
+            return f"{lit_inner.value}_{self.literal.ty}"
+        return f"literal_{self.literal.ty}"
 
 
 @dataclass
@@ -45,12 +55,19 @@ class ComplexExpr(Expr):
 class IdentExpr(Expr):
     """Identifier expression"""
     name: str
+    
+    def __str__(self) -> str:
+        return self.name
 
 
 @dataclass
 class TupleExpr(Expr):
     """Tuple expression"""
     elements: List[Expr]
+    
+    def __str__(self) -> str:
+        elements_str = ", ".join(str(e) for e in self.elements)
+        return f"({elements_str})"
 
 
 @dataclass
@@ -59,6 +76,9 @@ class BinaryExpr(Expr):
     op: BinaryOp
     left: Expr
     right: Expr
+    
+    def __str__(self) -> str:
+        return f"({self.left} {self.op.value} {self.right})"
 
 
 @dataclass
@@ -66,6 +86,12 @@ class UnaryExpr(Expr):
     """Unary operation expression"""
     op: UnaryOp
     operand: Expr
+    
+    def __str__(self) -> str:
+        if self.op.value.startswith("$"):
+            return f"{self.op.value}({self.operand})"
+        else:
+            return f"{self.op.value}{self.operand}"
 
 
 @dataclass
@@ -73,6 +99,10 @@ class CallExpr(Expr):
     """Function call expression"""
     name: str
     args: List[Expr]
+    
+    def __str__(self) -> str:
+        args_str = ", ".join(str(arg) for arg in self.args)
+        return f"{self.name}({args_str})"
 
 
 @dataclass
@@ -80,6 +110,10 @@ class IndexExpr(Expr):
     """Array/vector indexing expression"""
     expr: Expr
     indices: List[Expr]
+    
+    def __str__(self) -> str:
+        indices_str = ", ".join(str(idx) for idx in self.indices)
+        return f"{self.expr}[{indices_str}]"
 
 
 @dataclass
@@ -88,6 +122,9 @@ class SliceExpr(Expr):
     expr: Expr
     start: Expr
     end: Expr
+    
+    def __str__(self) -> str:
+        return f"{self.expr}[{self.start}:{self.end}]"
 
 
 @dataclass
@@ -164,31 +201,49 @@ class BasicType:
 class BasicType_ApFixed(BasicType):
     """Signed fixed-point type - BasicType::ApFixed(u32)"""
     width: int
+    
+    def __str__(self) -> str:
+        return f"i{self.width}"
 
 @dataclass
 class BasicType_ApUFixed(BasicType): 
     """Unsigned fixed-point type - BasicType::ApUFixed(u32)"""
     width: int
+    
+    def __str__(self) -> str:
+        return f"u{self.width}"
 
 @dataclass
 class BasicType_Float32(BasicType):
     """32-bit float type - BasicType::Float32"""
     pass
+    
+    def __str__(self) -> str:
+        return "f32"
 
 @dataclass
 class BasicType_Float64(BasicType):
     """64-bit float type - BasicType::Float64"""  
     pass
+    
+    def __str__(self) -> str:
+        return "f64"
 
 @dataclass
 class BasicType_String(BasicType):
     """String type - BasicType::String"""
     pass
+    
+    def __str__(self) -> str:
+        return "string"
 
 @dataclass
 class BasicType_USize(BasicType):
     """USize type - BasicType::USize"""
     pass
+    
+    def __str__(self) -> str:
+        return "usize"
 
 
 class DataType:
@@ -199,17 +254,27 @@ class DataType:
 class DataType_Single(DataType):
     """Single data type - DataType::Single(BasicType)"""
     basic_type: BasicType
+    
+    def __str__(self) -> str:
+        return str(self.basic_type)
 
 @dataclass
 class DataType_Array(DataType):
     """Array data type - DataType::Array(BasicType, Vec<usize>)"""
     element_type: BasicType
     dimensions: List[int]
+    
+    def __str__(self) -> str:
+        dims_str = "; ".join(str(d) for d in self.dimensions)
+        return f"[{self.element_type}; {dims_str}]"
 
 @dataclass
 class DataType_Instance(DataType):
     """Instance data type - DataType::Instance"""
     pass
+    
+    def __str__(self) -> str:
+        return "Instance"
 
 
 class CompoundType:
@@ -228,6 +293,9 @@ class CompoundType:
 class CompoundType_Basic(CompoundType):
     """Basic compound type - CompoundType::Basic(DataType)"""  
     data_type: DataType
+    
+    def __str__(self) -> str:
+        return str(self.data_type)
 
 @dataclass
 class CompoundType_FnTy(CompoundType):
@@ -263,12 +331,18 @@ class Literal:
 class Stmt:
     """Base class for all statements"""
     pass
+    
+    def __str__(self) -> str:
+        return self.__class__.__name__
 
 
 @dataclass
 class ExprStmt(Stmt):
     """Expression statement"""
     expr: Expr
+    
+    def __str__(self) -> str:
+        return f"{self.expr};"
 
 
 @dataclass
@@ -278,12 +352,21 @@ class AssignStmt(Stmt):
     lhs: Expr
     rhs: Expr
     type_annotation: Optional[DataType] = None
+    
+    def __str__(self) -> str:
+        let_str = "let " if self.is_let else ""
+        type_str = f": {self.type_annotation}" if self.type_annotation else ""
+        return f"{let_str}{self.lhs}{type_str} = {self.rhs};"
 
 
 @dataclass
 class ReturnStmt(Stmt):
     """Return statement"""
     exprs: List[Expr]
+    
+    def __str__(self) -> str:
+        exprs_str = ", ".join(str(expr) for expr in self.exprs)
+        return f"return ({exprs_str});"
 
 
 @dataclass
@@ -433,6 +516,12 @@ class Flow:
     def get_body(self) -> Optional[List[Stmt]]:
         """Get flow body"""
         return self.body
+    
+    def __str__(self) -> str:
+        kind_str = "rtype" if self.kind == FlowKind.RTYPE else "flow"
+        args = ", ".join(f"{name}: {dtype}" for name, dtype in self.inputs)
+        body_len = len(self.body) if self.body else 0
+        return f"{kind_str} {self.name}({args}) {{ {body_len} statements }}"
 
 
 @dataclass
@@ -496,6 +585,57 @@ class Proc:
             self.functions[part.function.name] = part.function
         elif isinstance(part, StaticPart):
             self.statics[part.static.id] = part.static
+    
+    def __str__(self) -> str:
+        parts = []
+        if self.regfiles:
+            parts.append(f"{len(self.regfiles)} regfiles")
+        if self.flows:
+            parts.append(f"{len(self.flows)} flows")
+        if self.functions:
+            parts.append(f"{len(self.functions)} functions")
+        if self.statics:
+            parts.append(f"{len(self.statics)} statics")
+        return f"Proc({', '.join(parts)})"
+    
+    def pretty_print(self) -> str:
+        """Detailed pretty printing of the processor"""
+        lines = ["Processor AST:"]
+        
+        if self.regfiles:
+            lines.append("  Regfiles:")
+            for name, regfile in self.regfiles.items():
+                lines.append(f"    {name}: {regfile.width}x{regfile.depth}")
+        
+        if self.statics:
+            lines.append("  Static Variables:")
+            for name, static in self.statics.items():
+                lines.append(f"    {static.id}: {static.ty}")
+                
+        if self.functions:
+            lines.append("  Functions:")
+            for name, func in self.functions.items():
+                args = ", ".join(f"{arg.id}: {arg.ty}" for arg in func.args)
+                rets = ", ".join(str(ret) for ret in func.ret)
+                lines.append(f"    fn {name}({args}) -> ({rets}) {{")
+                for stmt in func.body:
+                    lines.append(f"      {stmt}")
+                lines.append("    }")
+        
+        if self.flows:
+            lines.append("  Flows:")
+            for name, flow in self.flows.items():
+                kind_str = "rtype" if flow.kind == FlowKind.RTYPE else "flow"
+                args = ", ".join(f"{name}: {dtype}" for name, dtype in flow.inputs)
+                lines.append(f"    {kind_str} {flow.name}({args}) {{")
+                if flow.body:
+                    for stmt in flow.body:
+                        lines.append(f"      {stmt}")
+                else:
+                    lines.append("      (empty body)")
+                lines.append("    }")
+                
+        return "\n".join(lines)
 
     @classmethod
     def from_parts(cls, parts: List[ProcPart]) -> Proc:
@@ -515,7 +655,9 @@ def expr_is_lval(expr: Expr) -> bool:
 def expr_as_literal(expr: Expr) -> Optional[str]:
     """Get expression as literal if possible"""
     if isinstance(expr, LitExpr):
-        return expr.value
+        lit_inner = expr.literal.lit
+        if isinstance(lit_inner, (LiteralInner_Fixed, LiteralInner_Float)):
+            return str(lit_inner.value)
     return None
 
 
@@ -583,6 +725,13 @@ def parse_literal_from_string(literal_str: str) -> Literal:
         elif format_and_value.startswith(('d', 'D')):
             # Decimal format
             value = int(format_and_value[1:])
+            return Literal(
+                LiteralInner_Fixed(value),
+                BasicType_ApUFixed(width)
+            )
+        else:
+            # Unknown format, treat as decimal
+            value = int(format_and_value)
             return Literal(
                 LiteralInner_Fixed(value),
                 BasicType_ApUFixed(width)

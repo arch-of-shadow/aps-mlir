@@ -1,6 +1,6 @@
 # Makefile for CADL Frontend (using pixi)
 
-.PHONY: install shell test test-basic test-enhanced test-literals parse lint format clean help
+.PHONY: install shell test test-basic test-enhanced test-literals parse parse-summary lint format clean help
 
 help:
 	@echo "Available commands:"
@@ -10,7 +10,8 @@ help:
 	@echo "  test-basic    Run basic parser tests"
 	@echo "  test-enhanced Run comprehensive zyy examples tests"
 	@echo "  test-literals Run literal width parsing tests"
-	@echo "  parse FILE    Parse a CADL file and show summary"
+	@echo "  parse FILE    Parse a CADL file and show detailed AST"
+	@echo "  parse-summary FILE  Parse a CADL file and show brief summary"
 	@echo "  lint          Run linting (mypy, etc.)"
 	@echo "  format        Format code with black and isort"
 	@echo "  clean         Clean build artifacts and cache"
@@ -36,6 +37,10 @@ test-literals:
 parse:
 	@if [ -z "$(FILE)" ]; then echo "Usage: make parse FILE=path/to/file.cadl"; exit 1; fi
 	pixi run parse $(FILE)
+
+parse-summary:
+	@if [ -z "$(FILE)" ]; then echo "Usage: make parse-summary FILE=path/to/file.cadl"; exit 1; fi
+	pixi run parse-summary $(FILE)
 
 lint:
 	pixi run mypy cadl_frontend/ || echo "mypy not configured yet"

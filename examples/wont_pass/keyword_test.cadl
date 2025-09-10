@@ -1,0 +1,6 @@
+// Test file specifically for keyword detection
+
+rtype let(rs1: u5, rd: u5) {  // Using 'let' as function name
+    let x: u32 = 42;
+    _irf[rd] = x;
+}

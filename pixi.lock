@@ -163,7 +163,7 @@ packages:
 - pypi: ./
   name: cadl-frontend
   version: 0.1.0
-  sha256: 49f03ca5fb4a3e480d52f3ef3f22c573a583effa157f344097474cdcc6ca2f8f
+  sha256: d5195a09480e66597e7f8af0fd8e25841a6dbcbff5b70079b7487841d0c7001a
   requires_dist:
   - lark>=1.1.0
   - dataclasses-json>=0.6.0
