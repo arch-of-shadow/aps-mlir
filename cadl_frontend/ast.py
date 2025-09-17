@@ -449,6 +449,16 @@ class Function:
     ret: List[CompoundType]
     body: List[Stmt] = field(default_factory=list)
 
+    def __str__(self) -> str:
+        """Pretty print function"""
+        args = ", ".join(f"{arg.id}: {arg.ty}" for arg in self.args)
+        rets = ", ".join(str(ret) for ret in self.ret)
+        lines = [f"fn {self.name}({args}) -> ({rets}) {{"]
+        for stmt in self.body:
+            lines.append(f"  {stmt}")
+        lines.append("}")
+        return "\n".join(lines)
+
 
 @dataclass
 class Static:
@@ -456,6 +466,13 @@ class Static:
     id: str
     ty: DataType
     expr: Optional[Expr] = None
+
+    def __str__(self) -> str:
+        """Pretty print static variable"""
+        if self.expr:
+            return f"{self.id}: {self.ty} = {self.expr}"
+        else:
+            return f"{self.id}: {self.ty}"
 
 
 @dataclass
@@ -474,30 +491,37 @@ class FlowKind(Enum):
 @dataclass
 class FlowAttributes:
     """Flow attributes (decorators)"""
-    activator: Optional[Expr] = None
-    funct3: Optional[Expr] = None
-    funct7: Optional[Expr] = None
-    opcode: Optional[Expr] = None
+    attrs: Dict[str, Optional[Expr]] = field(default_factory=dict)
 
     @classmethod
     def from_tuples(cls, tuples: List[tuple[str, Optional[Expr]]]) -> FlowAttributes:
         """Create from list of attribute tuples"""
-        attrs = cls()
-        for name, value in tuples:
-            if name == "activator":
-                attrs.activator = value
-            elif name == "funct3":
-                attrs.funct3 = value
-            elif name == "funct7":
-                attrs.funct7 = value
-            elif name == "opcode":
-                attrs.opcode = value
-        return attrs
+        return cls(attrs=dict(tuples))
 
     def with_activator(self, activator: Expr) -> FlowAttributes:
         """Add activator attribute"""
-        self.activator = activator
+        self.attrs["activator"] = activator
         return self
+
+    def get(self, name: str) -> Optional[Expr]:
+        """Get attribute by name"""
+        return self.attrs.get(name)
+
+    def set(self, name: str, value: Optional[Expr]) -> None:
+        """Set attribute by name"""
+        self.attrs[name] = value
+
+    def __str__(self) -> str:
+        """Pretty print attributes"""
+        if not self.attrs:
+            return ""
+        attr_strs = []
+        for name, value in self.attrs.items():
+            if value is not None:
+                attr_strs.append(f"{name}={value}")
+            else:
+                attr_strs.append(name)
+        return f"[{', '.join(attr_strs)}]"
 
 
 @dataclass
@@ -520,8 +544,17 @@ class Flow:
     def __str__(self) -> str:
         kind_str = "rtype" if self.kind == FlowKind.RTYPE else "flow"
         args = ", ".join(f"{name}: {dtype}" for name, dtype in self.inputs)
-        body_len = len(self.body) if self.body else 0
-        return f"{kind_str} {self.name}({args}) {{ {body_len} statements }}"
+        attrs_str = str(self.attrs) if self.attrs.attrs else ""
+        attrs_part = f" {attrs_str}" if attrs_str else ""
+
+        if self.body:
+            lines = [f"{kind_str} {self.name}({args}){attrs_part} {{"]
+            for stmt in self.body:
+                lines.append(f"  {stmt}")
+            lines.append("}")
+            return "\n".join(lines)
+        else:
+            return f"{kind_str} {self.name}({args}){attrs_part} {{ (empty body) }}"
 
 
 @dataclass
@@ -530,6 +563,10 @@ class Regfile:
     name: str
     width: int
     depth: int
+
+    def __str__(self) -> str:
+        """Pretty print regfile"""
+        return f"{self.name}: {self.width}x{self.depth}"
 
 
 # Processor structure
@@ -604,36 +641,27 @@ class Proc:
         
         if self.regfiles:
             lines.append("  Regfiles:")
-            for name, regfile in self.regfiles.items():
-                lines.append(f"    {name}: {regfile.width}x{regfile.depth}")
-        
+            for regfile in self.regfiles.values():
+                lines.append(f"    {regfile}")
+
         if self.statics:
             lines.append("  Static Variables:")
-            for name, static in self.statics.items():
-                lines.append(f"    {static.id}: {static.ty}")
-                
+            for static in self.statics.values():
+                lines.append(f"    {static}")
+
         if self.functions:
             lines.append("  Functions:")
-            for name, func in self.functions.items():
-                args = ", ".join(f"{arg.id}: {arg.ty}" for arg in func.args)
-                rets = ", ".join(str(ret) for ret in func.ret)
-                lines.append(f"    fn {name}({args}) -> ({rets}) {{")
-                for stmt in func.body:
-                    lines.append(f"      {stmt}")
-                lines.append("    }")
-        
+            for func in self.functions.values():
+                func_lines = str(func).split('\n')
+                for line in func_lines:
+                    lines.append(f"    {line}")
+
         if self.flows:
             lines.append("  Flows:")
-            for name, flow in self.flows.items():
-                kind_str = "rtype" if flow.kind == FlowKind.RTYPE else "flow"
-                args = ", ".join(f"{name}: {dtype}" for name, dtype in flow.inputs)
-                lines.append(f"    {kind_str} {flow.name}({args}) {{")
-                if flow.body:
-                    for stmt in flow.body:
-                        lines.append(f"      {stmt}")
-                else:
-                    lines.append("      (empty body)")
-                lines.append("    }")
+            for flow in self.flows.values():
+                flow_lines = str(flow).split('\n')
+                for line in flow_lines:
+                    lines.append(f"    {line}")
                 
         return "\n".join(lines)
 
@@ -694,55 +722,40 @@ def parse_basic_type_from_string(type_str: str) -> BasicType:
 
 def parse_literal_from_string(literal_str: str) -> Literal:
     """Parse a number literal string into a Literal with proper type"""
-    # Simple implementation - will be enhanced later
+
     if "'" in literal_str:
         # Handle width-specified literals like "5'b101010"
-        parts = literal_str.split("'", 1)
-        width = int(parts[0])
-        format_and_value = parts[1]
-        
+        width_str, format_and_value = literal_str.split("'", 1)
+        width = int(width_str)
+
+        # Parse based on format specifier
         if format_and_value.startswith(('b', 'B')):
-            # Binary format
             value = int(format_and_value[1:], 2)
-            return Literal(
-                LiteralInner_Fixed(value),
-                BasicType_ApUFixed(width)
-            )
         elif format_and_value.startswith(('h', 'H')):
-            # Hex format
             value = int(format_and_value[1:], 16)
-            return Literal(
-                LiteralInner_Fixed(value),
-                BasicType_ApUFixed(width)
-            )
         elif format_and_value.startswith(('o', 'O')):
-            # Octal format
             value = int(format_and_value[1:], 8)
-            return Literal(
-                LiteralInner_Fixed(value), 
-                BasicType_ApUFixed(width)
-            )
         elif format_and_value.startswith(('d', 'D')):
-            # Decimal format
             value = int(format_and_value[1:])
-            return Literal(
-                LiteralInner_Fixed(value),
-                BasicType_ApUFixed(width)
-            )
         else:
-            # Unknown format, treat as decimal
+            # No format specifier, treat as decimal
             value = int(format_and_value)
-            return Literal(
-                LiteralInner_Fixed(value),
-                BasicType_ApUFixed(width)
-            )
+
+        return Literal(
+            LiteralInner_Fixed(value),
+            BasicType_ApUFixed(width)
+        )
     else:
-        # Simple integer or hex without width specification
-        if literal_str.startswith('0x') or literal_str.startswith('0X'):
+        # Handle literals without width specification
+        if literal_str.startswith(('0x', '0X')):
             value = int(literal_str, 16)
+        elif literal_str.startswith(('0b', '0B')):
+            value = int(literal_str, 2)
+        elif literal_str.startswith(('0o', '0O')):
+            value = int(literal_str, 8)
         else:
             value = int(literal_str)
-        
+
         # Default to 32-bit unsigned
         return Literal(
             LiteralInner_Fixed(value),
