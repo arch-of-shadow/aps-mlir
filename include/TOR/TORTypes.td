@@ -108,8 +108,8 @@ def TOR_Request : TOR_Type<"Request"> {
 
 def Bool : I<1>;
 
-def IsTORMemRefTypePred : CPred<"$_self.isa<::mlir::tor::MemRefType>()">;
-def IsTORStreamTypePred : CPred<"$_self.isa<::mlir::tor::StreamType>()">;
+def IsTORMemRefTypePred : CPred<"isa<::mlir::tor::MemRefType>($_self)">;
+def IsTORStreamTypePred : CPred<"isa<::mlir::tor::StreamType>($_self)">;
 
 // A container type is a type that has another type embedded within it.
 class TORContainerType<Type etype, Pred containerPred, code elementTypeCall,
@@ -132,7 +132,7 @@ class TORShapedContainerType<list<Type> allowedTypes,
                           Pred containerPred, string descr,
                           string cppClassName = "::mlir::Type"> :
     TORContainerType<AnyTypeOf<allowedTypes>, containerPred,
-                  "$_self.cast<::mlir::tor::ShapedType>().getElementType()", descr,
+                  "dyn_cast<::mlir::tor::ShapedType>($_self).getElementType()", descr,
                   cppClassName>;
 
 

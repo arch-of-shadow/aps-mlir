@@ -69,7 +69,7 @@ namespace {
         }
 
         auto add(Value lhs, Value rhs) {
-            return lhs.getType().isa<mlir::FloatType>() ? addf(lhs, rhs) : addi(lhs, rhs);
+            return isa<mlir::FloatType>(lhs.getType()) ? addf(lhs, rhs) : addi(lhs, rhs);
         }
         
         Value addf(Value lhs, Value rhs) {
@@ -89,7 +89,7 @@ namespace {
         }
 
         auto mul(Value lhs, Value rhs) {
-            return lhs.getType().isa<mlir::FloatType>() ? mulf(lhs, rhs) : muli(lhs, rhs);
+            return isa<mlir::FloatType>(lhs.getType()) ? mulf(lhs, rhs) : muli(lhs, rhs);
         }
 
         Value mulf(Value lhs, Value rhs) {

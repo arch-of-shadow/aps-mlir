@@ -194,11 +194,11 @@ public:
 private:
   std::vector<int> getOrFindLatency(const std::string& name, mlir::Operation *op, bool& isValid) {
     if (op->hasAttr("latency")) {
-      return std::vector<int>(BIT_WIDTH_TYPE, op->getAttr("latency").dyn_cast<mlir::IntegerAttr>().getInt());
+      return std::vector<int>(BIT_WIDTH_TYPE, dyn_cast<mlir::IntegerAttr>(op->getAttr("latency")).getInt());
     }
 
     if (op->hasAttr("bind_op_latency")) {
-      auto latency = op->getAttr("bind_op_latency").dyn_cast<mlir::IntegerAttr>().getInt();
+      auto latency = dyn_cast<mlir::IntegerAttr>(op->getAttr("bind_op_latency")).getInt();
       if (latency == 0) {
         llvm::errs() << "warning: Cannot set op_bind latency to 0 " << name
                      << "\n\tDowngrade to default latency.\n";
@@ -212,11 +212,11 @@ private:
 
   std::string getImpl(mlir::Operation *op) {
     if (op->hasAttr("impl")) {
-      return op->getAttr("impl").dyn_cast<mlir::StringAttr>().getValue().str();
+      return dyn_cast<mlir::StringAttr>(op->getAttr("impl")).getValue().str();
     }
 
     if (op->hasAttr("bind_op_impl")) {
-      return op->getAttr("bind_op_impl").dyn_cast<mlir::StringAttr>().getValue().str();
+      return dyn_cast<mlir::StringAttr>(op->getAttr("bind_op_impl")).getValue().str();
     }
     return "";
   }

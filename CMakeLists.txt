@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 3.20.0)
 
+# Set CMP0116 to NEW to avoid deprecation warning
+# This policy is about generated file dependencies
+if(POLICY CMP0116)
+  cmake_policy(SET CMP0116 NEW)
+endif()
+
+# Suppress warnings about runtime path conflicts
+if(POLICY CMP0060)
+  cmake_policy(SET CMP0060 NEW)
+endif()
+
 include(CheckCXXSourceCompiles)
 
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
@@ -32,6 +43,15 @@ include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 include(HandleLLVMOptions)
+
+# add lp_solve
+find_library(LP_SOLVE_LIB NAMES liblpsolve55.so)
+message(STATUS "Found lp_solve: ${LP_SOLVE_LIB}")
+
+
+
+add_compile_options(-Wno-dev)
+add_compile_options(-fexceptions)
 
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${MLIR_INCLUDE_DIRS})

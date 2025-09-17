@@ -358,8 +358,7 @@ def ReturnOp : TOROp<"return", [Terminator, ParentOneOf<["FuncOp"/*, "ModuleOp"*
 
 }
 
-def CallOp : TOROp<"call", [CallOpInterface/*,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>*/]> {
+def CallOp : TOROp<"call", [CallOpInterface, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "tor call operation";
   let description = [{
     The "tor.call" operation represents a direct call to a tor.func
@@ -396,6 +395,12 @@ def CallOp : TOROp<"call", [CallOpInterface/*,
     void setCalleeFromCallable(::mlir::CallInterfaceCallable callee) {
       (*this)->setAttr("callee", callee.get<SymbolRefAttr>());
     }
+    mlir::ArrayAttr getArgAttrsAttr() { return nullptr; }
+    mlir::ArrayAttr getResAttrsAttr() { return nullptr; }
+    void setArgAttrsAttr(mlir::ArrayAttr args) {}
+    void setResAttrsAttr(mlir::ArrayAttr args) {}
+    mlir::Attribute removeArgAttrsAttr() { return nullptr; }
+    mlir::Attribute removeResAttrsAttr() { return nullptr; }
   }];
 
   let assemblyFormat = [{

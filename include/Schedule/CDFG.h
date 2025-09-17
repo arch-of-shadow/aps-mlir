@@ -306,7 +306,7 @@ public:
 
     auto mAxiCreateOp = llvm::dyn_cast<tor::AXICreateOp>(memref.getDefiningOp());
     if (mAxiCreateOp->hasAttr("bus")) {
-        bus = mAxiCreateOp->getAttr("bus").dyn_cast<StringAttr>().getValue().str();
+        bus = dyn_cast<StringAttr>(mAxiCreateOp->getAttr("bus")).getValue().str();
     }
   }
 private:
@@ -328,7 +328,7 @@ public:
   int getPartitionIndicies() {
     assert(hasFixedMemoryBank());
 
-    tor::MemRefType type = memref.getType().dyn_cast<tor::MemRefType>();
+    tor::MemRefType type = llvm::dyn_cast<tor::MemRefType>(memref.getType());
 
     auto shape = type.getShape();
     auto property = type.getProperty();

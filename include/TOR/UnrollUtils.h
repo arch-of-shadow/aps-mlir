@@ -7,7 +7,7 @@
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/IR/IRMapping.h"
-#include "mlir/Support/MathExtras.h"
+#include "llvm/Support/MathExtras.h"
 
 namespace {
 using namespace mlir;
@@ -42,7 +42,7 @@ getCleanupLoopLowerBound(AffineForOp forOp, unsigned unrollFactor,
   // these affine.apply's make up the cleanup loop lower bound.
   SmallVector<AffineExpr, 4> bumpExprs(tripCountMap.getNumResults());
   SmallVector<Value, 4> bumpValues(tripCountMap.getNumResults());
-  int64_t step = forOp.getStep();
+  int64_t step = forOp.getStep().getSExtValue();
   for (unsigned i = 0, e = tripCountMap.getNumResults(); i < e; i++) {
     auto tripCountExpr = tripCountMap.getResult(i);
     bumpExprs[i] = (tripCountExpr - tripCountExpr % unrollFactor) * step;
@@ -148,7 +148,7 @@ static LogicalResult hlsGenerateCleanupLoopForUnroll(AffineForOp forOp,
   // and produce results for the original users of `forOp` results.
   auto results = forOp.getResults();
   auto cleanupResults = cleanupForOp.getResults();
-  auto cleanupIterOperands = cleanupForOp.getIterOperands();
+  auto cleanupIterOperands = cleanupForOp.getRegionIterArgs();
 
   for (auto e : llvm::zip(results, cleanupResults, cleanupIterOperands)) {
     std::get<0>(e).replaceAllUsesWith(std::get<1>(e));
@@ -212,7 +212,7 @@ LogicalResult hlsLoopUnrollByFactor(AffineForOp forOp, uint64_t unrollFactor) {
   auto yieldedValues = forOp.getBody()->getTerminator()->getOperands();
 
   // Scale the step of loop being unrolled by unroll factor.
-  int64_t step = forOp.getStep();
+  int64_t step = forOp.getStep().getSExtValue();
   forOp.setStep(step * unrollFactor);
   generateUnrolledLoop(
       forOp.getBody(), forOp.getInductionVar(), unrollFactor,

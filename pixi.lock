@@ -50,10 +50,12 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libxml2-2.15.0-h26afc86_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.1-hb9d3cd8_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/lld-21.1.1-hef48ded_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/lp_solve-5.5.2.11-hd590300_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/make-4.4.1-hb9d3cd8_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ml_dtypes-0.5.1-py313h08cd8bf_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/nanobind-2.9.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.5-h2d0b736_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/nlohmann_json-3.12.0-h3f2d84a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-2.1.2-py313h4bf6692_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openssl-3.5.2-h26f9b46_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/psutil-7.0.0-py313h07c4f96_1.conda
@@ -613,6 +615,14 @@ packages:
   license: Apache-2.0 WITH LLVM-exception
   size: 12139279
   timestamp: 1757616904693
+- conda: https://conda.anaconda.org/conda-forge/linux-64/lp_solve-5.5.2.11-hd590300_0.conda
+  sha256: 3c28e1494834f77cbd23467fdac0f701cb9a0c17a4251e79e83f0946e788abf9
+  md5: c9ca19b1a4b4f1038b23fb8b5918929c
+  depends:
+  - libgcc-ng >=12
+  license: LGPL-2.1-only
+  size: 410024
+  timestamp: 1697545354266
 - conda: https://conda.anaconda.org/conda-forge/linux-64/make-4.4.1-hb9d3cd8_2.conda
   sha256: d652c7bd4d3b6f82b0f6d063b0d8df6f54cc47531092d7ff008e780f3261bdda
   md5: 33405d2a66b1411db9f7242c8b97c9e7
@@ -657,6 +667,13 @@ packages:
   purls: []
   size: 891641
   timestamp: 1738195959188
+- conda: https://conda.anaconda.org/conda-forge/linux-64/nlohmann_json-3.12.0-h3f2d84a_0.conda
+  sha256: e2fc624d6f9b2f1b695b6be6b905844613e813aa180520e73365062683fe7b49
+  md5: d76872d096d063e226482c99337209dc
+  license: MIT
+  license_family: MIT
+  size: 135906
+  timestamp: 1744445169928
 - conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-2.1.2-py313h4bf6692_0.conda
   sha256: 1d160a3e4d96f5e1fc81a97ca849be8bba055854bcf05ed866e94987e63e03c0
   md5: 01160f6090dd2db5c0dce21712121d33

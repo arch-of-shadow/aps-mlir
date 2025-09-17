@@ -260,11 +260,11 @@ public:
       auto times = SmallVector<int64_t>(maxTime + 1, 0);
       for (auto succOp : succOps) {
         for (size_t i = 0, r = succOp.getPoints().size(); i < r; ++i) {
-          auto from = succOp.getPoints()[i].dyn_cast<IntegerAttr>().getInt();
+          auto from = dyn_cast<mlir::IntegerAttr>(succOp.getPoints()[i]).getInt();
           auto to = succOp.getTime();
-          for (auto attr : succOp.getEdges()[i].dyn_cast<DictionaryAttr>()) {
+          for (auto attr : dyn_cast<mlir::DictionaryAttr>(succOp.getEdges()[i])) {
             auto edge_attr = attr.getValue();
-            if (auto str_attr = edge_attr.dyn_cast<StringAttr>()) {
+            if (auto str_attr = dyn_cast<mlir::StringAttr>(edge_attr)) {
               auto str = str_attr.getValue();
               if (str.find(':') != StringRef::npos) {
                 auto index = str.find(':');

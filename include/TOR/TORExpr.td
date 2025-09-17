@@ -341,7 +341,7 @@ class AllocLikeOp<string mnemonic,
   let results = (outs Res<TORAnyMemRef, "", [MemAlloc<resource>]>:$memref);
   /*
   let extraClassDeclaration = [{
-    MemRefType getType() { return getResult().getType().cast<MemRefType>(); }
+    MemRefType getType() { return dyn_cast<MemRefType>(getResult().getType()); }
   }];
   */
 
@@ -453,7 +453,7 @@ def AXICreateOp : AllocLikeOp<"axi_create", DefaultResource> {
 def AXIReadOp : TOROp<"axi_read",
      [TypesMatchWith<"result type matches element type of 'memref'",
                      "memref", "result",
-                     "$_self.cast<MemRefType>().getElementType()">,
+                     "dyn_cast<MemRefType>($_self).getElementType()">,
                      MemRefsNormalizable]> {
   let summary = "axi read operation";
   let description = [{
@@ -472,7 +472,7 @@ def AXIReadOp : TOROp<"axi_read",
   let builders = [
     OpBuilder<(ins "::mlir::Value":$memref, "::mlir::IntegerAttr":$starttime, "::mlir::IntegerAttr":$endtime,
                CArg<"::mlir::ValueRange", "">:$indices), [{   
-      auto memrefType = memref.getType().cast<MemRefType>();
+      auto memrefType = dyn_cast<MemRefType>(memref.getType());
       $_state.addOperands(memref);
       $_state.addOperands(indices);
       $_state.addAttribute("starttime", starttime);
@@ -488,7 +488,7 @@ def AXIReadOp : TOROp<"axi_read",
 def AXIWriteOp : TOROp<"axi_write",
      [TypesMatchWith<"type of 'value' matches element type of 'memref'",
                      "memref", "value",
-                     "$_self.cast<MemRefType>().getElementType()">,
+                     "dyn_cast<MemRefType>($_self).getElementType()">,
                      MemRefsNormalizable]> {
   let summary = "axi write operation";
   let description = [{
@@ -538,7 +538,7 @@ def AXIReadRequestOp : TOROp<"axi_read_request", [MemRefsNormalizable]> {
   let builders = [
     OpBuilder<(ins "::mlir::Value":$memref, "::mlir::IntegerAttr":$starttime, "::mlir::IntegerAttr":$endtime,
                CArg<"::mlir::ValueRange", "">:$offset, "::mlir::ValueRange":$length), [{
-      auto memrefType = memref.getType().cast<MemRefType>();
+      auto memrefType = dyn_cast<MemRefType>(memref.getType());
       $_state.addOperands(memref);
       $_state.addOperands(offset);
       $_state.addOperands(length);
@@ -570,7 +570,7 @@ def AXIWriteRequestOp : TOROp<"axi_write_request", [MemRefsNormalizable]> {
   let builders = [
     OpBuilder<(ins "::mlir::Value":$memref, "::mlir::IntegerAttr":$starttime, "::mlir::IntegerAttr":$endtime,
                CArg<"::mlir::ValueRange", "">:$offset, "::mlir::Value":$length), [{
-      auto memrefType = memref.getType().cast<MemRefType>();
+      auto memrefType = dyn_cast<MemRefType>(memref.getType());
       $_state.addOperands(memref);
       $_state.addOperands(offset);
       $_state.addOperands(length);
@@ -587,7 +587,7 @@ def AXIWriteRequestOp : TOROp<"axi_write_request", [MemRefsNormalizable]> {
 def AXIBurstReadOp : TOROp<"axi_burst_read",
      [TypesMatchWith<"result type matches element type of 'memref'",
                      "memref", "result",
-                     "$_self.cast<MemRefType>().getElementType()">,
+                     "dyn_cast<MemRefType>($_self).getElementType()">,
                      MemRefsNormalizable]> {
   let summary = "axi burst read operation";
   let description = [{
@@ -606,7 +606,7 @@ def AXIBurstReadOp : TOROp<"axi_burst_read",
   let builders = [
     OpBuilder<(ins "::mlir::Value":$memref, "::mlir::IntegerAttr":$starttime, "::mlir::IntegerAttr":$endtime,
                "::mlir::Value":$request), [{
-      auto memrefType = memref.getType().cast<MemRefType>();
+      auto memrefType = dyn_cast<MemRefType>(memref.getType());
       $_state.addOperands(memref);
       $_state.addOperands(request);
       $_state.addAttribute("starttime", starttime);
@@ -622,7 +622,7 @@ def AXIBurstReadOp : TOROp<"axi_burst_read",
 def AXIBurstWriteOp : TOROp<"axi_burst_write",
      [TypesMatchWith<"result type matches element type of 'memref'",
                      "memref", "value",
-                     "$_self.cast<MemRefType>().getElementType()">,
+                     "dyn_cast<MemRefType>($_self).getElementType()">,
                      MemRefsNormalizable]> {
   let summary = "axi burst write operation";
   let description = [{
@@ -641,7 +641,7 @@ def AXIBurstWriteOp : TOROp<"axi_burst_write",
   let builders = [
     OpBuilder<(ins "Value":$valueToStore, "::mlir::Value":$memref, "::mlir::Value":$request,
                    "::mlir::IntegerAttr":$starttime, "::mlir::IntegerAttr":$endtime), [{
-      auto memrefType = memref.getType().cast<MemRefType>();
+      auto memrefType = dyn_cast<MemRefType>(memref.getType());
       $_state.addOperands(valueToStore);
       $_state.addOperands(memref);
       $_state.addOperands(request);
@@ -673,7 +673,7 @@ def AXIWriteResponseOp : TOROp<"axi_write_response", [MemRefsNormalizable]> {
   let builders = [
     OpBuilder<(ins "::mlir::Value":$memref, "::mlir::Value":$request,
                "::mlir::IntegerAttr":$starttime, "::mlir::IntegerAttr":$endtime), [{
-      auto memrefType = memref.getType().cast<MemRefType>();
+      auto memrefType = dyn_cast<MemRefType>(memref.getType());
       $_state.addOperands(memref);
       $_state.addOperands(request);
       $_state.addAttribute("starttime", starttime);
@@ -690,7 +690,7 @@ def AXIWriteResponseOp : TOROp<"axi_write_response", [MemRefsNormalizable]> {
 def LoadOp : TOROp<"load",
      [TypesMatchWith<"result type matches element type of 'memref'",
                      "memref", "result",
-                     "$_self.cast<MemRefType>().getElementType()">,
+                     "dyn_cast<MemRefType>($_self).getElementType()">,
                      MemRefsNormalizable]> {
   let summary = "load operation";
   let description = [{
@@ -709,7 +709,7 @@ def LoadOp : TOROp<"load",
   let builders = [
     OpBuilder<(ins "::mlir::Value":$memref, "::mlir::IntegerAttr":$starttime, "::mlir::IntegerAttr":$endtime,
                CArg<"::mlir::ValueRange", "">:$indices), [{   
-      auto memrefType = memref.getType().cast<MemRefType>();
+      auto memrefType = dyn_cast<MemRefType>(memref.getType());
       $_state.addOperands(memref);
       $_state.addOperands(indices);
       $_state.addAttribute("starttime", starttime);
@@ -736,7 +736,7 @@ def LoadOp : TOROp<"load",
 def StoreOp : TOROp<"store",
      [TypesMatchWith<"type of 'value' matches element type of 'memref'",
                      "memref", "value",
-                     "$_self.cast<MemRefType>().getElementType()">,
+                     "dyn_cast<MemRefType>($_self).getElementType()">,
                      MemRefsNormalizable]> {
   let summary = "store operation";
   let description = [{
@@ -785,7 +785,7 @@ def StoreOp : TOROp<"store",
 def GuardedStoreOp : TOROp<"guarded_store",
      [TypesMatchWith<"type of 'value' matches element type of 'memref'",
                      "memref", "value",
-                     "$_self.cast<MemRefType>().getElementType()">,
+                     "dyn_cast<MemRefType>($_self).getElementType()">,
                      MemRefsNormalizable]> {
   let summary = "guarded store operation";
   let description = [{

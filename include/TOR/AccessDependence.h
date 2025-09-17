@@ -199,7 +199,7 @@ template <typename T> struct RemoveMemeoryAccessesAdaptor {
   };
 
   bool isSingleMemRef(Value AI) {
-    if (auto memRefType = AI.getType().dyn_cast<MemRefType>()) {
+    if (auto memRefType = dyn_cast<mlir::MemRefType>(AI.getType())) {
       for (auto dim : memRefType.getShape()) {
         if (dim != 1) {
           return false;
