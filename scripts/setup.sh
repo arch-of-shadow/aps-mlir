@@ -2,10 +2,40 @@
 
 set -e
 
-# This script sets up the environment for the CIRCT project.
+# This script sets up the environment for the LLVM/MLIR/CIRCT project and its dependencies.
+
+# ORTOOLS: downloads from github and unzip
+
+UBUNTU_VERSION=$(lsb_release -rs)
+echo "Ubuntu version: $UBUNTU_VERSION"
+if [ "$UBUNTU_VERSION" == "22.04" ]; then
+    DOWNLOAD_URL="https://github.com/google/or-tools/releases/download/v9.10/or-tools_amd64_ubuntu-22.04_cpp_v9.10.4067.tar.gz"
+elif [ "$UBUNTU_VERSION" == "20.04" ]; then
+    DOWNLOAD_URL="https://github.com/google/or-tools/releases/download/v9.10/or-tools_amd64_ubuntu-20.04_cpp_v9.10.4067.tar.gz"
+elif [ "$UBUNTU_VERSION" == "24.04" ]; then
+    DOWNLOAD_URL="https://github.com/google/or-tools/releases/download/v9.10/or-tools_amd64_ubuntu-24.04_cpp_v9.10.4067.tar.gz"
+else
+    echo "Error: Ubuntu version $UBUNTU_VERSION is not supported"
+    exit 1
+fi
+
+# Create install directory if it doesn't exist
+mkdir -p ./install
+
+# Download and extract or-tools, stripping the top-level directory
+wget -qO- $DOWNLOAD_URL | tar -xz --strip-components=1 -C ./install
+
+
+# check if circt is already installed
+# ${which circt-opt} should be ${PWD}/install/bin/circt-opt
+# ${circt-opt --version} should contain ${CIRCT_COMMIT}
+# if so, return success
+if [ -f "${PWD}/install/bin/circt-opt" ] && [[ "$(circt-opt --version)" == *"${CIRCT_COMMIT}"* ]]; then
+    echo "circt is already installed"
+    exit 0
+fi
 
 # - CIRCT_COMMIT: The commit to checkout
-
 CIRCT_COMMIT=$1
 if [ -z "$CIRCT_COMMIT" ]; then
     echo "Error: CIRCT_COMMIT is not set"
@@ -48,7 +78,7 @@ cmake -G Ninja ../llvm/llvm \
     -DLLVM_ENABLE_LLD=ON \
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
     -DCIRCT_BINDINGS_PYTHON_ENABLED=ON \
-    -DCMAKE_INSTALL_PREFIX=../../circt_install
+    -DCMAKE_INSTALL_PREFIX=../../install
 
 # Ninja
 ninja

@@ -6,8 +6,10 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [activation.env]
-CIRCT_COMMIT = "e2b32a42edf7b579069ba31141ce231a0eaae36b"
+CIRCT_COMMIT = "e2b32a42e"
 PYTHONPATH = "${PWD}/build/python_packages/circt_core:${PYTHONPATH}"
+OR_TOOLS_PATH = "${PWD}/install"
+PATH = "${PWD}/install/bin:${PATH}"
 
 [tasks]
 
