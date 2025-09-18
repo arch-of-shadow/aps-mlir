@@ -12,6 +12,7 @@ if(POLICY CMP0060)
 endif()
 
 cmake_policy(SET CMP0174 NEW)
+cmake_policy(SET CMP0177 NEW)
 
 include(CheckCXXSourceCompiles)
 

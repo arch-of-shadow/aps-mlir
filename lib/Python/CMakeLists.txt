@@ -278,6 +278,21 @@ declare_mlir_dialect_python_bindings(
     dialects/scf.py
   DIALECT_NAME scf)
 
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+  ROOT_DIR "${MLIR_PYTHON_SRC_DIR}"
+  TD_FILE dialects/FuncOps.td
+  SOURCES
+    dialects/func.py
+  DIALECT_NAME func)
+
+declare_mlir_dialect_python_bindings(
+    ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+    ROOT_DIR "${MLIR_PYTHON_SRC_DIR}"
+    TD_FILE dialects/MemRefOps.td
+    SOURCES
+      dialects/memref.py
+    DIALECT_NAME memref)
 
 ################################################################################
 # Build composite binaries
@@ -291,6 +306,7 @@ add_mlir_python_common_capi_library(CIRCTBindingsPythonCAPI
   RELATIVE_INSTALL_ROOT "../../../.."
   DECLARED_SOURCES
     MLIRPythonSources.Core
+    # MLIRPythonExtension.RegisterEverything
     CIRCTBindingsPythonExtension
 )
 
@@ -300,6 +316,7 @@ add_mlir_python_modules(CIRCTPythonModules
   INSTALL_PREFIX "python_packages/circt_core/circt"
   DECLARED_SOURCES
     MLIRPythonSources.Core
+    # MLIRPythonExtension.RegisterEverything
     MLIRPythonSources.Dialects.smt
     CIRCTBindingsPythonExtension
     CIRCTBindingsPythonSources
