@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [activation.env]
 CIRCT_COMMIT = "e2b32a42edf7b579069ba31141ce231a0eaae36b"
-PYTHONPATH = "${PWD}/circt_install/python_packages/mlir_core:${PWD}/circt_install/python_packages/circt_core:${PYTHONPATH}"
+PYTHONPATH = "${PWD}/build/python_packages/circt_core:${PYTHONPATH}"
 
 [tasks]
 
@@ -15,6 +15,7 @@ setup = { cmd = "pixi run chmod +x scripts/setup.sh && pixi run scripts/setup.sh
 
 mkdir_build = { cmd = "mkdir -p build", outputs = ["build"] }
 build = { cmd = "pixi run cmake .. -G Ninja && ninja", depends-on = ["mkdir_build"], cwd = "build"}
+clean = { cmd = "rm -rf build"}
 
 # Python execution with CIRCT bindings
 python = { cmd = "python" }
@@ -29,11 +30,14 @@ make = ">=4.4.1,<5"
 pyyaml = ">=6.0.2,<7"
 clang = ">=21.1.0,<22"
 lld = ">=21.1.0,<22"
-nanobind = ">=2.4,<3.0"
-numpy = ">=1.19.5,<=2.1.2"
+nanobind = "2.4.0.*"
+numpy = ">=2.3.3,<3"
 pybind11 = ">=2.10.0,<=2.13.6"
 ml_dtypes = ">=0.5.0,<=0.6.0"
 psutil = ">=7.0.0,<8"
 lp_solve = ">=5.5.2.11,<6"
 nlohmann_json = ">=3.12.0,<4"
 verilator = ">4.11"
+setuptools = ">=80.9.0,<81"
+setuptools_scm = ">=9.2.0,<10"
+ninja = ">=1.13.1,<2"

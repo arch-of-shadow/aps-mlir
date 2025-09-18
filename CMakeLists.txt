@@ -11,6 +11,8 @@ if(POLICY CMP0060)
   cmake_policy(SET CMP0060 NEW)
 endif()
 
+cmake_policy(SET CMP0174 NEW)
+
 include(CheckCXXSourceCompiles)
 
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
@@ -36,19 +38,45 @@ else()
 endif()
 
 
+list(APPEND CMAKE_MODULE_PATH "${CIRCT_CMAKE_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 
 include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
+include(AddCIRCT)
 include(HandleLLVMOptions)
+
+include(MLIRDetectPythonEnv)
+# Note that both upstream and downstreams often call this macro. It gates
+# internally on the MLIR_CONFIGURE_PYTHON_DEV_PACKAGES option.
+mlir_configure_python_dev_packages()
+
+message(STATUS "APS Python bindings are enabled.")
+set(MLIR_DISABLE_CONFIGURE_PYTHON_DEV_PACKAGES 0)
+mlir_detect_nanobind_install()
+# Prime the search like mlir_configure_python_dev_modules
+find_package(Python3 3.8 COMPONENTS Interpreter Development)
+find_package(Python3 3.8 COMPONENTS Interpreter Development.Module)
+find_package(nanobind 2.4.0 CONFIG REQUIRED)
 
 # add lp_solve
 find_library(LP_SOLVE_LIB NAMES liblpsolve55.so)
 message(STATUS "Found lp_solve: ${LP_SOLVE_LIB}")
 
 
+# APS CONFIGURATION
+set(APS_MAIN_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR} ) # --src-root
+set(APS_MAIN_INCLUDE_DIR ${APS_MAIN_SRC_DIR}/include)
+
+set(APS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(APS_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(APS_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
+set(APS_LIBRARY_DIR ${CMAKE_BINARY_DIR}/lib)
+set(APS_TOOLS_DIR ${CMAKE_BINARY_DIR}/bin)
+set(APS_UTILS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/utils)
+set(APS_PYTHON_PACKAGES_DIR ${APS_BINARY_DIR}/python_packages)
 
 add_compile_options(-Wno-dev)
 add_compile_options(-fexceptions)
