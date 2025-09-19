@@ -19,7 +19,7 @@ message(STATUS "MLIR_PYTHON_SRC_DIR: ${MLIR_PYTHON_SRC_DIR}")
 
 set(PYTHON_BINDINGS_SOURCES
   ${CIRCT_RELATIVE_PYTHON_SRC_DIR}/AIGModule.cpp
-  ${CIRCT_RELATIVE_PYTHON_SRC_DIR}/CIRCTModule.cpp
+  CIRCTModule.cpp
   ${CIRCT_RELATIVE_PYTHON_SRC_DIR}/ESIModule.cpp
   ${CIRCT_RELATIVE_PYTHON_SRC_DIR}/HWModule.cpp
   ${CIRCT_RELATIVE_PYTHON_SRC_DIR}/MSFTModule.cpp
@@ -29,7 +29,7 @@ set(PYTHON_BINDINGS_SOURCES
   ${CIRCT_RELATIVE_PYTHON_SRC_DIR}/SupportModule.cpp
   ${CIRCT_RELATIVE_PYTHON_SRC_DIR}/SVModule.cpp
   # Headers must be included explicitly so they are installed.
-  ${CIRCT_RELATIVE_PYTHON_SRC_DIR}/CIRCTModules.h
+  CIRCTModules.h
   ${CIRCT_RELATIVE_PYTHON_SRC_DIR}/NanobindUtils.h
 )
 
@@ -63,6 +63,7 @@ set(PYTHON_BINDINGS_LINK_LIBS
   MLIRCAPISMT
   MLIRCAPIExportSMTLIB
   MLIRCAPISCF
+  MLIRCAPIMemRef
   # needed for mlirFrozenRewritePatternSetDestroy
   # but not the actual passes
   MLIRCAPITransforms
