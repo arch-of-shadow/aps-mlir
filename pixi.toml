@@ -1,7 +1,7 @@
 [workspace]
 authors = ["uv-xiao <shallwexiao@gmail.com>"]
 channels = ["conda-forge"]
-name = "sharp"
+name = "aps-mlir"
 platforms = ["linux-64"]
 version = "0.1.0"
 
@@ -23,6 +23,10 @@ clean = { cmd = "rm -rf build"}
 # Python execution with CIRCT bindings
 python = { cmd = "python" }
 silicon = { cmd = "python silicon.py" }
+
+# frontend
+parse = "python parse_with_errors.py"
+parse-summary = "python parse_with_errors.py --summary"
 
 
 [dependencies]
@@ -46,3 +50,12 @@ setuptools_scm = ">=9.2.0,<10"
 ninja = ">=1.13.1,<2"
 z3prover = ">=4.15.3,<5"
 iverilog = ">=11.0,<12"
+
+[pypi-dependencies]
+lark = ">=1.1.0"
+dataclasses-json = ">=0.6.0"
+pytest = ">=8.4.2,<9"
+pytest-cov = ">=7.0.0, <8"
+black = ">=25.9.0, <26"
+isort = ">=6.0.1, <7"
+mypy = ">=1.18.2, <2"
