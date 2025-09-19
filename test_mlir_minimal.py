@@ -5,7 +5,7 @@ import circt
 def build_minimal_add_with_memref():
     with Context() as ctx:
         circt.register_dialects(ctx)
-        # ctx.allow_unregistered_dialects = True
+        ctx.allow_unregistered_dialects = True
         with Location.unknown():
             module = Module.create()
 
@@ -34,7 +34,7 @@ def build_minimal_add_with_memref():
                 loaded = memref.LoadOp(mem, [idx0])
 
                 # add loaded + b
-                s = arith.AddIOp(loaded, b)
+                s = arith.AddIOp(loaded.result, b)
 
                 func.ReturnOp([s])
 
