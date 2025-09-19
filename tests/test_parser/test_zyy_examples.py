@@ -34,17 +34,17 @@ class TestZyyExamples:
         assert len(flow.inputs) == 3
         
         # Check attributes in detail
-        assert flow.attrs.opcode is not None
-        assert flow.attrs.funct7 is not None
-        
-        # Validate opcode attribute value: 7'b0001011
-        opcode_lit = flow.attrs.opcode
+        assert flow.attrs.get("opcode") is not None
+        assert flow.attrs.get("funct7") is not None
+
+        # Validate opcode attribute value: 7'b0001011 (binary 11)
+        opcode_lit = flow.attrs.get("opcode")
         assert isinstance(opcode_lit, LitExpr)
         assert opcode_lit.literal.ty.width == 7  # 7-bit binary
         assert opcode_lit.literal.lit.value == int('0001011', 2)  # Binary to decimal: 11
-        
-        # Validate funct7 attribute value: 7'b0000000
-        funct7_lit = flow.attrs.funct7
+
+        # Validate funct7 attribute value: 7'b0000000 (binary 0)
+        funct7_lit = flow.attrs.get("funct7")
         assert isinstance(funct7_lit, LitExpr)
         assert funct7_lit.literal.ty.width == 7
         assert funct7_lit.literal.lit.value == 0  # All zeros

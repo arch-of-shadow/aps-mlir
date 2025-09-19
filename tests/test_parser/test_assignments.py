@@ -12,10 +12,10 @@ class TestAssignments:
     """Test assignment statement parsing"""
 
     def test_simple_let_assignment(self):
-        """Test basic let assignment without type annotation"""
+        """Test basic let assignment with type annotation"""
         source = """
         rtype test_let(a: u32, b: u32) {
-            let sum = a + b;
+            let sum: u32 = a + b;
             return (sum);
         }
         """
@@ -43,8 +43,11 @@ class TestAssignments:
         assert isinstance(assign_stmt.rhs, BinaryExpr)
         assert assign_stmt.rhs.op == BinaryOp.ADD
         
-        # No type annotation
-        assert assign_stmt.type_annotation is None
+        # Should have type annotation
+        assert assign_stmt.type_annotation is not None
+        assert isinstance(assign_stmt.type_annotation, DataType_Single)
+        assert isinstance(assign_stmt.type_annotation.basic_type, BasicType_ApUFixed)
+        assert assign_stmt.type_annotation.basic_type.width == 32
 
     def test_let_assignment_with_type(self):
         """Test let assignment with explicit type annotation"""
@@ -111,9 +114,9 @@ class TestAssignments:
         source = """
         rtype test_multiple(a: u32, b: u32) {
             let x: u32 = a;
-            let y: u32 = b;  
-            let sum = x + y;
-            let product = x * y;
+            let y: u32 = b;
+            let sum: u32 = x + y;
+            let product: u32 = x * y;
             return (sum + product);
         }
         """
@@ -177,7 +180,7 @@ class TestAssignments:
         
         rtype test_call_assign(input: u32) {
             let doubled: u32 = helper(input);
-            let tripled = helper(input) + input;
+            let tripled: u32 = helper(input) + input;
             return (doubled + tripled);
         }
         """
@@ -206,10 +209,10 @@ class TestAssignments:
         """Test assignments with complex arithmetic expressions"""
         source = """
         rtype test_complex(a: u32, b: u32, c: u32) {
-            let expr1 = a + b * c;
-            let expr2 = (a + b) * c;
-            let expr3 = a << 2 + b;
-            let expr4 = a & b | c;
+            let expr1: u32 = a + b * c;
+            let expr2: u32 = (a + b) * c;
+            let expr3: u32 = a << 2 + b;
+            let expr4: u32 = a & b | c;
             return (expr1 + expr2);
         }
         """
