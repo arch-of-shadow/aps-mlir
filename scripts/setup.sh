@@ -2,10 +2,18 @@
 
 set -e
 
-# This script sets up the environment for the CIRCT project.
+# This script sets up the environment for the LLVM/MLIR/CIRCT project and its dependencies.
+
+# check if circt is already installed
+# ${which circt-opt} should be ${PWD}/install/bin/circt-opt
+# ${circt-opt --version} should contain ${CIRCT_COMMIT}
+# if so, return success
+if [ -f "${PWD}/install/bin/circt-opt" ] && [[ "$(circt-opt --version)" == *"${CIRCT_COMMIT}"* ]]; then
+    echo "circt is already installed"
+    exit 0
+fi
 
 # - CIRCT_COMMIT: The commit to checkout
-
 CIRCT_COMMIT=$1
 if [ -z "$CIRCT_COMMIT" ]; then
     echo "Error: CIRCT_COMMIT is not set"
@@ -41,6 +49,7 @@ cmake -G Ninja ../llvm/llvm \
     -DLLVM_ENABLE_PROJECTS="mlir" \
     -DLLVM_TARGETS_TO_BUILD="host" \
     -DLLVM_ENABLE_BINDINGS=OFF \
+    -DOR_TOOLS_PATH=${OR_TOOLS_PATH} \
     -DLLVM_ENABLE_ASSERTIONS=ON \
     -DLLVM_EXTERNAL_PROJECTS=circt \
     -DLLVM_EXTERNAL_CIRCT_SOURCE_DIR=.. \
@@ -48,7 +57,7 @@ cmake -G Ninja ../llvm/llvm \
     -DLLVM_ENABLE_LLD=ON \
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
     -DCIRCT_BINDINGS_PYTHON_ENABLED=ON \
-    -DCMAKE_INSTALL_PREFIX=../../circt_install
+    -DCMAKE_INSTALL_PREFIX=../../install
 
 # Ninja
 ninja
