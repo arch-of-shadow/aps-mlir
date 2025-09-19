@@ -13,7 +13,8 @@ PATH = "${PWD}/install/bin:${PATH}"
 
 [tasks]
 
-setup = { cmd = "pixi run chmod +x scripts/setup.sh && pixi run scripts/setup.sh $CIRCT_COMMIT", inputs = ["scripts/setup.sh"], outputs = ["__setup.success"] }
+setup-ortools = { cmd = "pixi run chmod +x scripts/setup-ortools.sh && pixi run scripts/setup-ortools.sh", inputs = ["scripts/setup-ortools.sh"], outputs = ["__setup-ortools.success"] }
+setup = { cmd = "pixi run chmod +x scripts/setup.sh && pixi run scripts/setup.sh $CIRCT_COMMIT", inputs = ["scripts/setup.sh","__setup-ortools.success"], outputs = ["__setup.success"] }
 
 mkdir_build = { cmd = "mkdir -p build", outputs = ["build"] }
 build = { cmd = "pixi run cmake .. -G Ninja && ninja", depends-on = ["mkdir_build"], cwd = "build"}
