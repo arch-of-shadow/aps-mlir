@@ -31,6 +31,13 @@ find_package(MLIR REQUIRED CONFIG)
 message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
+find_package(ortools CONFIG)
+if (ortools_FOUND)
+    message(STATUS "Found OR-Tools: ${ortools_LIBDIR}")
+else()
+    message(STATUS "OR-Tools not found")
+endif()
+
 find_package(CIRCT REQUIRED CONFIG)
 if(CIRCT_FOUND)
     message(STATUS "Found CIRCT: ${CIRCT_PACKAGE_DIR}")
