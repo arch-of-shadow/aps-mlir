@@ -397,13 +397,13 @@ class CADLTransformer(Transformer):
 
     # Expressions - Unary operations
     def neg_op(self, items):
-        return UnaryExpr(UnaryOp.NEG, items[0])
+        return UnaryExpr(UnaryOp.NEG, items[1])  # Skip OP_MINUS token
 
     def not_op(self, items):
-        return UnaryExpr(UnaryOp.NOT, items[0])
+        return UnaryExpr(UnaryOp.NOT, items[1])  # Skip OP_NOT token
 
     def bit_not_op(self, items):
-        return UnaryExpr(UnaryOp.BIT_NOT, items[0])
+        return UnaryExpr(UnaryOp.BIT_NOT, items[1])  # Skip OP_BIT_NOT token
 
     def signed_cast(self, items):
         # items = [CAST_TOKEN, LPAREN, expr, RPAREN]

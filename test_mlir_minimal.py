@@ -5,7 +5,7 @@ import circt
 def build_minimal_add_with_memref():
     with Context() as ctx:
         circt.register_dialects(ctx)
-        ctx.allow_unregistered_dialects = True
+        # ctx.allow_unregistered_dialects = True
         with Location.unknown():
             module = Module.create()
 

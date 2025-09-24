@@ -21,9 +21,9 @@ from cadl_frontend.ast import *
 # Test if MLIR bindings are available
 try:
     from cadl_frontend.mlir_converter import CADLMLIRConverter, convert_cadl_to_mlir
-    import mlir.ir as ir
-    import mlir.dialects.func as func
-    import mlir.dialects.arith as arith
+    import circt.ir as ir
+    import circt.dialects.func as func
+    import circt.dialects.arith as arith
     MLIR_AVAILABLE = True
 except ImportError:
     MLIR_AVAILABLE = False
