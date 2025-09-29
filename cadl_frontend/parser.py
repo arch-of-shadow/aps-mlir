@@ -579,9 +579,24 @@ class CADLTransformer(Transformer):
     # Function, static, thread definitions
     def function(self, items):
         name = str(items[1])      # Skip KW_FN
-        args = items[3] if len(items) > 3 and items[3] else []      # fn_arg_list after LPAREN
-        ret_types = items[7] if len(items) > 7 and items[7] else [] # compound_type_list after second LPAREN  
-        body = items[9] if len(items) > 9 else []                   # body after second RPAREN
+
+        # Handle optional fn_arg_list: when no args, items[3] is RPAREN, not fn_arg_list
+        # When args exist, items[3] is the fn_arg_list, items[4] is RPAREN
+        args_idx = 3
+        if args_idx < len(items) and isinstance(items[args_idx], list):
+            # Has arguments: items[3] is fn_arg_list
+            args = items[args_idx]
+            ret_types_idx = 7  # After RPAREN, ARROW, LPAREN
+            body_idx = 9       # After compound_type_list?, RPAREN
+        else:
+            # No arguments: items[3] is RPAREN, skip fn_arg_list
+            args = []
+            ret_types_idx = 6  # After RPAREN, ARROW, LPAREN
+            body_idx = 8       # After compound_type_list?, RPAREN
+
+        ret_types = items[ret_types_idx] if ret_types_idx < len(items) and isinstance(items[ret_types_idx], list) else []
+        body = items[body_idx] if body_idx < len(items) else []
+
         return Function(name, args, ret_types, body)
 
     def static(self, items):
@@ -702,6 +717,17 @@ class CADLTransformer(Transformer):
     # Main processor
     def proc(self, items):
         return Proc.from_parts(items)
+
+    def simple_attr(self, items):
+        # items = [HASH, LBRACKET, IDENTIFIER, RBRACKET]
+        attr_name = items[2].value  # IDENTIFIER value
+        return (attr_name, None)
+
+    def param_attr(self, items):
+        # items = [HASH, LBRACKET, IDENTIFIER, LPAREN, expr, RPAREN, RBRACKET]
+        attr_name = items[2].value  # IDENTIFIER value
+        attr_expr = items[4]  # expr
+        return (attr_name, attr_expr)
 
     def start(self, items):
         return items[0]

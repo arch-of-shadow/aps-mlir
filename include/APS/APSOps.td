@@ -21,6 +21,38 @@ def CpuRfWrite : APSOp<"writerf", [MemoryEffects<[MemWrite]>]> {
   let assemblyFormat = "$rd `,` $value attr-dict `:` type($rd) `,` type($value)";
 }
 
+def MemDeclare : APSOp<"memdeclare", []> {
+  let summary = "declare memory instance";
+  let description = [{
+    Declares a memory instance with specified type. Similar to memref.alloc
+    but provides APS-specific semantics for hardware memory modeling.
+  }];
+  let arguments = (ins);
+  let results = (outs AnyMemRef:$result);
+  let assemblyFormat = "attr-dict `:` type($result)";
+}
+
+def MemLoad : APSOp<"memload", [MemoryEffects<[MemRead]>]> {
+  let summary = "load from memory instance";
+  let description = [{
+    Loads a value from the specified memory instance at the given address.
+    Provides APS-specific semantics for hardware memory access modeling.
+  }];
+  let arguments = (ins AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$memref `[` $indices `]` attr-dict `:` type($memref) `,` type($indices) `->` type($result)";
+}
+
+def MemStore : APSOp<"memstore", [MemoryEffects<[MemWrite]>]> {
+  let summary = "store to memory instance";
+  let description = [{
+    Stores a value to the specified memory instance at the given address.
+    Provides APS-specific semantics for hardware memory access modeling.
+  }];
+  let arguments = (ins AnyType:$value, AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
+  let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices)";
+}
+
 // def SubOp : ToyOp<"sub", [Pure]> {
 //   let summary = "sub operation";
 //   let arguments = (ins AnyInteger:$lhs, AnyInteger:$rhs);

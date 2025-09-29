@@ -130,9 +130,8 @@ class TestZyyRTypeInstructions:
         }
         """
 
-        # This may fail due to if-expression syntax
-        with pytest.raises(Exception) as exc_info:
-            self.verify_mlir_output(cadl_source)
+        # This should now work with if-expression support
+        self.verify_mlir_output(cadl_source)
 
     def test_loop_instruction(self):
         """Test instruction with do-while loop"""
@@ -260,9 +259,46 @@ class TestZyyRTypeInstructions:
         }
         """
 
-        # This will likely fail due to if-expression
-        with pytest.raises(Exception) as exc_info:
-            self.verify_mlir_output(cadl_source)
+        # This should now work with if-expression support
+        self.verify_mlir_output(cadl_source)
+
+    
+    def test_cordic_instruction(self):
+        """Test CORDIC instruction with loop"""
+        cadl_source = """
+static thetas: [u32; 8] = {1474560, 870484, 459940, 233473, 117189, 58652, 29333, 14667};
+#[opcode(7'b0101011)]
+#[funct7(7'b0000000)]
+rtype cordic(rs1: u5, rs2: u5, rd: u5) {
+    let x0 : u32 = 19898;
+    let y0 : u32 = 0;
+    let z0 : u32 = _irf[rs1];
+    let n0 : u32 = 8;
+    let it0: u32 = 0;
+    with
+      it: u32 = (it0, it_)
+      x: u32 = (x0, x_)
+      y: u32 = (y0, y_)
+      z: u32 = (z0, z_)
+      n: u32 = (n0, n_)
+    do {
+      let z_neg: u1  = z[31:31];
+      let theta: u32 = thetas[it];
+      let x_shift: u32 = x >> it;
+      let y_shift: u32 = y >> it;
+      let x_ : u32 = if z_neg {x + y_shift} else {x - y_shift};
+      let y_ : u32 = if z_neg {y - x_shift} else {y + x_shift};
+      let z_ : u32 = if z_neg {z + theta} else {z - theta};
+      let it_: u32 = it + 1;
+      let n_ : u32 = n;
+    } while (it < n);
+
+    _irf[rd] = y;
+}
+        """
+
+        # This should work now with proper implementations
+        self.verify_mlir_output(cadl_source)
 
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
@@ -328,16 +364,20 @@ class TestSimpleMLIRConversions:
         static counter: u32 = 42;
 
         fn get_counter() -> (u32) {
-            return (42);
+            return (counter);
         }
         """
 
         ast = parse_proc(cadl_source, "test.cadl")
         mlir_module = convert_cadl_to_mlir(ast)
         mlir_str = str(mlir_module)
+        print(mlir_str)
 
-        assert "func.func @get_counter" in mlir_str
-        assert "42" in mlir_str  # The constant should appear
+        assert "func.func" in mlir_str and "get_counter" in mlir_str
+        assert "counter" in mlir_str  # The static variable should appear
+        assert "memref.global" in mlir_str  # Global variable declaration
+        assert "memref.get_global" in mlir_str  # Global variable reference
+        assert "aps.memload" in mlir_str  # Loading from global using APS dialect
 
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")

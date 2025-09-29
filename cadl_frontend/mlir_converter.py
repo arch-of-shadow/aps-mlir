@@ -31,7 +31,7 @@ from .ast import (
     BasicType_String, BasicType_USize,
     DataType_Single, DataType_Array, DataType_Instance,
     CompoundType_Basic, CompoundType_FnTy,
-    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr,
+    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, IfExpr, AggregateExpr,
     AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt,
     BinaryOp, UnaryOp, FlowKind
 )
@@ -40,10 +40,10 @@ from .ast import (
 @dataclass
 class SymbolScope:
     """Symbol scope for managing variable bindings in different contexts"""
-    symbols: Dict[str, ir.Value] = field(default_factory=dict)
+    symbols: Dict[str, Union[ir.Value, str]] = field(default_factory=dict)
     parent: Optional[SymbolScope] = None
 
-    def get(self, name: str) -> Optional[ir.Value]:
+    def get(self, name: str) -> Optional[Union[ir.Value, str]]:
         """Get symbol value, checking parent scopes if not found"""
         if name in self.symbols:
             return self.symbols[name]
@@ -51,7 +51,7 @@ class SymbolScope:
             return self.parent.get(name)
         return None
 
-    def set(self, name: str, value: ir.Value) -> None:
+    def set(self, name: str, value: Union[ir.Value, str]) -> None:
         """Set symbol value in current scope"""
         self.symbols[name] = value
 
@@ -83,6 +83,14 @@ class CADLMLIRConverter:
         # Builder for generating operations
         self.builder: Optional[ir.InsertionPoint] = None
 
+        # CPU memory instance management
+        self.cpu_memory_instance: Optional[ir.Value] = None
+        self.functions_using_memory: set = set()  # Track which functions use _mem
+        self.global_memory_declared: bool = False  # Track if global memory is declared
+
+        # Cache for global references within current function
+        self.current_global_refs: Dict[str, ir.Value] = {}
+
     def _load_dialects(self) -> None:
         """Load required MLIR and CIRCT dialects"""
         # Register CIRCT dialects with the context
@@ -93,19 +101,115 @@ class CADLMLIRConverter:
         """Push new symbol scope onto stack"""
         self.scope_stack.append(self.current_scope)
         self.current_scope = SymbolScope(parent=self.current_scope)
+        # Reset global reference cache for new function scope
+        self.current_global_refs = {}
 
     def pop_scope(self) -> None:
         """Pop symbol scope from stack"""
         if self.scope_stack:
             self.current_scope = self.scope_stack.pop()
 
-    def get_symbol(self, name: str) -> Optional[ir.Value]:
+    def get_symbol(self, name: str) -> Optional[Union[ir.Value, str]]:
         """Get SSA value for symbol name"""
         return self.current_scope.get(name)
 
-    def set_symbol(self, name: str, value: ir.Value) -> None:
+    def set_symbol(self, name: str, value: Union[ir.Value, str]) -> None:
         """Set SSA value for symbol name in current scope"""
         self.current_scope.set(name, value)
+
+    def get_cpu_memory_instance(self) -> ir.Value:
+        """Get reference to the global CPU memory instance"""
+        if not self.global_memory_declared:
+            raise RuntimeError("Global CPU memory should be declared at module level before use")
+
+        # Get reference to the global memory using cached helper
+        element_type = ir.IntegerType.get_signless(32)
+        memory_size = 1024  # Must match the size used in _declare_global_memory
+        memory_type = memref.MemRefType.get([memory_size], element_type)
+        return self._get_global_reference("__cpu_memory", memory_type)
+
+    def set_cpu_memory_instance(self, memory_instance: ir.Value) -> None:
+        """Set the CPU memory instance for current function"""
+        self.cpu_memory_instance = memory_instance
+
+    def _get_global_reference(self, global_name: str, memory_type: ir.Type) -> ir.Value:
+        """Get reference to global variable, with caching to avoid duplicates"""
+        if global_name not in self.current_global_refs:
+            # Create new global reference and cache it
+            global_ref = memref.GetGlobalOp(memory_type, global_name)
+            self.current_global_refs[global_name] = global_ref.result
+        return self.current_global_refs[global_name]
+
+    def _declare_global_memory(self) -> None:
+        """Declare global CPU memory at module level using memref.global"""
+        if not self.global_memory_declared:
+            # Create global memory using memref.global with static size
+            element_type = ir.IntegerType.get_signless(32)
+            # Use static size (e.g., 1024 elements) instead of dynamic size
+            memory_size = 1024
+            memory_type = memref.MemRefType.get([memory_size], element_type)
+
+            # Create a global memref variable
+            global_name = "__cpu_memory"
+            global_op = memref.GlobalOp(global_name, memory_type)
+
+            # Store the global reference for symbol resolution
+            self.set_symbol("__cpu_memory", global_name)
+            self.global_memory_declared = True
+
+    def _function_uses_memory(self, function) -> bool:
+        """Check if a function uses _mem operations"""
+        # We'll need to analyze the function body to see if it contains _mem operations
+        # For now, let's implement a simple visitor pattern
+        if not function.body:
+            return False
+
+        return self._stmt_list_uses_memory(function.body)
+
+    def _flow_uses_memory(self, flow) -> bool:
+        """Check if a flow uses _mem operations"""
+        if not flow.body:
+            return False
+
+        return self._stmt_list_uses_memory(flow.body)
+
+    def _stmt_list_uses_memory(self, stmts) -> bool:
+        """Check if a list of statements uses _mem operations"""
+        for stmt in stmts:
+            if self._stmt_uses_memory(stmt):
+                return True
+        return False
+
+    def _stmt_uses_memory(self, stmt) -> bool:
+        """Check if a statement uses _mem operations"""
+        if isinstance(stmt, AssignStmt):
+            # Check LHS for _mem assignment
+            if isinstance(stmt.lhs, IndexExpr) and isinstance(stmt.lhs.expr, IdentExpr):
+                if stmt.lhs.expr.name == "_mem":
+                    return True
+            # Check RHS for _mem read
+            if self._expr_uses_memory(stmt.rhs):
+                return True
+        elif isinstance(stmt, ExprStmt):
+            return self._expr_uses_memory(stmt.expr)
+        elif isinstance(stmt, ReturnStmt):
+            return any(self._expr_uses_memory(expr) for expr in stmt.exprs)
+        # Add other statement types as needed
+        return False
+
+    def _expr_uses_memory(self, expr) -> bool:
+        """Check if an expression uses _mem operations"""
+        if isinstance(expr, IndexExpr) and isinstance(expr.expr, IdentExpr):
+            if expr.expr.name == "_mem":
+                return True
+        elif isinstance(expr, BinaryExpr):
+            return self._expr_uses_memory(expr.left) or self._expr_uses_memory(expr.right)
+        elif isinstance(expr, UnaryExpr):
+            return self._expr_uses_memory(expr.operand)
+        elif isinstance(expr, CallExpr):
+            return any(self._expr_uses_memory(arg) for arg in expr.args)
+        # Add other expression types as needed
+        return False
 
     def convert_cadl_type(self, cadl_type: Union[BasicType, DataType, CompoundType]) -> ir.Type:
         """
@@ -169,12 +273,25 @@ class CADLMLIRConverter:
         Creates top-level MLIR module containing all functions, flows,
         and global variables from the processor definition.
         """
+        # Store proc reference for later access
+        self.proc = proc
+
         with self.context, ir.Location.unknown():
             # Create module
             self.module = ir.Module.create()
 
             with ir.InsertionPoint(self.module.body):
                 self.builder = ir.InsertionPoint.current
+
+                # Check if any functions or flows use memory
+                any_uses_memory = (
+                    any(self._function_uses_memory(func) for func in proc.functions.values()) or
+                    any(self._flow_uses_memory(flow) for flow in proc.flows.values())
+                )
+
+                # Declare global memory if needed
+                if any_uses_memory:
+                    self._declare_global_memory()
 
                 # Convert static variables to global declarations
                 for static in proc.statics.values():
@@ -194,17 +311,101 @@ class CADLMLIRConverter:
 
     def _convert_static(self, static: Static) -> None:
         """Convert static variable to MLIR global"""
-        # For now, create as function-level variable
-        # TODO: Implement proper global variable handling
-        pass
+        mlir_type = self.convert_cadl_type(static.ty)
+
+        # Create a global variable using memref.global
+        global_name = static.id
+
+        # Get initial value if provided
+        initial_value = None
+        initial_values_list = None
+        if static.expr:
+            if isinstance(static.expr, LitExpr):
+                # Single literal value
+                initial_value = static.expr.literal.lit.value
+            elif isinstance(static.expr, AggregateExpr):
+                # Array initialization like {1474560, 870484, ...}
+                initial_values_list = []
+                for elem_expr in static.expr.elements:
+                    if isinstance(elem_expr, LitExpr):
+                        initial_values_list.append(elem_expr.literal.lit.value)
+                    else:
+                        # For non-literal elements, we'll skip initialization for now
+                        initial_values_list = None
+                        break
+
+        # Create global memref variable
+        from circt.dialects import memref
+
+        # Determine the correct memref type based on the CADL type
+        if isinstance(mlir_type, ir.MemRefType):
+            # mlir_type is already a memref (for arrays), use it directly
+            memref_type = mlir_type
+        else:
+            # mlir_type is a scalar element type, wrap it in memref<>
+            memref_type = ir.MemRefType.get([], mlir_type)
+
+        # Create a tensor type for the initial value if provided
+        if initial_value is not None:
+            # Single scalar initialization
+            if isinstance(mlir_type, ir.MemRefType):
+                # This shouldn't happen for single values, but handle it
+                global_op = memref.GlobalOp(global_name, memref_type)
+            else:
+                # Create attribute from the integer value for scalars
+                element_attr = ir.IntegerAttr.get(mlir_type, initial_value)
+                attr = ir.DenseElementsAttr.get_splat(ir.RankedTensorType.get([], mlir_type), element_attr)
+                global_op = memref.GlobalOp(global_name, memref_type, initial_value=attr, constant=True)
+        elif initial_values_list is not None:
+            # Array initialization with list of values
+            if isinstance(mlir_type, ir.MemRefType):
+                # Create dense elements attribute for array initialization
+                element_type = mlir_type.element_type
+                shape = mlir_type.shape
+
+                # Create integer attributes for each value
+                element_attrs = []
+                for val in initial_values_list:
+                    element_attrs.append(ir.IntegerAttr.get(element_type, val))
+
+                # Create tensor type and dense elements attribute
+                tensor_type = ir.RankedTensorType.get(shape, element_type)
+                dense_attr = ir.DenseElementsAttr.get(element_attrs, tensor_type)
+
+                # Create global with initialization
+                global_op = memref.GlobalOp(global_name, memref_type, initial_value=dense_attr, constant=True)
+            else:
+                # This shouldn't happen for arrays, fallback to uninitialized
+                global_op = memref.GlobalOp(global_name, memref_type)
+        else:
+            # Create uninitialized global
+            global_op = memref.GlobalOp(global_name, memref_type)
+
+        # Store the global reference for symbol resolution
+        self.set_symbol(static.id, global_name)
 
     def _convert_function(self, function: Function) -> ir.Operation:
         """Convert CADL Function to MLIR func.func operation"""
-        # Convert argument types
-        arg_types = [self.convert_cadl_type(arg.ty) for arg in function.args]
+        # Convert argument types - handle case where args might be empty or Token
+        if hasattr(function.args, '__iter__') and not isinstance(function.args, str):
+            # function.args is a proper list
+            arg_types = [self.convert_cadl_type(arg.ty) for arg in function.args]
+            function_args = function.args
+        else:
+            # function.args is probably a Token (empty args case)
+            arg_types = []
+            function_args = []
 
-        # Convert return types
-        ret_types = [self.convert_cadl_type(ret) for ret in function.ret]
+        # Check if function uses _mem (but don't add it as argument anymore)
+        uses_memory = self._function_uses_memory(function)
+
+        # Convert return types - handle case where ret might be empty or Token
+        if hasattr(function.ret, '__iter__') and not isinstance(function.ret, str):
+            # function.ret is a proper list
+            ret_types = [self.convert_cadl_type(ret) for ret in function.ret]
+        else:
+            # function.ret is probably a Token (empty return case)
+            ret_types = []
 
         # Create function type
         func_type = ir.FunctionType.get(arg_types, ret_types)
@@ -220,9 +421,12 @@ class CADLMLIRConverter:
             self.push_scope()
 
             # Bind function arguments to symbols
-            for i, arg in enumerate(function.args):
+            for i, arg in enumerate(function_args):
                 arg_value = entry_block.arguments[i]
                 self.set_symbol(arg.id, arg_value)
+
+            # If function uses memory, it will be declared via aps.memdeclare when first accessed
+            # No need to set up CPU memory instance here anymore
 
             # Convert function body
             if function.body:
@@ -247,6 +451,9 @@ class CADLMLIRConverter:
         # Convert input types
         arg_types = [self.convert_cadl_type(dtype) for _, dtype in flow.inputs]
 
+        # Check if flow uses _mem (but don't add it as argument anymore)
+        uses_memory = self._flow_uses_memory(flow)
+
         # Flows typically return void or single value
         ret_types = []  # TODO: Determine from flow analysis
 
@@ -255,6 +462,21 @@ class CADLMLIRConverter:
 
         # Create function operation with flow name
         func_op = func.FuncOp(f"flow_{flow.name}", func_type)
+
+        # Add all attributes from flow to MLIR function
+        if flow.attrs and flow.attrs.attrs:
+            for attr_name, attr_expr in flow.attrs.attrs.items():
+                if attr_expr and isinstance(attr_expr, LitExpr):
+                    # Extract the literal value
+                    attr_value = attr_expr.literal.lit.value
+                    # Create integer attribute for any attribute
+                    attr = ir.IntegerAttr.get(ir.IntegerType.get_signless(32), attr_value)
+                    func_op.attributes[attr_name] = attr
+                elif attr_expr is None:
+                    # Simple attribute without value (like #[inline])
+                    # Create a unit attribute (boolean true)
+                    func_op.attributes[attr_name] = ir.UnitAttr.get()
+                # TODO: Handle other expression types for attributes if needed
 
         # Add entry block
         entry_block = func_op.add_entry_block()
@@ -267,6 +489,9 @@ class CADLMLIRConverter:
             for i, (name, _) in enumerate(flow.inputs):
                 arg_value = entry_block.arguments[i]
                 self.set_symbol(name, arg_value)
+
+            # If flow uses memory, it will be declared via aps.memdeclare when first accessed
+            # No need to set up CPU memory instance here anymore
 
             # Convert flow body
             if flow.body:
@@ -340,7 +565,18 @@ class CADLMLIRConverter:
             value = self.get_symbol(expr.name)
             if value is None:
                 raise ValueError(f"Undefined symbol: {expr.name}")
-            return value
+
+            # If it's a global variable reference, load from it
+            if isinstance(value, str):
+                from circt.dialects import memref
+                # Get reference to global and load from it (with caching)
+                # For now, assume u32 type - we could improve this by storing type info with the global name
+                i32_type = ir.IntegerType.get_signless(32)
+                memref_type = ir.MemRefType.get([], i32_type)
+                global_ref = self._get_global_reference(value, memref_type)
+                return aps.MemLoad(i32_type, global_ref, []).result
+            else:
+                return value
 
         elif isinstance(expr, BinaryExpr):
             # Convert binary operations using appropriate dialects
@@ -363,6 +599,14 @@ class CADLMLIRConverter:
         elif isinstance(expr, IndexExpr):
             # Convert index operations - handle special cases for __irf, __mem, etc.
             return self._convert_index_expr(expr)
+
+        elif isinstance(expr, SliceExpr):
+            # Convert slice operations like z[31:31]
+            return self._convert_slice_expr(expr)
+
+        elif isinstance(expr, IfExpr):
+            # Convert if expressions to conditional operations
+            return self._convert_if_expr(expr)
 
         else:
             raise NotImplementedError(f"Expression type not yet supported: {type(expr)}")
@@ -636,31 +880,111 @@ class CADLMLIRConverter:
                 return aps.CpuRfRead(result_type, reg_index).result
 
             elif base_name == "_mem":
-                # Memory read: _mem[addr] -> memref.LoadOp
+                # CPU memory read: _mem[addr] -> aps.memload %cpu_mem[%addr]
                 if len(expr.indices) != 1:
                     raise ValueError("_mem access requires exactly one index")
 
                 # Convert the memory address
                 addr = self._convert_expr(expr.indices[0])
 
-                # For now, assume we have a global memory memref
-                # TODO: Implement proper memory management
-                raise NotImplementedError("_mem operations require global memory setup")
+                # Get CPU memory instance
+                cpu_mem = self.get_cpu_memory_instance()
+
+                # Determine result type (assume i32 for now)
+                result_type = ir.IntegerType.get_signless(32)
+
+                # Generate APS memload operation
+                return aps.MemLoad(result_type, cpu_mem, [addr]).result
 
             else:
-                # Regular array/memref indexing
-                base_value = self._convert_expr(expr.expr)
-                indices = [self._convert_expr(idx) for idx in expr.indices]
+                # Regular array/memref indexing - check if it's a global array access
+                if isinstance(expr.expr, IdentExpr):
+                    array_name = expr.expr.name
+                    # Check if this is a global array by looking up in symbol table
+                    symbol_value = self.get_symbol(array_name)
+                    if isinstance(symbol_value, str):  # It's a global reference
+                        # For global arrays, we need to get the actual type of the global
+                        # For now, we'll determine this by looking up the static variable definition
+                        # TODO: Store type information with global references for better lookup
 
-                # Use memref.LoadOp for regular array access
-                return memref.LoadOp(base_value, indices).result
+                        # Find the static variable definition to get the correct type
+                        static_var = None
+                        for static in self.proc.statics.values():
+                            if static.id == array_name:
+                                static_var = static
+                                break
+
+                        if static_var:
+                            # Convert the CADL type to MLIR type to get correct dimensions
+                            cadl_mlir_type = self.convert_cadl_type(static_var.ty)
+                            if isinstance(cadl_mlir_type, ir.MemRefType):
+                                # Use the actual memref type from the static definition
+                                global_ref = self._get_global_reference(symbol_value, cadl_mlir_type)
+                            else:
+                                # Fallback for scalars
+                                memref_type = ir.MemRefType.get([], cadl_mlir_type)
+                                global_ref = self._get_global_reference(symbol_value, memref_type)
+                        else:
+                            # Fallback if we can't find the static definition
+                            element_type = ir.IntegerType.get_signless(32)
+                            array_size = 8  # Default size for arrays like thetas
+                            memref_type = ir.MemRefType.get([array_size], element_type)
+                            global_ref = self._get_global_reference(symbol_value, memref_type)
+
+                        # Convert indices
+                        indices = [self._convert_expr(idx) for idx in expr.indices]
+
+                        # Determine the element type from the memref
+                        if hasattr(global_ref.type, 'element_type'):
+                            element_type = global_ref.type.element_type
+                        else:
+                            # Fallback to i32
+                            element_type = ir.IntegerType.get_signless(32)
+
+                        # Use APS memload with the memref and indices
+                        return aps.MemLoad(element_type, global_ref, indices).result
+                    else:
+                        # Regular local array access
+                        base_value = self._convert_expr(expr.expr)
+                        indices = [self._convert_expr(idx) for idx in expr.indices]
+
+                        # Determine result type from the base memref type
+                        if hasattr(base_value.type, 'element_type'):
+                            result_type = base_value.type.element_type
+                        else:
+                            # Fallback to i32
+                            result_type = ir.IntegerType.get_signless(32)
+
+                        # Use APS memload for regular array access
+                        return aps.MemLoad(result_type, base_value, indices).result
+                else:
+                    # Complex base expression
+                    base_value = self._convert_expr(expr.expr)
+                    indices = [self._convert_expr(idx) for idx in expr.indices]
+
+                    # Determine result type from the base memref type
+                    if hasattr(base_value.type, 'element_type'):
+                        result_type = base_value.type.element_type
+                    else:
+                        # Fallback to i32
+                        result_type = ir.IntegerType.get_signless(32)
+
+                    # Use APS memload for general indexing
+                    return aps.MemLoad(result_type, base_value, indices).result
         else:
-            # Complex base expression (e.g., function_call()[idx])
+            # Non-identifier base expression (e.g., function_call()[idx])
             base_value = self._convert_expr(expr.expr)
             indices = [self._convert_expr(idx) for idx in expr.indices]
 
-            # Use memref.LoadOp for general indexing
-            return memref.LoadOp(base_value, indices).result
+            # Determine result type from the base memref type
+            if hasattr(base_value.type, 'element_type'):
+                result_type = base_value.type.element_type
+            else:
+                # Fallback to i32
+                result_type = ir.IntegerType.get_signless(32)
+
+            # Use APS memload for general indexing
+            return aps.MemLoad(result_type, base_value, indices).result
 
     def _convert_index_assignment(self, lhs: IndexExpr, rhs_value: ir.Value) -> None:
         """
@@ -687,31 +1011,108 @@ class CADLMLIRConverter:
                 aps.CpuRfWrite(reg_index, rhs_value)
 
             elif base_name == "_mem":
-                # Memory write: _mem[addr] = value -> memref.StoreOp
+                # CPU memory write: _mem[addr] = value -> aps.memstore %value, %cpu_mem[%addr]
                 if len(lhs.indices) != 1:
                     raise ValueError("_mem assignment requires exactly one index")
 
                 # Convert the memory address
                 addr = self._convert_expr(lhs.indices[0])
 
-                # For now, assume we have a global memory memref
-                # TODO: Implement proper memory management
-                raise NotImplementedError("_mem operations require global memory setup")
+                # Get CPU memory instance
+                cpu_mem = self.get_cpu_memory_instance()
+
+                # Generate APS memstore operation
+                aps.MemStore(rhs_value, cpu_mem, [addr])
 
             else:
                 # Regular array/memref assignment
                 base_value = self._convert_expr(lhs.expr)
                 indices = [self._convert_expr(idx) for idx in lhs.indices]
 
-                # Use memref.StoreOp for regular array assignment
-                memref.StoreOp(rhs_value, base_value, indices)
+                # Use APS memstore for regular array assignment
+                aps.MemStore(rhs_value, base_value, indices)
         else:
             # Complex base expression
             base_value = self._convert_expr(lhs.expr)
             indices = [self._convert_expr(idx) for idx in lhs.indices]
 
-            # Use memref.StoreOp for general indexed assignment
-            memref.StoreOp(rhs_value, base_value, indices)
+            # Use APS memstore for general indexed assignment
+            aps.MemStore(rhs_value, base_value, indices)
+
+    def _convert_slice_expr(self, expr: SliceExpr) -> ir.Value:
+        """
+        Convert slice expression to MLIR bit extraction
+
+        Handles expressions like z[31:31] (extract bit 31) or z[15:8] (extract bits 15 to 8)
+        Uses CIRCT's comb dialect for bit manipulation
+        """
+        # Convert the base expression
+        base_value = self._convert_expr(expr.expr)
+
+        # Convert start and end indices
+        start_val = self._convert_expr(expr.start)
+        end_val = self._convert_expr(expr.end)
+
+        # For now, we'll assume constant indices (most common case)
+        # and use comb.ExtractOp for bit extraction
+
+        # Get the constant values if possible
+        if (hasattr(expr.start, 'literal') and hasattr(expr.start.literal, 'lit') and
+            hasattr(expr.end, 'literal') and hasattr(expr.end.literal, 'lit')):
+
+            start_bit = expr.start.literal.lit.value
+            end_bit = expr.end.literal.lit.value
+
+            # Determine the width of the extracted slice
+            if start_bit == end_bit:
+                # Single bit extraction - result is i1
+                result_type = ir.IntegerType.get_signless(1)
+                # Use comb.extract to get a single bit
+                return comb.ExtractOp(result_type, base_value, start_bit).result
+            else:
+                # Multi-bit extraction
+                width = abs(start_bit - end_bit) + 1
+                result_type = ir.IntegerType.get_signless(width)
+                low_bit = min(start_bit, end_bit)
+                # Use comb.extract to get multiple bits
+                return comb.ExtractOp(result_type, base_value, low_bit).result
+        else:
+            # Dynamic slice indices - more complex, use shift and mask
+            # This is a fallback for non-constant indices
+            # For now, assume single bit extraction and return bit 0
+            result_type = ir.IntegerType.get_signless(1)
+            # Extract bit at dynamic position using shift and mask
+            # result = (base_value >> start_val) & 1
+            shifted = comb.ShrUOp(base_value, start_val).result
+            one = arith.ConstantOp(base_value.type, 1).result
+            return comb.AndOp([shifted, one]).result
+
+    def _convert_if_expr(self, expr: IfExpr) -> ir.Value:
+        """
+        Convert if expression to MLIR conditional operation
+
+        Converts CADL if expressions like:
+            if z_neg {x + y_shift} else {x - y_shift}
+
+        Uses comb.MuxOp for hardware-oriented conditional selection
+        """
+        # Convert the condition
+        condition = self._convert_expr(expr.condition)
+
+        # Convert then and else branches
+        then_value = self._convert_expr(expr.then_branch)
+        else_value = self._convert_expr(expr.else_branch)
+
+        # Ensure condition is a single bit (i1)
+        # If the condition is not i1, we need to check if it's non-zero
+        if condition.type != ir.IntegerType.get_signless(1):
+            # Convert to boolean by comparing with zero
+            zero = arith.ConstantOp(condition.type, 0).result
+            condition = arith.CmpIOp(arith.CmpIPredicate.ne, condition, zero).result
+
+        # Use comb.MuxOp for hardware-style conditional selection
+        # MuxOp selects then_value when condition is true, else_value when false
+        return comb.MuxOp(condition, then_value, else_value).result
 
 
 def convert_cadl_to_mlir(proc: Proc) -> ir.Module:
