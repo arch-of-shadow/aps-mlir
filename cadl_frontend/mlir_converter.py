@@ -21,6 +21,7 @@ import circt.dialects.memref as memref
 # CIRCT Python bindings
 import circt.dialects.comb as comb
 import circt.dialects.hw as hw
+import circt.dialects.aps as aps
 
 # CADL AST imports
 from .ast import (
@@ -30,7 +31,7 @@ from .ast import (
     BasicType_String, BasicType_USize,
     DataType_Single, DataType_Array, DataType_Instance,
     CompoundType_Basic, CompoundType_FnTy,
-    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr,
+    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr,
     AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt,
     BinaryOp, UnaryOp, FlowKind
 )
@@ -296,9 +297,12 @@ class CADLMLIRConverter:
             # Convert RHS expression
             rhs_value = self._convert_expr(stmt.rhs)
 
-            # Handle LHS (should be identifier for now)
+            # Handle LHS assignment
             if isinstance(stmt.lhs, IdentExpr):
                 self.set_symbol(stmt.lhs.name, rhs_value)
+            elif isinstance(stmt.lhs, IndexExpr):
+                # Handle indexed assignment (e.g., __irf[rd] = value, __mem[addr] = value)
+                self._convert_index_assignment(stmt.lhs, rhs_value)
             else:
                 raise NotImplementedError(f"Complex LHS assignment not yet supported: {type(stmt.lhs)}")
 
@@ -355,6 +359,10 @@ class CADLMLIRConverter:
             args = [self._convert_expr(arg) for arg in expr.args]
             # For now, assume function exists in symbol table or is built-in
             return self._convert_call(expr.name, args)
+
+        elif isinstance(expr, IndexExpr):
+            # Convert index operations - handle special cases for __irf, __mem, etc.
+            return self._convert_index_expr(expr)
 
         else:
             raise NotImplementedError(f"Expression type not yet supported: {type(expr)}")
@@ -599,6 +607,111 @@ class CADLMLIRConverter:
 
         # Pop loop scope
         self.pop_scope()
+
+    def _convert_index_expr(self, expr: IndexExpr) -> ir.Value:
+        """
+        Convert IndexExpr to appropriate MLIR operation based on the base expression
+
+        Handles special cases:
+        - __irf[rs] -> aps.CpuRfRead
+        - __mem[addr] -> memref.LoadOp
+        - regular array[idx] -> memref.LoadOp
+        """
+        # Check if this is a special builtin operation
+        if isinstance(expr.expr, IdentExpr):
+            base_name = expr.expr.name
+
+            if base_name == "_irf":
+                # Integer register file read: _irf[rs] -> aps.CpuRfRead
+                if len(expr.indices) != 1:
+                    raise ValueError("_irf access requires exactly one index")
+
+                # Convert the register index
+                reg_index = self._convert_expr(expr.indices[0])
+
+                # Determine result type (assume i32 for now, could be made configurable)
+                result_type = ir.IntegerType.get_signless(32)
+
+                # Create APS register file read operation
+                return aps.CpuRfRead(result_type, reg_index).result
+
+            elif base_name == "_mem":
+                # Memory read: _mem[addr] -> memref.LoadOp
+                if len(expr.indices) != 1:
+                    raise ValueError("_mem access requires exactly one index")
+
+                # Convert the memory address
+                addr = self._convert_expr(expr.indices[0])
+
+                # For now, assume we have a global memory memref
+                # TODO: Implement proper memory management
+                raise NotImplementedError("_mem operations require global memory setup")
+
+            else:
+                # Regular array/memref indexing
+                base_value = self._convert_expr(expr.expr)
+                indices = [self._convert_expr(idx) for idx in expr.indices]
+
+                # Use memref.LoadOp for regular array access
+                return memref.LoadOp(base_value, indices).result
+        else:
+            # Complex base expression (e.g., function_call()[idx])
+            base_value = self._convert_expr(expr.expr)
+            indices = [self._convert_expr(idx) for idx in expr.indices]
+
+            # Use memref.LoadOp for general indexing
+            return memref.LoadOp(base_value, indices).result
+
+    def _convert_index_assignment(self, lhs: IndexExpr, rhs_value: ir.Value) -> None:
+        """
+        Convert indexed assignment to appropriate MLIR operation
+
+        Handles special cases:
+        - __irf[rd] = value -> aps.CpuRfWrite
+        - __mem[addr] = value -> memref.StoreOp
+        - regular array[idx] = value -> memref.StoreOp
+        """
+        # Check if this is a special builtin operation
+        if isinstance(lhs.expr, IdentExpr):
+            base_name = lhs.expr.name
+
+            if base_name == "_irf":
+                # Integer register file write: _irf[rd] = value -> aps.CpuRfWrite
+                if len(lhs.indices) != 1:
+                    raise ValueError("_irf assignment requires exactly one index")
+
+                # Convert the register index
+                reg_index = self._convert_expr(lhs.indices[0])
+
+                # Create APS register file write operation
+                aps.CpuRfWrite(reg_index, rhs_value)
+
+            elif base_name == "_mem":
+                # Memory write: _mem[addr] = value -> memref.StoreOp
+                if len(lhs.indices) != 1:
+                    raise ValueError("_mem assignment requires exactly one index")
+
+                # Convert the memory address
+                addr = self._convert_expr(lhs.indices[0])
+
+                # For now, assume we have a global memory memref
+                # TODO: Implement proper memory management
+                raise NotImplementedError("_mem operations require global memory setup")
+
+            else:
+                # Regular array/memref assignment
+                base_value = self._convert_expr(lhs.expr)
+                indices = [self._convert_expr(idx) for idx in lhs.indices]
+
+                # Use memref.StoreOp for regular array assignment
+                memref.StoreOp(rhs_value, base_value, indices)
+        else:
+            # Complex base expression
+            base_value = self._convert_expr(lhs.expr)
+            indices = [self._convert_expr(idx) for idx in lhs.indices]
+
+            # Use memref.StoreOp for general indexed assignment
+            memref.StoreOp(rhs_value, base_value, indices)
 
 
 def convert_cadl_to_mlir(proc: Proc) -> ir.Module:

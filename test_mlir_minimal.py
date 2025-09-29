@@ -36,7 +36,12 @@ def build_minimal_add_with_memref():
                 # add loaded + b
                 s = arith.AddIOp(loaded.result, b)
 
-                q = aps.AddOp(inputs=[zero, one], result=i32)
+                # add loaded + b
+                t = arith.AddIOp(s.result, s.result)
+
+                q = aps.CpuRfRead(i32, zero)
+
+                aps.CpuRfWrite(one, t)
 
                 func.ReturnOp([q])
 

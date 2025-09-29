@@ -36,6 +36,8 @@ class TestZyyRTypeInstructions:
 
         # Convert to string and verify
         mlir_str = str(mlir_module)
+        print(mlir_str)
+        
         assert "module" in mlir_str or "builtin.module" in mlir_str
 
         # Check for expected functions if provided
