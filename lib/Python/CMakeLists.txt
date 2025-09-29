@@ -123,10 +123,10 @@ declare_mlir_dialect_python_bindings(
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
-  ROOT_DIR "${CMAKE_SOURCE_DIR}"
-  TD_FILE include/APS/APSOps.td
+  ROOT_DIR "${CMAKE_SOURCE_DIR}/lib/Python"
+  TD_FILE dialects/APSOps.td
   SOURCES
-    lib/Python/dialects/aps.py
+    dialects/aps.py
   DIALECT_NAME aps)
 
 declare_mlir_dialect_python_bindings(
