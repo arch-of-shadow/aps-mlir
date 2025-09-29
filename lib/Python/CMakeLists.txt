@@ -34,6 +34,8 @@ set(PYTHON_BINDINGS_SOURCES
 )
 
 set(PYTHON_BINDINGS_LINK_LIBS
+  APS
+  APSCAPI
   CIRCTCAPIAIG
   CIRCTCAPIArc
   CIRCTCAPIComb
@@ -118,6 +120,14 @@ declare_mlir_dialect_python_bindings(
   SOURCES
     dialects/comb.py
   DIALECT_NAME comb)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+  ROOT_DIR "${CMAKE_SOURCE_DIR}"
+  TD_FILE include/APS/APSOps.td
+  SOURCES
+    lib/Python/dialects/aps.py
+  DIALECT_NAME aps)
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
