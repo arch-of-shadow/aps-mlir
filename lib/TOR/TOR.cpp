@@ -56,6 +56,35 @@ void tor::MulIOp::build(OpBuilder &odsBuilder,
     return build(odsBuilder, odsState, resType, ValueRange{lhs, rhs}, ArrayRef<NamedAttribute>{});
 }
 
+// Add MulUIOp and MulSIOp build methods, I'm not sure if they are correct
+void tor::MulSIOp::build(OpBuilder &odsBuilder,
+                         OperationState &odsState,
+                         Value lhs,
+                         Value rhs) {
+    IntegerType lhsType = dyn_cast<IntegerType>(lhs.getType());
+    IntegerType rhsType = dyn_cast<IntegerType>(rhs.getType());
+    IntegerType resType = IntegerType::get(odsState.getContext(), std::max(lhsType.getWidth(), rhsType.getWidth()));
+
+    odsState.addAttribute("starttime", odsBuilder.getIntegerAttr(odsBuilder.getIntegerType(32), 0));
+    odsState.addAttribute("endtime", odsBuilder.getIntegerAttr(odsBuilder.getIntegerType(32), 0));
+    return build(odsBuilder, odsState, resType, lhs, rhs, 
+                 odsBuilder.getI32IntegerAttr(0), odsBuilder.getI32IntegerAttr(0));
+}
+
+void tor::MulUIOp::build(OpBuilder &odsBuilder,
+                         OperationState &odsState,
+                         Value lhs,
+                         Value rhs) {
+    IntegerType lhsType = dyn_cast<IntegerType>(lhs.getType());
+    IntegerType rhsType = dyn_cast<IntegerType>(rhs.getType());
+    IntegerType resType = IntegerType::get(odsState.getContext(), std::max(lhsType.getWidth(), rhsType.getWidth()));
+
+    odsState.addAttribute("starttime", odsBuilder.getIntegerAttr(odsBuilder.getIntegerType(32), 0));
+    odsState.addAttribute("endtime", odsBuilder.getIntegerAttr(odsBuilder.getIntegerType(32), 0));
+    return build(odsBuilder, odsState, resType, lhs, rhs, 
+                 odsBuilder.getI32IntegerAttr(0), odsBuilder.getI32IntegerAttr(0));
+}
+
 void tor::MulIConstOp::build(OpBuilder &odsBuilder,
                              OperationState &odsState,
                              Value lhs,

@@ -71,9 +71,31 @@ find_package(Python3 3.8 COMPONENTS Interpreter Development)
 find_package(Python3 3.8 COMPONENTS Interpreter Development.Module)
 find_package(nanobind 2.4.0 CONFIG REQUIRED)
 
-# add lp_solve
-find_library(LP_SOLVE_LIB NAMES liblpsolve55.so)
-message(STATUS "Found lp_solve: ${LP_SOLVE_LIB}")
+# #-------------------------------------------------------------------------------
+# LP_SOLVE configuration
+#-------------------------------------------------------------------------------
+set(LP_SOLVE_PATH "${CMAKE_SOURCE_DIR}/thirdparty/lp_solve_5.5/lpsolve55")
+if (WIN32)
+    find_library(LP_SOLVE_LIB NAMES liblpsolve55.lib PATHS "${LP_SOLVE_PATH}/bin/win64")
+elseif (UNIX)
+    if (NOT EXISTS "${LP_SOLVE_PATH}/bin/ux64/liblpsolve55.a")
+        execute_process(
+                COMMAND sh "${LP_SOLVE_PATH}/ccc"
+                WORKING_DIRECTORY ${LP_SOLVE_PATH}
+        )
+    endif ()
+    find_library(LP_SOLVE_LIB NAMES liblpsolve55.a PATHS "${LP_SOLVE_PATH}/bin/ux64")
+endif ()
+
+IF(CMAKE_BUILD_TYPE MATCHES Debug)
+  message(STATUS "Build Debug version")
+  add_compile_options(-g)
+ENDIF()
+IF(CMAKE_BUILD_TYPE MATCHES Release)
+  message(STATUS "Build Release version, SAFE COMPILER IS ON")
+  add_compile_options(-fstack-protector-all)
+  add_compile_options(-s)
+ENDIF()
 
 
 # APS CONFIGURATION
@@ -101,4 +123,4 @@ add_definitions(${LLVM_DEFINITIONS})
 
 add_subdirectory(include)
 add_subdirectory(lib)
-# add_subdirectory(tools)
+add_subdirectory(tools)

@@ -1,0 +1,60 @@
+add_executable(hector-lite
+        main.cc
+        )
+
+target_link_libraries(hector-lite PRIVATE
+        MLIROptLib
+        
+        -Wl,--start-group
+        MLIRTOR
+        TORSCHEDULE
+        -Wl,--end-group
+        
+        ${LP_SOLVE_LIB}
+      
+        MLIRBytecodeReader
+        MLIRBytecodeWriter
+        MLIRFuncDialect
+
+        MLIRSCFTransforms
+      
+        MLIRSupport
+        MLIRIR
+        MLIRAnalysis
+        MLIRLLVMDialect
+        MLIRNVVMDialect
+        MLIROpenMPDialect
+        MLIRGPUTransforms
+        MLIRTransforms
+        MLIRSCFToControlFlow
+        MLIRFuncToLLVM
+      
+        MLIRAffineTransforms
+        MLIRAffineToStandard
+        MLIRMathToLLVM
+        MLIRTargetLLVMIRImport
+        MLIRLLVMToLLVMIRTranslation
+        MLIRSCFToOpenMP
+        MLIROpenMPToLLVM
+        MLIROpenMPToLLVMIRTranslation
+        MLIRGPUToNVVMTransforms
+        MLIRGPUToGPURuntimeTransforms
+        MLIRFuncAllExtensions
+        MLIRLLVMIRToLLVMTranslation
+        MLIRFromLLVMIRTranslationRegistration
+        MLIRAffineAnalysis
+        MLIRAnalysis
+        MLIRCastInterfaces
+        MLIRDialect
+        MLIRParser
+        MLIRPass
+        MLIRTransforms
+        MLIRTransformUtils
+        MLIRSupport
+        MLIRIR
+        MLIRCAPIRegisterEverything
+        MLIRBuiltinToLLVMIRTranslation
+        )
+
+set(LIBC_DIR ${CMAKE_SOURCE_DIR}/demo/libc)
+set(BIN_LIBC_DIR ${CMAKE_BINARY_DIR}/bin/demo/libc)
