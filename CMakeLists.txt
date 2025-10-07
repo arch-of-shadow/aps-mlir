@@ -87,6 +87,14 @@ elseif (UNIX)
     find_library(LP_SOLVE_LIB NAMES liblpsolve55.a PATHS "${LP_SOLVE_PATH}/bin/ux64")
 endif ()
 
+#-------------------------------------------------------------------------------
+# JSON configuration
+#-------------------------------------------------------------------------------
+message(STATUS "Using nlohmann_json in: thirdparty/json")
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+add_subdirectory(thirdparty/json)
+include_directories(thirdparty/json/include)
+
 IF(CMAKE_BUILD_TYPE MATCHES Debug)
   message(STATUS "Build Debug version")
   add_compile_options(-g)

@@ -13,6 +13,8 @@
 #include "TOR/TORDialect.h"
 #include "TOR/Passes.h"
 
+#include "APS/APSDialect.h"
+
 
 class HectorMemRefInsider
     : public mlir::MemRefElementTypeInterface::FallbackModel<HectorMemRefInsider> {};
@@ -35,8 +37,8 @@ int hector_driver(int argc, char **argv) {
     registry_hector.insert<mlir::scf::SCFDialect>();
     registry_hector.insert<mlir::tor::TORDialect>();
     registry_hector.insert<mlir::func::FuncDialect>();
-    registry_hector.insert<mlir::affine::AffineDialect>();
     registry_hector.insert<mlir::math::MathDialect>();
+    registry_hector.insert<aps::APSDialect>();
 
     mlir::registerTORPasses();
     

@@ -37,10 +37,6 @@
 #include "hector-driver.cc"
 #include "argparse.hpp"
 
-int firtool_driver(int argc, char **argv);
-
-bool needIncludePath(std::string arg_input); 
-
 int main(int argc, char **argv) {
     argparse::ArgumentParser program("hector-lite", "0.1");
     program.add_argument("-i", "--input").required()
@@ -49,7 +45,7 @@ int main(int argc, char **argv) {
             .help("Output MLIR file (e.g., examples/zyy_out.mlir)");
     program.add_argument("--clock").required().default_value(std::string("10.0"))
             .help("Clock period in ns (default: 10.0)");
-    program.add_argument("--resource").required().default_value(std::string("demo/resource.json"))
+    program.add_argument("--resource").required().default_value(std::string("examples/resource.json"))
             .help("Path to resource.json for scheduling information");
     program.add_argument("--gensg").default_value(false).implicit_value(true)
             .help("Generate schedule graph and estimate the running cycle");
@@ -80,6 +76,11 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    if (access(arg_resource.c_str(), F_OK) != 0) {
+        std::cerr << "[ERROR] Resource file " << arg_resource << " does not exist" << std::endl;
+        return 1;
+    }
+
     std::stringstream ss;
 
     /////////// hector ///////////
@@ -100,13 +101,11 @@ int main(int argc, char **argv) {
 
     int index = 0;
     hector_argv[index++] = argv[0];
-    // 输入文件 affine.mlir
-    hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
-    strcpy(hector_argv[index++], ss.str().c_str());
-    ss.clear();
-    ss.str("");
+    // 输入文件
+    hector_argv[index++] = const_cast<char *>(arg_input.c_str());
 
     hector_argv[index++] = const_cast<char *>("--allow-unregistered-dialect");
+    hector_argv[index++] = const_cast<char *>("--mlir-print-ir-after-all");  // 添加这一行
     // hector_argv[index++] = const_cast<char *>("--mlir-print-op-generic");
 
     ss << "--convert-math-to-call=resource=" << arg_resource.c_str();
@@ -137,9 +136,9 @@ int main(int argc, char **argv) {
     hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--detect-reduction");
 
-    ss << "--attribute-deletion=output-file=" << arg_output.c_str() << "/affine-reduced.mlir";
-    hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
-    strcpy(hector_argv[index++], ss.str().c_str()); ss.clear(); ss.str("");
+    // ss << "--attribute-deletion=output-file=" << arg_output.c_str();
+    // hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
+    // strcpy(hector_argv[index++], ss.str().c_str()); ss.clear(); ss.str("");
 
     // affine to scf
     hector_argv[index++] = const_cast<char *>("--lower-affine-for");
@@ -155,14 +154,14 @@ int main(int argc, char **argv) {
     // auto arg_function = program.get<std::string>("--function");
     // ss << "--convert-input=top-function=" << arg_function.c_str() << " clock=" << arg_clock.c_str() << " resource="
     // << arg_resource.c_str();
-    ss << " output-path=" << arg_output.c_str() << "/file";
-    hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
-    strcpy(hector_argv[index++], ss.str().c_str());
-    ss.clear();
-    ss.str("");
+    // ss << "output-path=" << arg_output.c_str() << "/file";
+    // hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
+    // strcpy(hector_argv[index++], ss.str().c_str());
+    // ss.clear();
+    // ss.str("");
 
     hector_argv[index++] = const_cast<char *>("--canonicalize");
-    hector_argv[index++] = const_cast<char *>("--func-extract");
+    // hector_argv[index++] = const_cast<char *>("--func-extract");
     hector_argv[index++] = const_cast<char *>("--scf-iterargs");
     // dump-scf
     ss << "--dump-scf=json=" << arg_output.c_str() << "/scf.json";
@@ -198,24 +197,4 @@ int main(int argc, char **argv) {
     hector_driver(index, hector_argv);
 
     return 0;
-}
-
-bool needIncludePath(std::string arg_input) {
-    bool is_c_file = (arg_input.length() >= 2 &&
-                      arg_input.substr(arg_input.length() - 2) == ".c");
-    bool is_cpp_file = (arg_input.length() >= 4 &&
-                        arg_input.substr(arg_input.length() - 4) == ".cpp");
-    std::ifstream in_file(arg_input);
-    if (!in_file || (!is_c_file && !is_cpp_file)) {
-        return false;
-    }
-    std::string line;
-    while (getline(in_file, line)) {
-        if ((line.find("stdlib.h") != std::string::npos) ||
-                (is_cpp_file && (line.find("math.h") != std::string::npos ||
-                                 line.find("hls_stream.h") != std::string::npos))) {
-            return true;
-        }
-    }
-    return false;
 }

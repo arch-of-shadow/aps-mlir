@@ -9,8 +9,10 @@ target_link_libraries(hector-lite PRIVATE
         MLIRTOR
         TORSCHEDULE
         -Wl,--end-group
+        APS
         
         ${LP_SOLVE_LIB}
+        nlohmann_json::nlohmann_json
       
         MLIRBytecodeReader
         MLIRBytecodeWriter
