@@ -89,6 +89,7 @@ def convert_to_mlir(input_file: str, output_file: Optional[str] = None, verify: 
         print("MLIR conversion successful!")
 
         mlir_text = str(mlir_module)
+        print(mlir_text)
 
         if verify:
             print(f"Verifying MLIR...")

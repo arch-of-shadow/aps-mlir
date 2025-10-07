@@ -53,6 +53,52 @@ def MemStore : APSOp<"memstore", [MemoryEffects<[MemWrite]>]> {
   let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices)";
 }
 
+def MemBurstLoad : APSOp<"memburstload", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "burst load from CPU memory to APS scratchpad memory";
+  let description = [{
+    Transfers a sequence of data from CPU memory to APS scratchpad memory in a burst fashion.
+    Reads 'length' elements from CPU memory starting at 'cpu_addr'
+    and writes them to the APS scratchpad (memref) starting at 'start' index.
+
+    Example:
+      aps.memburstload %cpu_addr, %aps_mem[%start], %length
+        : i64, memref<1024xi32>, i32, i32 -> ()
+  }];
+  let arguments = (ins
+    AnySignlessInteger:$cpu_addr,
+    AnyMemRef:$memref,
+    AnySignlessInteger:$start,
+    AnySignlessInteger:$length
+  );
+  let assemblyFormat = [{
+    $cpu_addr `,` $memref `[` $start `]` `,` $length attr-dict
+    `:` type($cpu_addr) `,` type($memref) `,` type($start) `,` type($length)
+  }];
+}
+
+def MemBurstStore : APSOp<"memburststore", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "burst store from APS scratchpad memory to CPU memory";
+  let description = [{
+    Transfers a sequence of data from APS scratchpad memory to CPU memory in a burst fashion.
+    Reads 'length' elements starting from 'start' index in the APS scratchpad (memref)
+    and writes them to the CPU memory starting at 'cpu_addr'.
+
+    Example:
+      aps.memburststore %aps_mem[%start], %cpu_addr, %length
+        : memref<1024xi32>, i64, i32 -> ()
+  }];
+  let arguments = (ins
+    AnyMemRef:$memref,
+    AnySignlessInteger:$start,
+    AnySignlessInteger:$cpu_addr,
+    AnySignlessInteger:$length
+  );
+  let assemblyFormat = [{
+    $memref `[` $start `]` `,` $cpu_addr `,` $length attr-dict
+    `:` type($memref) `,` type($start) `,` type($cpu_addr) `,` type($length)
+  }];
+}
+
 // def SubOp : ToyOp<"sub", [Pure]> {
 //   let summary = "sub operation";
 //   let arguments = (ins AnyInteger:$lhs, AnyInteger:$rhs);

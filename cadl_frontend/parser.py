@@ -312,14 +312,6 @@ class CADLTransformer(Transformer):
     def basic_type(self, items):
         return CompoundType_Basic(items[0])
 
-    def fn_type(self, items):
-        args = items[0] if items[0] else []
-        ret = items[1] if items[1] else []
-        return CompoundType_FnTy(args, ret)
-
-    def compound_type_list(self, items):
-        return items
-
     # Function arguments
     def fn_arg(self, items):
         name = str(items[0])
@@ -447,6 +439,14 @@ class CADLTransformer(Transformer):
         end = items[4]    # Skip COLON token
         return SliceExpr(expr, start, end)
 
+    def range_slice_expr(self, items):
+        # Grammar: postfix_expr LBRACKET expr OP_PLUS COLON expr? RBRACKET
+        expr = items[0]
+        start = items[2]  # Skip LBRACKET token
+        # items[3] is OP_PLUS, items[4] is COLON
+        length = items[5] if len(items) > 6 and items[5] is not None else None
+        return RangeSliceExpr(expr, start, length)
+
     def paren_expr(self, items):
         # items = [LPAREN, expr_list, RPAREN]
         expr_list = items[1] if len(items) > 1 else []
@@ -464,11 +464,6 @@ class CADLTransformer(Transformer):
         else_branch = items[7]    # Skip KW_ELSE, LBRACE
         return IfExpr(condition, then_branch, else_branch)
 
-    def match_expr(self, items):
-        expr = items[0]
-        arms = items[1:]
-        return MatchExpr(expr, arms)
-
     def select_expr(self, items):
         arms = items[:-1]
         default = items[-1]
@@ -478,9 +473,6 @@ class CADLTransformer(Transformer):
         # Grammar: LBRACE expr_list RBRACE
         expr_list = items[1]  # Skip LBRACE, get expr_list, skip RBRACE
         return AggregateExpr(expr_list)
-
-    def match_arm(self, items):
-        return (items[0], items[1])
 
     def sel_arm(self, items):
         return (items[0], items[1])
@@ -556,9 +548,6 @@ class CADLTransformer(Transformer):
         expr = items[1] if len(items) > 1 else None
         return DirectiveStmt(name, expr)
 
-    def function_stmt(self, items):
-        return FunctionStmt(items[0])
-
     def spawn_stmt(self, items):
         return SpawnStmt(items)
 
@@ -574,37 +563,28 @@ class CADLTransformer(Transformer):
 
     def block_body(self, items):
         # Filter out LBRACE and RBRACE tokens, return only statements
-        return [item for item in items if hasattr(item, '__class__') and 'Stmt' in item.__class__.__name__]
+        return [item for item in items if isinstance(item, Stmt)]
 
-    # Function, static, thread definitions
-    def function(self, items):
-        name = str(items[1])      # Skip KW_FN
-
-        # Handle optional fn_arg_list: when no args, items[3] is RPAREN, not fn_arg_list
-        # When args exist, items[3] is the fn_arg_list, items[4] is RPAREN
-        args_idx = 3
-        if args_idx < len(items) and isinstance(items[args_idx], list):
-            # Has arguments: items[3] is fn_arg_list
-            args = items[args_idx]
-            ret_types_idx = 7  # After RPAREN, ARROW, LPAREN
-            body_idx = 9       # After compound_type_list?, RPAREN
-        else:
-            # No arguments: items[3] is RPAREN, skip fn_arg_list
-            args = []
-            ret_types_idx = 6  # After RPAREN, ARROW, LPAREN
-            body_idx = 8       # After compound_type_list?, RPAREN
-
-        ret_types = items[ret_types_idx] if ret_types_idx < len(items) and isinstance(items[ret_types_idx], list) else []
-        body = items[body_idx] if body_idx < len(items) else []
-
-        return Function(name, args, ret_types, body)
-
+    # Static and thread definitions
     def static(self, items):
-        # Expected structure: KW_STATIC IDENTIFIER COLON data_type (ASSIGN expr)? SEMICOLON
-        name = str(items[1])  # IDENTIFIER token
-        type_info = items[3]  # data_type (already transformed)
-        expr = items[5] if len(items) > 5 else None  # expr (already transformed)
-        return Static(name, type_info, expr)
+        # Expected structure: attribute* KW_STATIC IDENTIFIER COLON data_type (ASSIGN expr)? SEMICOLON
+        # Extract attributes from beginning
+        attrs = []
+        idx = 0
+        while idx < len(items) and isinstance(items[idx], tuple):
+            attrs.append(items[idx])
+            idx += 1
+
+        # Now parse the rest: KW_STATIC IDENTIFIER COLON data_type ...
+        # items[idx] is KW_STATIC
+        name = str(items[idx + 1])  # IDENTIFIER token
+        type_info = items[idx + 3]  # data_type (already transformed)
+        expr = items[idx + 5] if len(items) > idx + 5 and items[idx + 5] is not None else None  # expr (already transformed)
+
+        # Convert attributes to dict
+        attr_dict = dict(attrs) if attrs else {}
+
+        return Static(name, type_info, expr, attr_dict)
 
     def thread(self, items):
         name = str(items[0])
@@ -708,8 +688,6 @@ class CADLTransformer(Transformer):
             return RegfilePart(part)
         elif isinstance(part, Flow):
             return FlowPart(part)
-        elif isinstance(part, Function):
-            return FunctionPart(part)
         elif isinstance(part, Static):
             return StaticPart(part)
         return part

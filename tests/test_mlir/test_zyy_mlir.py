@@ -306,37 +306,39 @@ class TestSimpleMLIRConversions:
     """Test simple, working MLIR conversions"""
 
     def test_basic_arithmetic_function(self):
-        """Test basic arithmetic function conversion"""
+        """Test basic arithmetic rtype conversion"""
         cadl_source = """
-        fn add(a: u32, b: u32) -> (u32) {
-            return (a + b);
+        rtype add(a: u32, b: u32, c: u32) {
+            _irf[c] = (a + b);
         }
         """
 
         ast = parse_proc(cadl_source, "test.cadl")
         mlir_module = convert_cadl_to_mlir(ast)
         mlir_str = str(mlir_module)
+        print(mlir_str)
 
-        assert "@add" in mlir_str or "func.func @add" in mlir_str
+        assert "@flow_add" in mlir_str or "func.func @flow_add" in mlir_str
         assert "arith.addi" in mlir_str
         assert "return" in mlir_str
 
     def test_multiple_operations(self):
         """Test function with multiple operations"""
         cadl_source = """
-        fn compute(a: u32, b: u32, c: u32) -> (u32) {
+        rtype compute(a: u32, b: u32, c: u32, d: u32) {
             let temp1: u32 = a + b;
             let temp2: u32 = temp1 * c;
             let result: u32 = temp2 - a;
-            return (result);
+            _irf[d] = (result);
         }
         """
 
         ast = parse_proc(cadl_source, "test.cadl")
         mlir_module = convert_cadl_to_mlir(ast)
         mlir_str = str(mlir_module)
+        print(mlir_str)
 
-        assert "func.func @compute" in mlir_str
+        assert "func.func @flow_compute" in mlir_str
         assert "arith.addi" in mlir_str
         assert "arith.muli" in mlir_str
         assert "arith.subi" in mlir_str
@@ -353,6 +355,7 @@ class TestSimpleMLIRConversions:
         ast = parse_proc(cadl_source, "test.cadl")
         mlir_module = convert_cadl_to_mlir(ast)
         mlir_str = str(mlir_module)
+        print(mlir_str)
 
         assert "func.func @flow_process" in mlir_str
         assert "arith.addi" in mlir_str
@@ -363,8 +366,8 @@ class TestSimpleMLIRConversions:
         cadl_source = """
         static counter: u32 = 42;
 
-        fn get_counter() -> (u32) {
-            return (counter);
+        rtype get_counter(a: u32) {
+            _irf[a] = (counter);
         }
         """
 
@@ -387,7 +390,7 @@ class TestMLIROutputValidation:
     def test_mlir_module_structure(self):
         """Test that MLIR module has correct structure"""
         cadl_source = """
-        fn test() -> (u32) {
+        rtype test() {
             return (123);
         }
         """
@@ -408,15 +411,15 @@ class TestMLIROutputValidation:
             assert mlir_str.count('{') == mlir_str.count('}')
 
             # Check for function structure - handle both formats
-            assert 'func.func' in mlir_str or '@test' in mlir_str
+            assert 'func.func' in mlir_str or '@flow_test' in mlir_str
             # These might be in verbose format only
             if '"func.func"' in mlir_str:
-                assert 'sym_name = "test"' in mlir_str
+                assert 'sym_name = "flow_test"' in mlir_str
 
     def test_ssa_value_uniqueness(self):
         """Test that SSA values are unique"""
         cadl_source = """
-        fn complex(a: u32, b: u32) -> (u32) {
+        rtype complex(a: u32, b: u32) {
             let x: u32 = a + b;
             let y: u32 = x * 2;
             let z: u32 = y - a;
@@ -427,6 +430,7 @@ class TestMLIROutputValidation:
         ast = parse_proc(cadl_source, "test.cadl")
         mlir_module = convert_cadl_to_mlir(ast)
         mlir_str = str(mlir_module)
+        print(mlir_str)
 
         # Extract SSA values (like %0, %1, %2)
         import re
@@ -438,16 +442,17 @@ class TestMLIROutputValidation:
     def test_type_consistency(self):
         """Test that types are consistent throughout conversion"""
         cadl_source = """
-        fn typed(a: u32, b: u32) -> (u32) {
+        rtype typed(a: u32, b: u32, c: u32) {
             let x: u32 = a;
             let y: u32 = b;
-            return (x + y);
+            _irf[c] = (x + y);
         }
         """
 
         ast = parse_proc(cadl_source, "test.cadl")
         mlir_module = convert_cadl_to_mlir(ast)
         mlir_str = str(mlir_module)
+        print(mlir_str)
 
         # All integer operations should use i32 (since u32 maps to i32)
         assert "i32" in mlir_str
