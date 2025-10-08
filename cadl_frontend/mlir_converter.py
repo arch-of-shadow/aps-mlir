@@ -25,13 +25,13 @@ import circt.dialects.aps as aps
 
 # CADL AST imports
 from .ast import (
-    Proc, Function, Flow, Static, Regfile,
+    Proc, Flow, Static, Regfile,
     Stmt, Expr, BasicType, DataType, CompoundType,
     BasicType_ApFixed, BasicType_ApUFixed, BasicType_Float32, BasicType_Float64,
     BasicType_String, BasicType_USize,
     DataType_Single, DataType_Array, DataType_Instance,
-    CompoundType_Basic, CompoundType_FnTy,
-    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, IfExpr, AggregateExpr,
+    CompoundType_Basic,
+    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, AggregateExpr, StringLitExpr,
     AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt,
     BinaryOp, UnaryOp, FlowKind
 )
@@ -108,6 +108,9 @@ class CADLMLIRConverter:
         """Pop symbol scope from stack"""
         if self.scope_stack:
             self.current_scope = self.scope_stack.pop()
+            # Clear global reference cache when exiting scope to avoid referencing
+            # SSA values from inner scopes that are no longer valid
+            self.current_global_refs = {}
 
     def get_symbol(self, name: str) -> Optional[Union[ir.Value, str]]:
         """Get SSA value for symbol name"""
@@ -126,7 +129,7 @@ class CADLMLIRConverter:
         element_type = ir.IntegerType.get_signless(32)
         memory_size = 1024  # Must match the size used in _declare_global_memory
         memory_type = memref.MemRefType.get([memory_size], element_type)
-        return self._get_global_reference("__cpu_memory", memory_type)
+        return self._get_global_reference("_cpu_memory", memory_type)
 
     def set_cpu_memory_instance(self, memory_instance: ir.Value) -> None:
         """Set the CPU memory instance for current function"""
@@ -150,11 +153,11 @@ class CADLMLIRConverter:
             memory_type = memref.MemRefType.get([memory_size], element_type)
 
             # Create a global memref variable
-            global_name = "__cpu_memory"
+            global_name = "_cpu_memory"
             global_op = memref.GlobalOp(global_name, memory_type)
 
             # Store the global reference for symbol resolution
-            self.set_symbol("__cpu_memory", global_name)
+            self.set_symbol("_cpu_memory", global_name)
             self.global_memory_declared = True
 
     def _function_uses_memory(self, function) -> bool:
@@ -283,11 +286,8 @@ class CADLMLIRConverter:
             with ir.InsertionPoint(self.module.body):
                 self.builder = ir.InsertionPoint.current
 
-                # Check if any functions or flows use memory
-                any_uses_memory = (
-                    any(self._function_uses_memory(func) for func in proc.functions.values()) or
-                    any(self._flow_uses_memory(flow) for flow in proc.flows.values())
-                )
+                # Check if any flows use memory
+                any_uses_memory = any(self._flow_uses_memory(flow) for flow in proc.flows.values())
 
                 # Declare global memory if needed
                 if any_uses_memory:
@@ -296,10 +296,6 @@ class CADLMLIRConverter:
                 # Convert static variables to global declarations
                 for static in proc.statics.values():
                     self._convert_static(static)
-
-                # Convert functions
-                for function in proc.functions.values():
-                    self._convert_function(function)
 
                 # Convert flows (as functions for now)
                 for flow in proc.flows.values():
@@ -333,9 +329,6 @@ class CADLMLIRConverter:
                         # For non-literal elements, we'll skip initialization for now
                         initial_values_list = None
                         break
-
-        # Create global memref variable
-        from circt.dialects import memref
 
         # Determine the correct memref type based on the CADL type
         if isinstance(mlir_type, ir.MemRefType):
@@ -381,8 +374,54 @@ class CADLMLIRConverter:
             # Create uninitialized global
             global_op = memref.GlobalOp(global_name, memref_type)
 
+        # Add custom attributes if present
+        if static.attrs:
+            for attr_name, attr_value in static.attrs.items():
+                # Convert CADL attribute value to MLIR attribute
+                mlir_attr = self._convert_attribute_value(attr_value)
+                if mlir_attr is not None:
+                    global_op.attributes[attr_name] = mlir_attr
+
         # Store the global reference for symbol resolution
         self.set_symbol(static.id, global_name)
+
+    def _convert_attribute_value(self, expr: Optional[Expr]) -> Optional[ir.Attribute]:
+        """
+        Convert CADL expression to MLIR attribute for use in operation attributes
+
+        Handles:
+        - StringLitExpr -> StringAttr
+        - LitExpr with integer -> IntegerAttr
+        - None -> UnitAttr (for presence-only attributes)
+        """
+        if expr is None:
+            # Attribute without value, use UnitAttr
+            return ir.UnitAttr.get()
+
+        if isinstance(expr, StringLitExpr):
+            # String attribute
+            return ir.StringAttr.get(expr.value)
+
+        if isinstance(expr, LitExpr):
+            # Numeric attribute
+            literal = expr.literal
+            if hasattr(literal.lit, 'value'):
+                value = literal.lit.value
+                if isinstance(value, int):
+                    # Integer attribute
+                    mlir_type = self.convert_cadl_type(literal.ty)
+                    return ir.IntegerAttr.get(mlir_type, value)
+                elif isinstance(value, float):
+                    # Float attribute
+                    mlir_type = self.convert_cadl_type(literal.ty)
+                    return ir.FloatAttr.get(mlir_type, value)
+
+        if isinstance(expr, IdentExpr):
+            # Identifier - treat as string symbol
+            return ir.StringAttr.get(expr.name)
+
+        # For other expression types, try to convert to string representation
+        return ir.StringAttr.get(str(expr))
 
     def _convert_function(self, function: Function) -> ir.Operation:
         """Convert CADL Function to MLIR func.func operation"""
@@ -519,6 +558,11 @@ class CADLMLIRConverter:
             self._convert_expr(stmt.expr)
 
         elif isinstance(stmt, AssignStmt):
+            # Check for burst operations first
+            if self._is_burst_operation(stmt):
+                self._convert_burst_operation(stmt)
+                return
+
             # Convert RHS expression
             rhs_value = self._convert_expr(stmt.rhs)
 
@@ -526,8 +570,11 @@ class CADLMLIRConverter:
             if isinstance(stmt.lhs, IdentExpr):
                 self.set_symbol(stmt.lhs.name, rhs_value)
             elif isinstance(stmt.lhs, IndexExpr):
-                # Handle indexed assignment (e.g., __irf[rd] = value, __mem[addr] = value)
+                # Handle indexed assignment (e.g., _irf[rd] = value, _mem[addr] = value)
                 self._convert_index_assignment(stmt.lhs, rhs_value)
+            elif isinstance(stmt.lhs, RangeSliceExpr):
+                # Handle range slice assignment
+                self._convert_range_slice_assignment(stmt.lhs, rhs_value)
             else:
                 raise NotImplementedError(f"Complex LHS assignment not yet supported: {type(stmt.lhs)}")
 
@@ -568,7 +615,6 @@ class CADLMLIRConverter:
 
             # If it's a global variable reference, load from it
             if isinstance(value, str):
-                from circt.dialects import memref
                 # Get reference to global and load from it (with caching)
                 # For now, assume u32 type - we could improve this by storing type info with the global name
                 i32_type = ir.IntegerType.get_signless(32)
@@ -597,7 +643,7 @@ class CADLMLIRConverter:
             return self._convert_call(expr.name, args)
 
         elif isinstance(expr, IndexExpr):
-            # Convert index operations - handle special cases for __irf, __mem, etc.
+            # Convert index operations - handle special cases for _irf, _mem, etc.
             return self._convert_index_expr(expr)
 
         elif isinstance(expr, SliceExpr):
@@ -857,8 +903,8 @@ class CADLMLIRConverter:
         Convert IndexExpr to appropriate MLIR operation based on the base expression
 
         Handles special cases:
-        - __irf[rs] -> aps.CpuRfRead
-        - __mem[addr] -> memref.LoadOp
+        - _irf[rs] -> aps.CpuRfRead
+        - _mem[addr] -> memref.LoadOp
         - regular array[idx] -> memref.LoadOp
         """
         # Check if this is a special builtin operation
@@ -991,8 +1037,8 @@ class CADLMLIRConverter:
         Convert indexed assignment to appropriate MLIR operation
 
         Handles special cases:
-        - __irf[rd] = value -> aps.CpuRfWrite
-        - __mem[addr] = value -> memref.StoreOp
+        - _irf[rd] = value -> aps.CpuRfWrite
+        - _mem[addr] = value -> memref.StoreOp
         - regular array[idx] = value -> memref.StoreOp
         """
         # Check if this is a special builtin operation
@@ -1026,18 +1072,175 @@ class CADLMLIRConverter:
 
             else:
                 # Regular array/memref assignment
-                base_value = self._convert_expr(lhs.expr)
+                if isinstance(lhs.expr, IdentExpr):
+                    # Get the memref itself, not a loaded value
+                    base_value = self._get_memref_for_symbol(lhs.expr.name)
+                else:
+                    base_value = self._convert_expr(lhs.expr)
                 indices = [self._convert_expr(idx) for idx in lhs.indices]
 
                 # Use APS memstore for regular array assignment
                 aps.MemStore(rhs_value, base_value, indices)
         else:
             # Complex base expression
-            base_value = self._convert_expr(lhs.expr)
+            if isinstance(lhs.expr, IdentExpr):
+                # Get the memref itself, not a loaded value
+                base_value = self._get_memref_for_symbol(lhs.expr.name)
+            else:
+                base_value = self._convert_expr(lhs.expr)
             indices = [self._convert_expr(idx) for idx in lhs.indices]
 
             # Use APS memstore for general indexed assignment
             aps.MemStore(rhs_value, base_value, indices)
+
+    def _is_burst_operation(self, stmt: AssignStmt) -> bool:
+        """
+        Detect if an assignment is a burst operation
+
+        Burst load:  mem[start +: ] = _burst_read[cpu_addr +: length]
+        Burst store: _burst_write[cpu_addr +: length] = mem[start +: ]
+        """
+        # Check for burst read (RHS is _burst_read with range slice)
+        if isinstance(stmt.rhs, RangeSliceExpr) and isinstance(stmt.rhs.expr, IdentExpr):
+            if stmt.rhs.expr.name == "_burst_read":
+                return True
+
+        # Check for burst write (LHS is _burst_write with range slice)
+        if isinstance(stmt.lhs, RangeSliceExpr) and isinstance(stmt.lhs.expr, IdentExpr):
+            if stmt.lhs.expr.name == "_burst_write":
+                return True
+
+        return False
+
+    def _convert_burst_operation(self, stmt: AssignStmt) -> None:
+        """
+        Convert burst read/write operations to MLIR aps.memburstload/memburststore
+
+        Burst load:  buffer[offset +: ] = _burst_read[cpu_addr +: length]
+                     -> aps.memburstload %cpu_addr, %buffer[%offset], %length
+
+        Burst store: _burst_write[cpu_addr +: length] = buffer[offset +: ]
+                     -> aps.memburststore %buffer[%offset], %cpu_addr, %length
+        """
+        # Burst load: RHS is _burst_read
+        if isinstance(stmt.rhs, RangeSliceExpr) and isinstance(stmt.rhs.expr, IdentExpr):
+            if stmt.rhs.expr.name == "_burst_read":
+                self._convert_burst_load(stmt)
+                return
+
+        # Burst store: LHS is _burst_write
+        if isinstance(stmt.lhs, RangeSliceExpr) and isinstance(stmt.lhs.expr, IdentExpr):
+            if stmt.lhs.expr.name == "_burst_write":
+                self._convert_burst_store(stmt)
+                return
+
+        raise ValueError("Invalid burst operation pattern")
+
+    def _convert_burst_load(self, stmt: AssignStmt) -> None:
+        """
+        Convert burst load: buffer[offset +: ] = _burst_read[cpu_addr +: length]
+        to: aps.memburstload %cpu_addr, %buffer[%offset], %length
+        """
+        lhs = stmt.lhs  # buffer[offset +: ]
+        rhs = stmt.rhs  # _burst_read[cpu_addr +: length]
+
+        if not isinstance(lhs, RangeSliceExpr):
+            raise ValueError("Burst load LHS must be a range slice expression")
+        if not isinstance(rhs, RangeSliceExpr):
+            raise ValueError("Burst load RHS must be a range slice expression")
+
+        # Extract components from RHS (_burst_read[cpu_addr +: length])
+        cpu_addr = self._convert_expr(rhs.start)
+        if rhs.length is None:
+            raise ValueError("Burst read must have explicit length")
+        length = self._convert_expr(rhs.length)
+
+        # Extract components from LHS (buffer[offset +: ])
+        # Get memref for the buffer
+        if isinstance(lhs.expr, IdentExpr):
+            buffer_name = lhs.expr.name
+            buffer_memref = self._get_memref_for_symbol(buffer_name)
+        else:
+            buffer_memref = self._convert_expr(lhs.expr)
+
+        start_offset = self._convert_expr(lhs.start)
+
+        # Infer length if not specified on LHS
+        if lhs.length is not None:
+            # Length specified on both sides - could validate they match
+            pass
+
+        # Generate aps.memburstload operation
+        # Arguments: cpu_addr, memref, start, length
+        aps.MemBurstLoad(cpu_addr, buffer_memref, start_offset, length)
+
+    def _convert_burst_store(self, stmt: AssignStmt) -> None:
+        """
+        Convert burst store: _burst_write[cpu_addr +: length] = buffer[offset +: ]
+        to: aps.memburststore %buffer[%offset], %cpu_addr, %length
+        """
+        lhs = stmt.lhs  # _burst_write[cpu_addr +: length]
+        rhs = stmt.rhs  # buffer[offset +: ]
+
+        if not isinstance(lhs, RangeSliceExpr):
+            raise ValueError("Burst store LHS must be a range slice expression")
+        if not isinstance(rhs, RangeSliceExpr):
+            raise ValueError("Burst store RHS must be a range slice expression")
+
+        # Extract components from LHS (_burst_write[cpu_addr +: length])
+        cpu_addr = self._convert_expr(lhs.start)
+        if lhs.length is None:
+            raise ValueError("Burst write must have explicit length")
+        length = self._convert_expr(lhs.length)
+
+        # Extract components from RHS (buffer[offset +: ])
+        # Get memref for the buffer
+        if isinstance(rhs.expr, IdentExpr):
+            buffer_name = rhs.expr.name
+            buffer_memref = self._get_memref_for_symbol(buffer_name)
+        else:
+            buffer_memref = self._convert_expr(rhs.expr)
+
+        start_offset = self._convert_expr(rhs.start)
+
+        # Infer length if not specified on RHS
+        if rhs.length is not None:
+            # Length specified on both sides - could validate they match
+            pass
+
+        # Generate aps.memburststore operation
+        # Arguments: memref, start, cpu_addr, length
+        aps.MemBurstStore(buffer_memref, start_offset, cpu_addr, length)
+
+    def _convert_range_slice_assignment(self, lhs: RangeSliceExpr, rhs_value: ir.Value) -> None:
+        """Handle regular range slice assignments (not burst operations)"""
+        # For now, this is not a common case - range slices are primarily used for burst ops
+        raise NotImplementedError("Non-burst range slice assignments not yet supported")
+
+    def _get_memref_for_symbol(self, symbol_name: str) -> ir.Value:
+        """Get memref value for a symbol (handling both local and global variables)"""
+        symbol_value = self.get_symbol(symbol_name)
+
+        if symbol_value is None:
+            raise ValueError(f"Undefined symbol: {symbol_name}")
+
+        if isinstance(symbol_value, str):
+            # It's a global reference - get the memref
+            # Find the static variable definition to get the type
+            static_var = None
+            for static in self.proc.statics.values():
+                if static.id == symbol_name:
+                    static_var = static
+                    break
+
+            if static_var:
+                cadl_mlir_type = self.convert_cadl_type(static_var.ty)
+                return self._get_global_reference(symbol_value, cadl_mlir_type)
+            else:
+                raise ValueError(f"Cannot find static definition for global: {symbol_name}")
+        else:
+            # It's a local value
+            return symbol_value
 
     def _convert_slice_expr(self, expr: SliceExpr) -> ir.Value:
         """

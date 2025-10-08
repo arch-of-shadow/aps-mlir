@@ -24,23 +24,20 @@ STRING_LIT: /"[^"]*"/
 
 // Keywords
 KW_STATIC: "static"
-KW_RTYPE: "rtype" 
+KW_RTYPE: "rtype"
 KW_FLOW: "flow"
 KW_INSTANCE: "Instance"
 KW_LET: "let"
 KW_IF: "if"
 KW_ELSE: "else"
-KW_FN: "fn"
 KW_WHILE: "while"
 KW_WITH: "with"
 KW_DO: "do"
 KW_IN: "in"
 KW_SPAWN: "spawn"
-KW_THREAD: "thread"
 KW_RETURN: "return"
 KW_BREAK: "break"
 KW_CONTINUE: "continue"
-KW_MATCH: "match"
 KW_SEL: "sel"
 KW_TRUE: "true"
 KW_FALSE: "false"
@@ -102,7 +99,6 @@ proc: proc_part*
 
 proc_part: regfile
          | flow
-         | function
          | static
 
 // Data types
@@ -111,9 +107,6 @@ data_type: VARTYPE                                      -> single_type
          | KW_INSTANCE                                  -> instance_type
 
 compound_type: data_type                               -> basic_type
-             | KW_FN LPAREN compound_type_list RPAREN ARROW LPAREN compound_type_list RPAREN -> fn_type
-
-compound_type_list: compound_type (COMMA compound_type)*
 
 // Function arguments
 fn_arg: IDENTIFIER COLON compound_type
@@ -123,14 +116,8 @@ fn_arg_list: fn_arg (COMMA fn_arg)*
 // With binding for loops
 with_binding: IDENTIFIER COLON VARTYPE ASSIGN LPAREN expr? COMMA expr? RPAREN
 
-// Function definition
-function: KW_FN IDENTIFIER LPAREN fn_arg_list? RPAREN ARROW LPAREN compound_type_list? RPAREN body
-
-// Thread definition
-thread: KW_THREAD IDENTIFIER body
-
 // Static variable
-static: KW_STATIC IDENTIFIER COLON data_type (ASSIGN expr)? SEMICOLON
+static: attribute* KW_STATIC IDENTIFIER COLON data_type (ASSIGN expr)? SEMICOLON
 
 // Statements
 stmt: expr SEMICOLON                                   -> expr_stmt
@@ -139,10 +126,8 @@ stmt: expr SEMICOLON                                   -> expr_stmt
     | LBRACKET expr RBRACKET COLON stmt               -> guard_stmt
     | KW_WITH with_binding* KW_DO body KW_WHILE expr SEMICOLON -> do_while_stmt
     | LBRACKET_BRACKET IDENTIFIER (LPAREN expr RPAREN)? RBRACKET_BRACKET -> directive_stmt
-    | function                                        -> function_stmt
     | KW_SPAWN LBRACE stmt* RBRACE                    -> spawn_stmt
     | static                                          -> static_stmt
-    | thread                                          -> thread_stmt
 
 // Body (either empty or block)
 body: SEMICOLON                                        -> empty_body
@@ -206,8 +191,9 @@ regfile: KW_REGFILE IDENTIFIER LPAREN NUMBER_LIT COMMA NUMBER_LIT RPAREN SEMICOL
            | OP_BIT_NOT postfix_expr     -> bit_not_op
            | postfix_expr
 
-?postfix_expr: postfix_expr LBRACKET expr_list RBRACKET     -> index_expr
-             | postfix_expr LBRACKET expr COLON expr RBRACKET -> slice_expr
+?postfix_expr: postfix_expr LBRACKET expr_list RBRACKET                -> index_expr
+             | postfix_expr LBRACKET add_expr COLON add_expr RBRACKET  -> slice_expr
+             | postfix_expr LBRACKET add_expr OP_PLUS COLON add_expr? RBRACKET -> range_slice_expr
              | primary_expr
 
 primary_expr: LPAREN expr_list RPAREN                      -> paren_expr
@@ -224,11 +210,8 @@ primary_expr: LPAREN expr_list RPAREN                      -> paren_expr
             | INT_CAST LPAREN expr RPAREN                  -> int_cast
             | UINT_CAST LPAREN expr RPAREN                 -> uint_cast
             | KW_IF expr LBRACE expr RBRACE KW_ELSE LBRACE expr RBRACE -> if_expr
-            | KW_MATCH expr LBRACE match_arm+ RBRACE        -> match_expr
             | KW_SEL LBRACE sel_arm+ RBRACE                 -> select_expr
             | LBRACE expr_list RBRACE                       -> aggregate_expr
-
-match_arm: expr FAT_ARROW expr COMMA
 
 sel_arm: expr COLON expr COMMA
 
