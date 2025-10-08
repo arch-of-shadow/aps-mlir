@@ -43,18 +43,12 @@ class StringLitExpr(Expr):
     """String literal expression"""
     value: str
 
-    def __str__(self) -> str:
-        return f'"{self.value}"'
-
 
 @dataclass
 class ComplexExpr(Expr):
     """Complex number expression"""
     real: Expr
     imag: Expr
-
-    def __str__(self) -> str:
-        return f"({self.real} + {self.imag}i)"
 
 
 @dataclass
@@ -128,21 +122,16 @@ class SliceExpr(Expr):
     expr: Expr
     start: Expr
     end: Expr
-
+    
     def __str__(self) -> str:
         return f"{self.expr}[{self.start}:{self.end}]"
 
 
 @dataclass
-class RangeSliceExpr(Expr):
-    """Range slicing expression with +: operator (e.g., arr[start +: length])"""
+class MatchExpr(Expr):
+    """Match expression"""
     expr: Expr
-    start: Expr
-    length: Optional[Expr] = None
-
-    def __str__(self) -> str:
-        length_str = str(self.length) if self.length else ""
-        return f"{self.expr}[{self.start} +: {length_str}]"
+    arms: List[tuple[Expr, Expr]]
 
 
 @dataclass
@@ -150,10 +139,6 @@ class SelectExpr(Expr):
     """Select expression"""
     arms: List[tuple[Expr, Expr]]
     default: Expr
-
-    def __str__(self) -> str:
-        arms_str = ", ".join(f"{cond}:{val}" for cond, val in self.arms)
-        return f"sel {{{arms_str}, default:{self.default}}}"
 
 
 @dataclass
@@ -163,18 +148,11 @@ class IfExpr(Expr):
     then_branch: Expr
     else_branch: Expr
 
-    def __str__(self) -> str:
-        return f"if {self.condition} {{{self.then_branch}}} else {{{self.else_branch}}}"
-
 
 @dataclass
 class AggregateExpr(Expr):
     """Aggregate expression (like struct literals)"""
     elements: List[Expr]
-
-    def __str__(self) -> str:
-        elements_str = ", ".join(str(e) for e in self.elements)
-        return f"{{{elements_str}}}"
 
 
 # Binary operators
@@ -306,16 +284,24 @@ class CompoundType:
         """Convert to basic type - matches Rust as_basic() method"""
         if isinstance(self, CompoundType_Basic):
             return self.data_type
+        elif isinstance(self, CompoundType_FnTy):
+            raise RuntimeError("Cannot convert function type to basic type")
         else:
             raise RuntimeError(f"Unknown CompoundType variant: {type(self)}")
 
 @dataclass
 class CompoundType_Basic(CompoundType):
-    """Basic compound type - CompoundType::Basic(DataType)"""
+    """Basic compound type - CompoundType::Basic(DataType)"""  
     data_type: DataType
-
+    
     def __str__(self) -> str:
         return str(self.data_type)
+
+@dataclass
+class CompoundType_FnTy(CompoundType):
+    """Function compound type - CompoundType::FnTy(Vec<CompoundType>, Vec<CompoundType>)"""
+    args: List['CompoundType']
+    ret: List['CompoundType']
 
 
 # Literal System - matches literal.rs
@@ -391,21 +377,11 @@ class ForStmt(Stmt):
     update: Stmt
     body: List[Stmt]
 
-    def __str__(self) -> str:
-        lines = [f"for ({self.init}; {self.condition}; {self.update}) {{"]
-        for stmt in self.body:
-            lines.append(f"  {stmt}")
-        lines.append("}")
-        return "\n".join(lines)
-
 
 @dataclass
 class StaticStmt(Stmt):
     """Static variable declaration statement"""
     static: 'Static'
-
-    def __str__(self) -> str:
-        return f"{self.static}"
 
 
 @dataclass
@@ -413,9 +389,6 @@ class GuardStmt(Stmt):
     """Guard statement (conditional execution)"""
     condition: Expr
     stmt: Stmt
-
-    def __str__(self) -> str:
-        return f"[{self.condition}]: {self.stmt}"
 
 
 @dataclass
@@ -425,17 +398,6 @@ class DoWhileStmt(Stmt):
     body: List[Stmt]
     condition: Expr
 
-    def __str__(self) -> str:
-        lines = []
-        if self.bindings:
-            bindings_str = ", ".join(str(b) for b in self.bindings)
-            lines.append(f"with {bindings_str}")
-        lines.append("do {")
-        for stmt in self.body:
-            lines.append(f"  {stmt}")
-        lines.append(f"}} while {self.condition};")
-        return "\n".join(lines)
-
 
 @dataclass
 class DirectiveStmt(Stmt):
@@ -443,9 +405,11 @@ class DirectiveStmt(Stmt):
     name: str
     expr: Optional[Expr] = None
 
-    def __str__(self) -> str:
-        expr_str = f"({self.expr})" if self.expr else ""
-        return f"[[{self.name}{expr_str}]]"
+
+@dataclass
+class FunctionStmt(Stmt):
+    """Function declaration statement"""
+    function: 'Function'
 
 
 @dataclass
@@ -453,12 +417,12 @@ class SpawnStmt(Stmt):
     """Spawn statement (parallel execution)"""
     stmts: List[Stmt]
 
-    def __str__(self) -> str:
-        lines = ["spawn {"]
-        for stmt in self.stmts:
-            lines.append(f"  {stmt}")
-        lines.append("}")
-        return "\n".join(lines)
+
+@dataclass
+class ThreadStmt(Stmt):
+    """Thread statement"""
+    thread: 'Thread'
+
 
 # Function-related structures
 @dataclass
@@ -469,20 +433,31 @@ class WithBinding:
     init: Optional[Expr] = None
     next: Optional[Expr] = None
 
-    def __str__(self) -> str:
-        init_str = str(self.init) if self.init else ""
-        next_str = str(self.next) if self.next else ""
-        return f"{self.id}: {self.ty} = ({init_str}, {next_str})"
-
 
 @dataclass
 class FnArg:
-    """Function argument (used for flows)"""
+    """Function argument"""
     id: str
     ty: CompoundType
 
+
+@dataclass
+class Function:
+    """Function definition"""
+    name: str
+    args: List[FnArg]
+    ret: List[CompoundType]
+    body: List[Stmt] = field(default_factory=list)
+
     def __str__(self) -> str:
-        return f"{self.id}: {self.ty}"
+        """Pretty print function"""
+        args = ", ".join(f"{arg.id}: {arg.ty}" for arg in self.args)
+        rets = ", ".join(str(ret) for ret in self.ret)
+        lines = [f"fn {self.name}({args}) -> ({rets}) {{"]
+        for stmt in self.body:
+            lines.append(f"  {stmt}")
+        lines.append("}")
+        return "\n".join(lines)
 
 
 @dataclass
@@ -491,24 +466,21 @@ class Static:
     id: str
     ty: DataType
     expr: Optional[Expr] = None
-    attrs: Dict[str, Optional[Expr]] = field(default_factory=dict)
 
     def __str__(self) -> str:
         """Pretty print static variable"""
-        attrs_str = ""
-        if self.attrs:
-            attr_list = []
-            for name, value in self.attrs.items():
-                if value is not None:
-                    attr_list.append(f"#[{name}({value})]")
-                else:
-                    attr_list.append(f"#[{name}]")
-            attrs_str = " ".join(attr_list) + " "
-
         if self.expr:
-            return f"{attrs_str}{self.id}: {self.ty} = {self.expr}"
+            return f"{self.id}: {self.ty} = {self.expr}"
         else:
-            return f"{attrs_str}{self.id}: {self.ty}"
+            return f"{self.id}: {self.ty}"
+
+
+@dataclass
+class Thread:
+    """Thread definition"""
+    id: str
+    body: List[Stmt] = field(default_factory=list)
+
 
 # Flow-related structures
 class FlowKind(Enum):
@@ -617,6 +589,12 @@ class FlowPart(ProcPart):
 
 
 @dataclass
+class FunctionPart(ProcPart):
+    """Function processor part"""
+    function: Function
+
+
+@dataclass
 class StaticPart(ProcPart):
     """Static processor part"""
     static: Static
@@ -627,6 +605,7 @@ class Proc:
     """Main processor structure"""
     regfiles: Map[str, Regfile] = field(default_factory=dict)
     flows: Map[str, Flow] = field(default_factory=dict)
+    functions: Map[str, Function] = field(default_factory=dict)
     statics: Map[str, Static] = field(default_factory=dict)
 
     def get_flows(self) -> List[Flow]:
@@ -639,6 +618,8 @@ class Proc:
             self.regfiles[part.regfile.name] = part.regfile
         elif isinstance(part, FlowPart):
             self.flows[part.flow.name] = part.flow
+        elif isinstance(part, FunctionPart):
+            self.functions[part.function.name] = part.function
         elif isinstance(part, StaticPart):
             self.statics[part.static.id] = part.static
     
@@ -648,6 +629,8 @@ class Proc:
             parts.append(f"{len(self.regfiles)} regfiles")
         if self.flows:
             parts.append(f"{len(self.flows)} flows")
+        if self.functions:
+            parts.append(f"{len(self.functions)} functions")
         if self.statics:
             parts.append(f"{len(self.statics)} statics")
         return f"Proc({', '.join(parts)})"
@@ -665,6 +648,13 @@ class Proc:
             lines.append("  Static Variables:")
             for static in self.statics.values():
                 lines.append(f"    {static}")
+
+        if self.functions:
+            lines.append("  Functions:")
+            for func in self.functions.values():
+                func_lines = str(func).split('\n')
+                for line in func_lines:
+                    lines.append(f"    {line}")
 
         if self.flows:
             lines.append("  Flows:")
@@ -687,7 +677,7 @@ class Proc:
 # Helper methods for expressions
 def expr_is_lval(expr: Expr) -> bool:
     """Check if expression is an lvalue"""
-    return isinstance(expr, (IdentExpr, IndexExpr, SliceExpr, RangeSliceExpr))
+    return isinstance(expr, (IdentExpr, IndexExpr, SliceExpr))
 
 
 def expr_as_literal(expr: Expr) -> Optional[str]:

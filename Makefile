@@ -42,10 +42,6 @@ parse-summary:
 	@if [ -z "$(FILE)" ]; then echo "Usage: make parse-summary FILE=path/to/file.cadl"; exit 1; fi
 	pixi run parse-summary $(FILE)
 
-mlir:
-	@if [ -z "$(FILE)" ]; then echo "Usage: make mlir FILE=path/to/file.cadl"; exit 1; fi
-	pixi run mlir $(FILE)
-
 lint:
 	pixi run mypy cadl_frontend/ || echo "mypy not configured yet"
 	pixi run isort --check-only cadl_frontend/ tests/ || echo "isort not available"
