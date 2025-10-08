@@ -5,6 +5,8 @@
 
 #include "Schedule/CDFG.h"
 #include "TOR/TOR.h"
+#include "APS/APSDialect.h"
+#include "APS/APSOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinOps.h"
 
@@ -209,6 +211,23 @@ namespace scheduling {
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
 
+            } else if (auto readRfOp = llvm::dyn_cast<aps::CpuRfRead>(op)) {
+                // Handle APS CPU register file read as a regular operation
+                Value result = readRfOp.getResult();
+                SmallVector<Value, 4> operands;
+                operands.push_back(readRfOp.getRs());
+                
+                // Create as a regular operation, not a memory operation
+                OpAbstract *newOpA = createOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    operands,
+                    OpAbstract::OpType::DEFINED_OP
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+
             } else if (auto storeOp = llvm::dyn_cast<tor::StoreOp>(op)) {
 
                 Value mem = storeOp.getMemref();
@@ -270,6 +289,22 @@ namespace scheduling {
                 OpAbstract *newOpA = createMemOp(
                         &op, parentLoop, lastHead, std::vector<Value>{mem}, operands,
                         OpAbstract::OpType::STORE_OP, signatures, distances, storageType);
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+
+            } else if (auto writeRfOp = llvm::dyn_cast<aps::CpuRfWrite>(op)) {
+                // Handle APS CPU register file write as a regular operation
+                SmallVector<Value, 4> operands;
+                operands.push_back(writeRfOp.getRd());
+                operands.push_back(writeRfOp.getValue());
+                
+                // Create as a regular operation, not a memory operation
+                OpAbstract *newOpA = createOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{},  // No result for write
+                    operands,
+                    OpAbstract::OpType::DEFINED_OP
+                );
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
 
@@ -489,8 +524,17 @@ namespace scheduling {
                         continue;
                     } // otherwise is phi in an ifop
                 }
-                for (auto v: op->getOperands())
-                    addDependency(Dependence(ValueMap[v], op, 0, Dependence::D_RAW));
+                for (auto v: op->getOperands()) {
+                    if (ValueMap.find(v) != ValueMap.end()) {
+                        llvm::errs() << "Adding RAW dependency: " 
+                                     << ValueMap[v]->getOp()->getName() << " -> " 
+                                     << op->getOp()->getName() << "\n";
+                        addDependency(Dependence(ValueMap[v], op, 0, Dependence::D_RAW));
+                    } else {
+                        llvm::errs() << "WARNING: Value not found in ValueMap for op " 
+                                     << op->getOp()->getName() << "\n";
+                    }
+                }
             }
         }
     }

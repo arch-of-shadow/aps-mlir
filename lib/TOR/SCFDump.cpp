@@ -11,6 +11,8 @@
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/Support/Debug.h"
 
+#include "APS/APSDialect.h"
+#include "APS/APSOps.h"
 #include "TOR/TORDialect.h"
 #include "TOR/PassDetail.h"
 #include "TOR/Passes.h"
@@ -254,7 +256,18 @@ namespace {
                 j["value"] = get_value(storeOp.getValue());
                 j["guard"] = get_value(storeOp.getGuard());
             } else if (isa<tor::StreamCreateOp, tor::StreamReadOp, tor::StreamWriteOp>(op)) {
-                
+
+            } else if (auto readRfOp = dyn_cast<aps::CpuRfRead>(op)) {
+                j["op_type"] = "readrf";
+                j["name"] = get_dump(readRfOp);
+                j["type"] = get_type(readRfOp.getResult().getType());
+                j["operands"] = json::array();
+                j["operands"].push_back(get_value(readRfOp.getOperand()));
+            } else if (auto writeRfOp = dyn_cast<aps::CpuRfWrite>(op)) {
+                j["op_type"] = "writerf";
+                j["operands"] = json::array();
+                j["operands"].push_back(get_value(writeRfOp.getOperand(0)));
+                j["operands"].push_back(get_value(writeRfOp.getOperand(1)));
             } else {
                 // int
                 OPERATION(AddIOp, "add")

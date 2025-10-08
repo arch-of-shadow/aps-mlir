@@ -311,6 +311,9 @@ void SDCSchedule::allocVariable(Loop *L, SDCSolver *SDC) {
     for (auto op : BB->getOperations()) {
       auto sdcOp = llvm::dyn_cast<SDCOpWrapper>(op);
       sdcOp->VarId = SDC->addVariable();
+      llvm::errs() << "Assigning Var" << sdcOp->VarId 
+                   << " to op " << sdcOp->getOp()->getName().getStringRef()
+                   << " resource=" << sdcOp->getResource() << "\n";
     }
 }
 
@@ -1232,9 +1235,13 @@ SDCSolver *SDCSchedule::formulateSDC() {
           }
         }
         if(u){
+          int latency = RDB.getLatency(predOp->getResource(), predOp->getWidth());
+          llvm::errs() << "Adding SDC constraint: Var" << succOp->VarId 
+                       << " >= Var" << predOp->VarId << " + " << latency
+                       << " (" << predOp->getOp()->getName().getStringRef() << " -> "
+                       << succOp->getOp()->getName().getStringRef() << ")\n";
           SDC->addInitialConstraint(Constraint::CreateGE(
-            succOp->VarId, predOp->VarId,
-            RDB.getLatency(predOp->getResource(), predOp->getWidth())));
+            succOp->VarId, predOp->VarId, latency));
         }
         
       }
@@ -1913,8 +1920,11 @@ LogicalResult SDCSchedule::runSchedule() {
 
   for (auto &&sdcOp : SDCOperations)
     if (sdcOp->getParentLoop() == nullptr ||
-        sdcOp->getParentLoop()->PipelineFlag == false)
+        sdcOp->getParentLoop()->PipelineFlag == false) {
       sdcOp->SDCTime = SDC->Solution[sdcOp->VarId];
+      llvm::errs() << "SDC Result: Var" << sdcOp->VarId << " = " << sdcOp->SDCTime
+                   << " (" << sdcOp->getOp()->getName().getStringRef() << ")\n";
+    }
 
   assignSlotAttrAfterSchedule();
   return success();

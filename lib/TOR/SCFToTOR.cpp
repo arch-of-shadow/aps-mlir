@@ -20,6 +20,8 @@
 #include "TOR/PassDetail.h"
 #include "TOR/Passes.h"
 #include "TOR/Utils.h"
+#include "APS/APSDialect.h"
+#include "APS/APSOps.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <set>
@@ -156,6 +158,86 @@ namespace {
     using SIToFPOpConversion = SimpleOpConversion<SIToFPOp>;
     using ShRSIOpConversion = SimpleOpConversion<ShRSIOp>;
     using ShRUIOpConversion = SimpleOpConversion<ShRUIOp>;
+
+    // APS dialect operations conversion
+    struct CpuRfReadConversion : public OpConversionPattern<aps::CpuRfRead> {
+        using OpConversionPattern<aps::CpuRfRead>::OpConversionPattern;
+
+        LogicalResult
+        matchAndRewrite(aps::CpuRfRead op, aps::CpuRfRead::Adaptor adaptor,
+                        ConversionPatternRewriter &rewriter) const override {
+            // Clone the operation and add timing attributes
+            rewriter.setInsertionPoint(op);
+            auto newOp = rewriter.create<aps::CpuRfRead>(
+                op.getLoc(), op.getResult().getType(), adaptor.getOperands());
+            
+            // Copy existing attributes
+            for (auto attr : op->getAttrs()) {
+                newOp->setAttr(attr.getName(), attr.getValue());
+            }
+            
+            // Add timing attributes if not present
+            if (!op->hasAttr("starttime")) {
+                newOp->setAttr("starttime",
+                    mlir::IntegerAttr::get(
+                        mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Signless), 0));
+            }
+            if (!op->hasAttr("endtime")) {
+                newOp->setAttr("endtime",
+                    mlir::IntegerAttr::get(
+                        mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Signless), 0));
+            }
+            
+            // Add dump attribute if not present
+            if (!op->hasAttr("dump")) {
+                newOp->setAttr("dump", StringAttr::get(rewriter.getContext(), get_tmp_attr().c_str()));
+            }
+            
+            rewriter.replaceOp(op, newOp->getResults());
+            return success();
+        }
+    };
+
+    struct CpuRfWriteConversion : public OpConversionPattern<aps::CpuRfWrite> {
+        using OpConversionPattern<aps::CpuRfWrite>::OpConversionPattern;
+
+        LogicalResult
+        matchAndRewrite(aps::CpuRfWrite op, aps::CpuRfWrite::Adaptor adaptor,
+                        ConversionPatternRewriter &rewriter) const override {
+            // Clone the operation and add timing attributes
+            rewriter.setInsertionPoint(op);
+            auto operands = adaptor.getOperands();
+            // CpuRfWrite expects two operands: rd (address) and value (data)
+            assert(operands.size() == 2 && "CpuRfWrite expects 2 operands");
+            auto newOp = rewriter.create<aps::CpuRfWrite>(
+                op.getLoc(), operands[0], operands[1]);
+            
+            // Copy existing attributes
+            for (auto attr : op->getAttrs()) {
+                newOp->setAttr(attr.getName(), attr.getValue());
+            }
+            
+            // Add timing attributes if not present
+            if (!op->hasAttr("starttime")) {
+                newOp->setAttr("starttime",
+                    mlir::IntegerAttr::get(
+                        mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Signless), 0));
+            }
+            if (!op->hasAttr("endtime")) {
+                newOp->setAttr("endtime",
+                    mlir::IntegerAttr::get(
+                        mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Signless), 0));
+            }
+            
+            // Add dump attribute if not present
+            if (!op->hasAttr("dump")) {
+                newOp->setAttr("dump", StringAttr::get(rewriter.getContext(), get_tmp_attr().c_str()));
+            }
+            
+            rewriter.replaceOp(op, newOp->getResults());
+            return success();
+        }
+    };
 
     struct IndexCastOpRemoval : public OpConversionPattern<IndexCastOp> {
         using OpConversionPattern<IndexCastOp>::OpConversionPattern;
@@ -746,6 +828,16 @@ namespace {
                 IndexTypeConverter converter;
 
                 target.addLegalDialect<tor::TORDialect>();
+                target.addLegalDialect<aps::APSDialect>();
+                
+                // APS operations need timing attributes
+                target.addDynamicallyLegalOp<aps::CpuRfRead>([](aps::CpuRfRead op) {
+                    return op->hasAttr("starttime") && op->hasAttr("endtime");
+                });
+                target.addDynamicallyLegalOp<aps::CpuRfWrite>([](aps::CpuRfWrite op) {
+                    return op->hasAttr("starttime") && op->hasAttr("endtime");
+                });
+                
                 auto hasIndexType = [](Operation *op) {
                     if (llvm::any_of(op->getOperandTypes(), [&](auto tpe) { return isa<IndexType>(tpe); })) {
                         return false;
@@ -755,14 +847,6 @@ namespace {
                     }
                     return true;
                 };
-                // // 声明算术操作是 illegal，必须转换成 TOR dialect
-                // target.addIllegalOp<AddIOp, SubIOp, MulIOp>();
-                // target.addIllegalOp<AddFOp, SubFOp, MulFOp, DivFOp>();
-                // target.addIllegalOp<CmpIOp, CmpFOp>();
-                
-                // // 声明 SCF 控制流操作也是 illegal
-                // target.addIllegalOp<scf::ForOp, scf::WhileOp, scf::IfOp>();
-                // target.addIllegalOp<scf::YieldOp, scf::ConditionOp>();
                 
                 target.addDynamicallyLegalOp<DivUIOp>(hasIndexType);
                 target.addDynamicallyLegalOp<DivSIOp>(hasIndexType);
@@ -795,7 +879,8 @@ namespace {
                         DivUIOpConversion, DivSIOpConversion, RemUIOpConversion, RemSIOpConversion, SIToFPOpConversion,
                         ShRSIOpConversion, ShRUIOpConversion,
                         ShiftLeftConversionPattern, OrIConversionPattern, SelectConversionPattern,
-                        LoadOpConversion, StoreOpConversion, GuardedStoreOpConversion, IndexCastOpConversion, IndexCastOpRemoval
+                        LoadOpConversion, StoreOpConversion, GuardedStoreOpConversion, IndexCastOpConversion, IndexCastOpRemoval,
+                        CpuRfReadConversion, CpuRfWriteConversion
                         /*MoveConstantUp, CallOpConversion*/>(converter, &getContext());
 
                 patterns.add<ForOpConversion>(converter, &getContext(), pipeline);

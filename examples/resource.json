@@ -45,6 +45,52 @@
     "constr": 1,
     "amount": 1
   },
+  "readrf": {
+    "delay": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "latency": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "II": 1,
+    "constr": 0,
+    "amount": -1
+  },
+  "writerf": {
+    "delay": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "latency": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "II": 1,
+    "constr": 0,
+    "amount": -1
+  },
   "select": {
     "delay": [
       0.784,
