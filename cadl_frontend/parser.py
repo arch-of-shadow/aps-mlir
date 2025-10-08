@@ -465,8 +465,27 @@ class CADLTransformer(Transformer):
         return IfExpr(condition, then_branch, else_branch)
 
     def select_expr(self, items):
-        arms = items[:-1]
-        default = items[-1]
+        # Grammar: KW_SEL LBRACE sel_arm+ RBRACE
+        # items[0] = KW_SEL token
+        # items[1] = LBRACE token
+        # items[2:-1] = sel_arm tuples (condition, value)
+        # items[-1] = RBRACE token
+
+        # Filter out tokens, keep only sel_arm tuples
+        arms_raw = [item for item in items if isinstance(item, tuple)]
+
+        if len(arms_raw) == 0:
+            raise ValueError("select expression must have at least one arm")
+
+        if len(arms_raw) == 1:
+            # Only one arm - use it as default with no conditional arms
+            arms = []
+            default = arms_raw[0][1]  # Value part of the only arm
+        else:
+            # Multiple arms - all but last are conditional, last is default
+            arms = arms_raw[:-1]  # List of (condition, value) tuples
+            default = arms_raw[-1][1]  # Value part of last arm (ignore its condition)
+
         return SelectExpr(arms, default)
 
     def aggregate_expr(self, items):
@@ -475,7 +494,12 @@ class CADLTransformer(Transformer):
         return AggregateExpr(expr_list)
 
     def sel_arm(self, items):
-        return (items[0], items[1])
+        # Grammar: expr COLON expr COMMA
+        # items[0] = condition expr
+        # items[1] = COLON token
+        # items[2] = value expr
+        # items[3] = COMMA token
+        return (items[0], items[2])
 
     def expr_list(self, items):
         # Filter out COMMA tokens, keep only expressions
@@ -544,8 +568,10 @@ class CADLTransformer(Transformer):
         return DoWhileStmt(bindings, body, condition)
 
     def directive_stmt(self, items):
-        name = str(items[0])
-        expr = items[1] if len(items) > 1 else None
+        # Grammar: LBRACKET_BRACKET IDENTIFIER (LPAREN expr RPAREN)? RBRACKET_BRACKET
+        # items[0] = [[, items[1] = IDENTIFIER, items[2] = (, items[3] = expr, items[4] = ), items[5] = ]]
+        name = str(items[1])  # IDENTIFIER is at index 1
+        expr = items[3] if len(items) > 4 else None  # expr is at index 3 if present (after LPAREN)
         return DirectiveStmt(name, expr)
 
     def spawn_stmt(self, items):

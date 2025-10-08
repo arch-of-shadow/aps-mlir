@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 # MLIR Python bindings
 import circt
 import circt.ir as ir
+
+# Loop transformation module
+from .loop_transform import LoopTransformer
 import circt.dialects.func as func
 import circt.dialects.arith as arith
 import circt.dialects.scf as scf
@@ -32,7 +35,7 @@ from .ast import (
     DataType_Single, DataType_Array, DataType_Instance,
     CompoundType_Basic,
     LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, AggregateExpr, StringLitExpr,
-    AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt,
+    AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt, DirectiveStmt, WithBinding,
     BinaryOp, UnaryOp, FlowKind
 )
 
@@ -90,6 +93,15 @@ class CADLMLIRConverter:
 
         # Cache for global references within current function
         self.current_global_refs: Dict[str, ir.Value] = {}
+
+        # Track constant variables (name -> constant value)
+        self.constant_vars: Dict[str, int] = {}
+
+        # Track pending directives for next statement
+        self.pending_directives: List[DirectiveStmt] = []
+
+        # Loop transformer
+        self.loop_transformer = LoopTransformer(self)
 
     def _load_dialects(self) -> None:
         """Load required MLIR and CIRCT dialects"""
@@ -259,12 +271,6 @@ class CADLMLIRConverter:
 
         elif isinstance(cadl_type, CompoundType_Basic):
             return self.convert_cadl_type(cadl_type.data_type)
-
-        elif isinstance(cadl_type, CompoundType_FnTy):
-            # Function types need special handling
-            arg_types = [self.convert_cadl_type(arg) for arg in cadl_type.args]
-            ret_types = [self.convert_cadl_type(ret) for ret in cadl_type.ret]
-            return ir.FunctionType.get(arg_types, ret_types)
 
         else:
             raise NotImplementedError(f"Unsupported CADL type: {type(cadl_type)}")
@@ -563,6 +569,17 @@ class CADLMLIRConverter:
                 self._convert_burst_operation(stmt)
                 return
 
+            # Track constant assignments for loop analysis
+            if isinstance(stmt.lhs, IdentExpr):
+                if isinstance(stmt.rhs, LitExpr):
+                    # This is a constant assignment
+                    if hasattr(stmt.rhs.literal.lit, 'value'):
+                        self.constant_vars[stmt.lhs.name] = stmt.rhs.literal.lit.value
+                else:
+                    # This is a non-constant assignment - invalidate if previously constant
+                    if stmt.lhs.name in self.constant_vars:
+                        del self.constant_vars[stmt.lhs.name]
+
             # Convert RHS expression
             rhs_value = self._convert_expr(stmt.rhs)
 
@@ -586,10 +603,17 @@ class CADLMLIRConverter:
         elif isinstance(stmt, DoWhileStmt):
             # Use scf.while as advised - perfect semantic match
             self._convert_do_while(stmt)
+            # Clear directives after applying to loop
+            self.pending_directives = []
 
         elif isinstance(stmt, ForStmt):
             # Convert for loops using scf.for
             self._convert_for_loop(stmt)
+
+        elif isinstance(stmt, DirectiveStmt):
+            # Directives are hints/pragmas - collect them for next statement
+            # e.g., [[unroll(4)]] will be applied to the following loop
+            self.pending_directives.append(stmt)
 
         else:
             raise NotImplementedError(f"Statement type not yet supported: {type(stmt)}")
@@ -763,98 +787,29 @@ class CADLMLIRConverter:
             dummy_type = ir.IntegerType.get_signless(32)
             return arith.ConstantOp(dummy_type, 0).result
 
+
     def _convert_do_while(self, stmt: DoWhileStmt) -> None:
         """
-        Convert do-while loop to scf.while operation
+        Convert do-while loop to scf.while or scf.for operation
 
         CADL do-while semantics: body executes at least once, condition checked after.
         The condition uses variables defined in the body (like i_).
 
-        We use scf.while with a first_iteration flag to ensure at least one execution.
+        If the loop matches a for-loop pattern, emit scf.for directly.
+        Otherwise, use scf.while with a first_iteration flag to ensure at least one execution.
         """
-        # Handle with bindings (loop variables with init/next values)
-        init_values = []
-        loop_var_types = []
+        # First, validate that only loop-carried variables are modified in body
+        self.loop_transformer.validate_loop_body_assignments(stmt)
 
-        for binding in stmt.bindings:
-            # Convert initial value if provided
-            if binding.init:
-                init_val = self._convert_expr(binding.init)
-                init_values.append(init_val)
-                loop_var_types.append(init_val.type)
-            else:
-                # Default initialization for the type
-                var_type = self.convert_cadl_type(binding.ty)
-                zero_val = arith.ConstantOp(var_type, 0).result
-                init_values.append(zero_val)
-                loop_var_types.append(var_type)
+        # Analyze the pattern and try to raise to scf.for
+        for_pattern = self.loop_transformer.analyze_and_detect_for_pattern(stmt)
 
-        # Add a boolean flag to track first iteration
-        bool_type = ir.IntegerType.get_signless(1)
-        true_val = arith.ConstantOp(bool_type, 1).result
-        init_values.append(true_val)
-        loop_var_types.append(bool_type)
-
-        # Create scf.while operation
-        while_op = scf.WhileOp(loop_var_types, init_values)
-
-        # Before region: check if we should continue
-        before_block = while_op.before.blocks.append(*loop_var_types)
-        with ir.InsertionPoint(before_block):
-            # Get the first_iteration flag (last argument)
-            first_iter = before_block.arguments[-1]
-
-            # For do-while, we always continue on first iteration
-            # Otherwise, we need to check the condition based on the current values
-
-            # If it's the first iteration, always continue
-            # Otherwise, the condition has already been evaluated with the new values
-            # So we just pass through the values
-            scf.ConditionOp(first_iter, before_block.arguments)
-
-        # After region: execute loop body and check condition
-        after_block = while_op.after.blocks.append(*loop_var_types)
-        with ir.InsertionPoint(after_block):
-            # Push scope for loop body
-            self.push_scope()
-
-            # Update loop variables with block arguments (excluding the flag)
-            for i, binding in enumerate(stmt.bindings):
-                self.set_symbol(binding.id, after_block.arguments[i])
-
-            # Execute loop body - this defines i_, sum_, n_ etc.
-            self._convert_stmt_list(stmt.body)
-
-            # Now evaluate the condition using variables defined in the body
-            condition_val = self._convert_expr(stmt.condition)
-
-            # Compute next values for loop variables from bindings
-            next_values = []
-            for binding in stmt.bindings:
-                if binding.next:
-                    # The next expression references variables defined in the body
-                    if isinstance(binding.next, IdentExpr):
-                        next_val = self.get_symbol(binding.next.name)
-                    else:
-                        next_val = self._convert_expr(binding.next)
-                    next_values.append(next_val)
-                else:
-                    # Keep current value if no next expression
-                    current_val = self.get_symbol(binding.id)
-                    next_values.append(current_val)
-
-            # Pass the condition as the new first_iteration flag
-            # This way, the before region will check it on the next iteration
-            next_values.append(condition_val)
-
-            # Yield the next values
-            scf.YieldOp(next_values)
-            self.pop_scope()
-
-        # Make loop variables available in the parent scope (exclude the flag)
-        for i, binding in enumerate(stmt.bindings):
-            if while_op.results and i < len(while_op.results) - 1:
-                self.set_symbol(binding.id, while_op.results[i])
+        if for_pattern:
+            # Emit scf.for directly
+            self.loop_transformer.emit_scf_for(stmt, for_pattern)
+        else:
+            # Fallback to scf.while
+            self.loop_transformer.emit_scf_while(stmt)
 
     def _convert_for_loop(self, stmt: ForStmt) -> None:
         """Convert for loop to appropriate MLIR constructs"""
