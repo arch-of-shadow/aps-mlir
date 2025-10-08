@@ -164,7 +164,7 @@ class TestLoopStatements:
         rtype test_loop() {
             with i: u8 = (0, i + 1) do {
                 let x: u32 = i * 2;
-            } while i < 10;
+            } while i_ < 10;
         }
         """
         ast = parse_proc(source)
@@ -179,35 +179,35 @@ class TestLoopStatements:
     def test_crc8_loop(self):
         """Test CRC8 loop with bitwise operations"""
         source = """
-        rtype crc8(data: u8) {
-            let crc: u8 = 0;
-
-            with i: u8 = (0, i + 1) do {
+        #[opcode(7'b0101011)]
+        #[funct7(7'b0000000)]
+        rtype crc8_type1(data: u8) {
+            with
+                i: u8 = (0, i_) 
+                crc: u8 = (0, crc_)
+            do {
                 let bit: u1 = (data >> i) & 1;
                 let xor_val: u8 = if bit == 1 {0x8C} else {0};
-                crc = crc ^ xor_val;
-                crc = crc << 1;
-            } while i < 8;
-
-            return (crc);
+                let crc_: u8 = crc ^ xor_val;
+                crc_ = crc_ << 1;
+                let i_: u8 = i + 1; // increment i
+            } while i_ < 8;
         }
         """
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
 
-        # Should have: let crc, do-while, return
-        assert len(flow.body) == 3
+        # Should have: do-while only (directives are attributes, not statements)
+        assert len(flow.body) == 1
 
         # Check do-while loop
-        do_while_stmt = flow.body[1]
+        do_while_stmt = flow.body[0]
         assert isinstance(do_while_stmt, DoWhileStmt)
 
         # Check that we have shift, XOR, AND operations in the loop body
+        # 5 statements: let bit, let xor_val, let crc_, crc_ reassignment, let i_
         loop_body = do_while_stmt.body
-        assert len(loop_body) == 4
-
-
-
+        assert len(loop_body) == 5
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

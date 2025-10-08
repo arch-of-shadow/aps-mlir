@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 # MLIR Python bindings
 import circt
 import circt.ir as ir
+
+# Loop transformation module
+from .loop_transform import LoopTransformer
 import circt.dialects.func as func
 import circt.dialects.arith as arith
 import circt.dialects.scf as scf
@@ -31,8 +34,8 @@ from .ast import (
     BasicType_String, BasicType_USize,
     DataType_Single, DataType_Array, DataType_Instance,
     CompoundType_Basic,
-    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, AggregateExpr, StringLitExpr,
-    AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt,
+    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, SelectExpr, AggregateExpr, StringLitExpr,
+    AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt, DirectiveStmt, WithBinding,
     BinaryOp, UnaryOp, FlowKind
 )
 
@@ -83,13 +86,20 @@ class CADLMLIRConverter:
         # Builder for generating operations
         self.builder: Optional[ir.InsertionPoint] = None
 
-        # CPU memory instance management
-        self.cpu_memory_instance: Optional[ir.Value] = None
-        self.functions_using_memory: set = set()  # Track which functions use _mem
-        self.global_memory_declared: bool = False  # Track if global memory is declared
-
         # Cache for global references within current function
         self.current_global_refs: Dict[str, ir.Value] = {}
+
+        # Track global operations (name -> GlobalOp) for type inference
+        self.global_ops: Dict[str, memref.GlobalOp] = {}
+
+        # Track constant variables (name -> constant value)
+        self.constant_vars: Dict[str, int] = {}
+
+        # Track pending directives for next statement
+        self.pending_directives: List[DirectiveStmt] = []
+
+        # Loop transformer
+        self.loop_transformer = LoopTransformer(self)
 
     def _load_dialects(self) -> None:
         """Load required MLIR and CIRCT dialects"""
@@ -122,22 +132,30 @@ class CADLMLIRConverter:
 
     def get_cpu_memory_instance(self) -> ir.Value:
         """Get reference to the global CPU memory instance"""
-        if not self.global_memory_declared:
+        if "_cpu_memory" not in self.global_ops:
             raise RuntimeError("Global CPU memory should be declared at module level before use")
 
-        # Get reference to the global memory using cached helper
-        element_type = ir.IntegerType.get_signless(32)
-        memory_size = 1024  # Must match the size used in _declare_global_memory
-        memory_type = memref.MemRefType.get([memory_size], element_type)
-        return self._get_global_reference("_cpu_memory", memory_type)
+        # Get reference to the global memory - type is read from the cached operation
+        return self._get_global_reference("_cpu_memory")
 
-    def set_cpu_memory_instance(self, memory_instance: ir.Value) -> None:
-        """Set the CPU memory instance for current function"""
-        self.cpu_memory_instance = memory_instance
+    def _get_global_reference(self, global_name: str) -> ir.Value:
+        """Get reference to global variable, with caching to avoid duplicates.
 
-    def _get_global_reference(self, global_name: str, memory_type: ir.Type) -> ir.Value:
-        """Get reference to global variable, with caching to avoid duplicates"""
+        Type is inferred from the cached GlobalOp that was created during declaration.
+        """
         if global_name not in self.current_global_refs:
+            # Get the type from the cached global op
+            if global_name not in self.global_ops:
+                raise RuntimeError(f"Global {global_name} not declared (no GlobalOp found)")
+
+            # Infer type from the GlobalOp's type attribute
+            # Note: global_op.type_ returns a TypeAttr, need to extract the actual Type
+            type_attr = self.global_ops[global_name].type_
+            if hasattr(type_attr, 'value'):
+                memory_type = type_attr.value
+            else:
+                memory_type = type_attr
+
             # Create new global reference and cache it
             global_ref = memref.GetGlobalOp(memory_type, global_name)
             self.current_global_refs[global_name] = global_ref.result
@@ -145,10 +163,9 @@ class CADLMLIRConverter:
 
     def _declare_global_memory(self) -> None:
         """Declare global CPU memory at module level using memref.global"""
-        if not self.global_memory_declared:
+        if "_cpu_memory" not in self.global_ops:
             # Create global memory using memref.global with static size
             element_type = ir.IntegerType.get_signless(32)
-            # Use static size (e.g., 1024 elements) instead of dynamic size
             memory_size = 1024
             memory_type = memref.MemRefType.get([memory_size], element_type)
 
@@ -156,9 +173,11 @@ class CADLMLIRConverter:
             global_name = "_cpu_memory"
             global_op = memref.GlobalOp(global_name, memory_type)
 
+            # Store the global op for type inference
+            self.global_ops[global_name] = global_op
+
             # Store the global reference for symbol resolution
             self.set_symbol("_cpu_memory", global_name)
-            self.global_memory_declared = True
 
     def _function_uses_memory(self, function) -> bool:
         """Check if a function uses _mem operations"""
@@ -244,8 +263,7 @@ class CADLMLIRConverter:
             return ir.F64Type.get()
 
         elif isinstance(cadl_type, BasicType_String):
-            # No direct string type in MLIR, use memref<i8> for now
-            return memref.MemRefType.get([ir.ShapedType.get_dynamic_size()], ir.IntegerType.get_signless(8))
+            raise NotImplementedError("String types are not supported in MLIR conversion")
 
         elif isinstance(cadl_type, BasicType_USize):
             return ir.IndexType.get()
@@ -259,12 +277,6 @@ class CADLMLIRConverter:
 
         elif isinstance(cadl_type, CompoundType_Basic):
             return self.convert_cadl_type(cadl_type.data_type)
-
-        elif isinstance(cadl_type, CompoundType_FnTy):
-            # Function types need special handling
-            arg_types = [self.convert_cadl_type(arg) for arg in cadl_type.args]
-            ret_types = [self.convert_cadl_type(ret) for ret in cadl_type.ret]
-            return ir.FunctionType.get(arg_types, ret_types)
 
         else:
             raise NotImplementedError(f"Unsupported CADL type: {type(cadl_type)}")
@@ -342,8 +354,8 @@ class CADLMLIRConverter:
         if initial_value is not None:
             # Single scalar initialization
             if isinstance(mlir_type, ir.MemRefType):
-                # This shouldn't happen for single values, but handle it
-                global_op = memref.GlobalOp(global_name, memref_type)
+                # This shouldn't happen - scalar initialization requires scalar type
+                raise RuntimeError(f"Scalar initialization provided for array type: {mlir_type}")
             else:
                 # Create attribute from the integer value for scalars
                 element_attr = ir.IntegerAttr.get(mlir_type, initial_value)
@@ -368,11 +380,14 @@ class CADLMLIRConverter:
                 # Create global with initialization
                 global_op = memref.GlobalOp(global_name, memref_type, initial_value=dense_attr, constant=True)
             else:
-                # This shouldn't happen for arrays, fallback to uninitialized
-                global_op = memref.GlobalOp(global_name, memref_type)
+                # This shouldn't happen - array initialization requires MemRefType
+                raise RuntimeError(f"Array initialization provided for non-array type: {mlir_type}")
         else:
             # Create uninitialized global
             global_op = memref.GlobalOp(global_name, memref_type)
+
+        # Store the global op for type inference
+        self.global_ops[global_name] = global_op
 
         # Add custom attributes if present
         if static.attrs:
@@ -422,65 +437,6 @@ class CADLMLIRConverter:
 
         # For other expression types, try to convert to string representation
         return ir.StringAttr.get(str(expr))
-
-    def _convert_function(self, function: Function) -> ir.Operation:
-        """Convert CADL Function to MLIR func.func operation"""
-        # Convert argument types - handle case where args might be empty or Token
-        if hasattr(function.args, '__iter__') and not isinstance(function.args, str):
-            # function.args is a proper list
-            arg_types = [self.convert_cadl_type(arg.ty) for arg in function.args]
-            function_args = function.args
-        else:
-            # function.args is probably a Token (empty args case)
-            arg_types = []
-            function_args = []
-
-        # Check if function uses _mem (but don't add it as argument anymore)
-        uses_memory = self._function_uses_memory(function)
-
-        # Convert return types - handle case where ret might be empty or Token
-        if hasattr(function.ret, '__iter__') and not isinstance(function.ret, str):
-            # function.ret is a proper list
-            ret_types = [self.convert_cadl_type(ret) for ret in function.ret]
-        else:
-            # function.ret is probably a Token (empty return case)
-            ret_types = []
-
-        # Create function type
-        func_type = ir.FunctionType.get(arg_types, ret_types)
-
-        # Create function operation
-        func_op = func.FuncOp(function.name, func_type)
-
-        # Add entry block
-        entry_block = func_op.add_entry_block()
-
-        with ir.InsertionPoint(entry_block):
-            # Push new scope for function
-            self.push_scope()
-
-            # Bind function arguments to symbols
-            for i, arg in enumerate(function_args):
-                arg_value = entry_block.arguments[i]
-                self.set_symbol(arg.id, arg_value)
-
-            # If function uses memory, it will be declared via aps.memdeclare when first accessed
-            # No need to set up CPU memory instance here anymore
-
-            # Convert function body
-            if function.body:
-                self._convert_stmt_list(function.body)
-
-            # Check if last operation is already a return
-            # If not, add a default return
-            block_ops = list(entry_block.operations)
-            if not block_ops or not isinstance(block_ops[-1], func.ReturnOp):
-                func.ReturnOp([])
-
-            # Pop function scope
-            self.pop_scope()
-
-        return func_op
 
     def _convert_flow(self, flow: Flow) -> ir.Operation:
         """Convert CADL Flow to MLIR function (for now)"""
@@ -563,6 +519,17 @@ class CADLMLIRConverter:
                 self._convert_burst_operation(stmt)
                 return
 
+            # Track constant assignments for loop analysis
+            if isinstance(stmt.lhs, IdentExpr):
+                if isinstance(stmt.rhs, LitExpr):
+                    # This is a constant assignment
+                    if hasattr(stmt.rhs.literal.lit, 'value'):
+                        self.constant_vars[stmt.lhs.name] = stmt.rhs.literal.lit.value
+                else:
+                    # This is a non-constant assignment - invalidate if previously constant
+                    if stmt.lhs.name in self.constant_vars:
+                        del self.constant_vars[stmt.lhs.name]
+
             # Convert RHS expression
             rhs_value = self._convert_expr(stmt.rhs)
 
@@ -586,10 +553,17 @@ class CADLMLIRConverter:
         elif isinstance(stmt, DoWhileStmt):
             # Use scf.while as advised - perfect semantic match
             self._convert_do_while(stmt)
+            # Clear directives after applying to loop
+            self.pending_directives = []
 
-        elif isinstance(stmt, ForStmt):
-            # Convert for loops using scf.for
-            self._convert_for_loop(stmt)
+        # elif isinstance(stmt, ForStmt):
+        #     # Convert for loops using scf.for
+        #     self._convert_for_loop(stmt)
+
+        elif isinstance(stmt, DirectiveStmt):
+            # Directives are hints/pragmas - collect them for next statement
+            # e.g., [[unroll(4)]] will be applied to the following loop
+            self.pending_directives.append(stmt)
 
         else:
             raise NotImplementedError(f"Statement type not yet supported: {type(stmt)}")
@@ -615,12 +589,13 @@ class CADLMLIRConverter:
 
             # If it's a global variable reference, load from it
             if isinstance(value, str):
-                # Get reference to global and load from it (with caching)
-                # For now, assume u32 type - we could improve this by storing type info with the global name
-                i32_type = ir.IntegerType.get_signless(32)
-                memref_type = ir.MemRefType.get([], i32_type)
-                global_ref = self._get_global_reference(value, memref_type)
-                return aps.MemLoad(i32_type, global_ref, []).result
+                global_ref = self._get_global_reference(value)
+                # Extract element type from the memref type
+                if hasattr(global_ref.type, 'element_type'):
+                    element_type = global_ref.type.element_type
+                else:
+                    element_type = ir.IntegerType.get_signless(32)
+                return aps.MemLoad(element_type, global_ref, []).result
             else:
                 return value
 
@@ -636,12 +611,6 @@ class CADLMLIRConverter:
             operand = self._convert_expr(expr.operand)
             return self._convert_unary_op(expr.op, operand)
 
-        elif isinstance(expr, CallExpr):
-            # Convert function calls
-            args = [self._convert_expr(arg) for arg in expr.args]
-            # For now, assume function exists in symbol table or is built-in
-            return self._convert_call(expr.name, args)
-
         elif isinstance(expr, IndexExpr):
             # Convert index operations - handle special cases for _irf, _mem, etc.
             return self._convert_index_expr(expr)
@@ -653,6 +622,10 @@ class CADLMLIRConverter:
         elif isinstance(expr, IfExpr):
             # Convert if expressions to conditional operations
             return self._convert_if_expr(expr)
+
+        elif isinstance(expr, SelectExpr):
+            # Convert select expressions to conditional operations
+            return self._convert_select_expr(expr)
 
         else:
             raise NotImplementedError(f"Expression type not yet supported: {type(expr)}")
@@ -726,177 +699,92 @@ class CADLMLIRConverter:
             all_ones = arith.ConstantOp(operand.type, -1).result
             return comb.XorOp([operand, all_ones]).result
 
-        # Type cast operations
-        elif op == UnaryOp.SIGNED_CAST:
-            # Cast to signed interpretation
-            # For now, just return operand (type system handles interpretation)
-            return operand
-        elif op == UnaryOp.UNSIGNED_CAST:
-            # Cast to unsigned interpretation
-            return operand
-        elif op == UnaryOp.F32_CAST:
-            # Cast to f32
-            if operand.type != ir.F32Type.get():
-                return arith.SIToFPOp(ir.F32Type.get(), operand).result
-            return operand
-        elif op == UnaryOp.F64_CAST:
-            # Cast to f64
-            if operand.type != ir.F64Type.get():
-                return arith.SIToFPOp(ir.F64Type.get(), operand).result
-            return operand
+        # # Type cast operations
+        # elif op == UnaryOp.SIGNED_CAST:
+        #     # Cast to signed interpretation
+        #     # For now, just return operand (type system handles interpretation)
+        #     return operand
+        # elif op == UnaryOp.UNSIGNED_CAST:
+        #     # Cast to unsigned interpretation
+        #     return operand
+        # elif op == UnaryOp.F32_CAST:
+        #     # Cast to f32
+        #     if operand.type != ir.F32Type.get():
+        #         return arith.SIToFPOp(ir.F32Type.get(), operand).result
+        #     return operand
+        # elif op == UnaryOp.F64_CAST:
+        #     # Cast to f64
+        #     if operand.type != ir.F64Type.get():
+        #         return arith.SIToFPOp(ir.F64Type.get(), operand).result
+        #     return operand
 
         else:
             raise NotImplementedError(f"Unary operation not yet supported: {op}")
 
-    def _convert_call(self, func_name: str, args: List[ir.Value]) -> ir.Value:
-        """Convert function call to MLIR call operation"""
-        # For now, assume function exists and has compatible signature
-        # TODO: Implement proper function lookup and type checking
-        call_op = func.CallOp([], func_name, args)
-
-        # Return first result if any, otherwise None
-        if call_op.results:
-            return call_op.results[0]
-        else:
-            # For procedures/void functions, create a dummy value
-            # This is a temporary workaround
-            dummy_type = ir.IntegerType.get_signless(32)
-            return arith.ConstantOp(dummy_type, 0).result
-
     def _convert_do_while(self, stmt: DoWhileStmt) -> None:
         """
-        Convert do-while loop to scf.while operation
+        Convert do-while loop to scf.while or scf.for operation
 
         CADL do-while semantics: body executes at least once, condition checked after.
         The condition uses variables defined in the body (like i_).
 
-        We use scf.while with a first_iteration flag to ensure at least one execution.
+        If the loop matches a for-loop pattern, emit scf.for directly.
+        Otherwise, use scf.while with a first_iteration flag to ensure at least one execution.
         """
-        # Handle with bindings (loop variables with init/next values)
-        init_values = []
-        loop_var_types = []
+        # First, validate that only loop-carried variables are modified in body
+        self.loop_transformer.validate_loop_body_assignments(stmt)
 
-        for binding in stmt.bindings:
-            # Convert initial value if provided
-            if binding.init:
-                init_val = self._convert_expr(binding.init)
-                init_values.append(init_val)
-                loop_var_types.append(init_val.type)
-            else:
-                # Default initialization for the type
-                var_type = self.convert_cadl_type(binding.ty)
-                zero_val = arith.ConstantOp(var_type, 0).result
-                init_values.append(zero_val)
-                loop_var_types.append(var_type)
+        # Analyze the pattern and try to raise to scf.for
+        for_pattern = self.loop_transformer.analyze_and_detect_for_pattern(stmt)
 
-        # Add a boolean flag to track first iteration
-        bool_type = ir.IntegerType.get_signless(1)
-        true_val = arith.ConstantOp(bool_type, 1).result
-        init_values.append(true_val)
-        loop_var_types.append(bool_type)
+        if for_pattern:
+            # Emit scf.for directly
+            self.loop_transformer.emit_scf_for(stmt, for_pattern)
+        else:
+            # Fallback to scf.while
+            self.loop_transformer.emit_scf_while(stmt)
 
-        # Create scf.while operation
-        while_op = scf.WhileOp(loop_var_types, init_values)
+    # def _convert_for_loop(self, stmt: ForStmt) -> None:
+    #     """Convert for loop to appropriate MLIR constructs"""
+    #     # Push new scope for loop
+    #     self.push_scope()
 
-        # Before region: check if we should continue
-        before_block = while_op.before.blocks.append(*loop_var_types)
-        with ir.InsertionPoint(before_block):
-            # Get the first_iteration flag (last argument)
-            first_iter = before_block.arguments[-1]
+    #     # Execute initialization
+    #     self._convert_stmt(stmt.init)
 
-            # For do-while, we always continue on first iteration
-            # Otherwise, we need to check the condition based on the current values
+    #     # For now, convert to scf.while (more general than scf.for)
+    #     # TODO: Detect when we can use scf.for for better optimization
 
-            # If it's the first iteration, always continue
-            # Otherwise, the condition has already been evaluated with the new values
-            # So we just pass through the values
-            scf.ConditionOp(first_iter, before_block.arguments)
+    #     # Create condition check function
+    #     def create_while_body():
+    #         # Check condition
+    #         condition_val = self._convert_expr(stmt.condition)
 
-        # After region: execute loop body and check condition
-        after_block = while_op.after.blocks.append(*loop_var_types)
-        with ir.InsertionPoint(after_block):
-            # Push scope for loop body
-            self.push_scope()
+    #         # Create while operation
+    #         # For simplicity, use empty arguments for now
+    #         while_op = scf.WhileOp([], [])
 
-            # Update loop variables with block arguments (excluding the flag)
-            for i, binding in enumerate(stmt.bindings):
-                self.set_symbol(binding.id, after_block.arguments[i])
+    #         # Before region: condition check
+    #         before_block = while_op.before.blocks.append()
+    #         with ir.InsertionPoint(before_block):
+    #             scf.ConditionOp(condition_val, [])
 
-            # Execute loop body - this defines i_, sum_, n_ etc.
-            self._convert_stmt_list(stmt.body)
+    #         # After region: body + update
+    #         after_block = while_op.after.blocks.append()
+    #         with ir.InsertionPoint(after_block):
+    #             # Execute loop body
+    #             self._convert_stmt_list(stmt.body)
 
-            # Now evaluate the condition using variables defined in the body
-            condition_val = self._convert_expr(stmt.condition)
+    #             # Execute update statement
+    #             self._convert_stmt(stmt.update)
 
-            # Compute next values for loop variables from bindings
-            next_values = []
-            for binding in stmt.bindings:
-                if binding.next:
-                    # The next expression references variables defined in the body
-                    if isinstance(binding.next, IdentExpr):
-                        next_val = self.get_symbol(binding.next.name)
-                    else:
-                        next_val = self._convert_expr(binding.next)
-                    next_values.append(next_val)
-                else:
-                    # Keep current value if no next expression
-                    current_val = self.get_symbol(binding.id)
-                    next_values.append(current_val)
+    #             # Yield (no arguments for this simple case)
+    #             scf.YieldOp([])
 
-            # Pass the condition as the new first_iteration flag
-            # This way, the before region will check it on the next iteration
-            next_values.append(condition_val)
+    #     create_while_body()
 
-            # Yield the next values
-            scf.YieldOp(next_values)
-            self.pop_scope()
-
-        # Make loop variables available in the parent scope (exclude the flag)
-        for i, binding in enumerate(stmt.bindings):
-            if while_op.results and i < len(while_op.results) - 1:
-                self.set_symbol(binding.id, while_op.results[i])
-
-    def _convert_for_loop(self, stmt: ForStmt) -> None:
-        """Convert for loop to appropriate MLIR constructs"""
-        # Push new scope for loop
-        self.push_scope()
-
-        # Execute initialization
-        self._convert_stmt(stmt.init)
-
-        # For now, convert to scf.while (more general than scf.for)
-        # TODO: Detect when we can use scf.for for better optimization
-
-        # Create condition check function
-        def create_while_body():
-            # Check condition
-            condition_val = self._convert_expr(stmt.condition)
-
-            # Create while operation
-            # For simplicity, use empty arguments for now
-            while_op = scf.WhileOp([], [])
-
-            # Before region: condition check
-            before_block = while_op.before.blocks.append()
-            with ir.InsertionPoint(before_block):
-                scf.ConditionOp(condition_val, [])
-
-            # After region: body + update
-            after_block = while_op.after.blocks.append()
-            with ir.InsertionPoint(after_block):
-                # Execute loop body
-                self._convert_stmt_list(stmt.body)
-
-                # Execute update statement
-                self._convert_stmt(stmt.update)
-
-                # Yield (no arguments for this simple case)
-                scf.YieldOp([])
-
-        create_while_body()
-
-        # Pop loop scope
-        self.pop_scope()
+    #     # Pop loop scope
+    #     self.pop_scope()
 
     def _convert_index_expr(self, expr: IndexExpr) -> ir.Value:
         """
@@ -929,108 +817,29 @@ class CADLMLIRConverter:
                 # CPU memory read: _mem[addr] -> aps.memload %cpu_mem[%addr]
                 if len(expr.indices) != 1:
                     raise ValueError("_mem access requires exactly one index")
-
-                # Convert the memory address
-                addr = self._convert_expr(expr.indices[0])
-
-                # Get CPU memory instance
-                cpu_mem = self.get_cpu_memory_instance()
-
-                # Determine result type (assume i32 for now)
-                result_type = ir.IntegerType.get_signless(32)
-
-                # Generate APS memload operation
-                return aps.MemLoad(result_type, cpu_mem, [addr]).result
+                memref = self.get_cpu_memory_instance()
+                indices = [self._convert_expr(expr.indices[0])]
 
             else:
                 # Regular array/memref indexing - check if it's a global array access
-                if isinstance(expr.expr, IdentExpr):
-                    array_name = expr.expr.name
-                    # Check if this is a global array by looking up in symbol table
-                    symbol_value = self.get_symbol(array_name)
-                    if isinstance(symbol_value, str):  # It's a global reference
-                        # For global arrays, we need to get the actual type of the global
-                        # For now, we'll determine this by looking up the static variable definition
-                        # TODO: Store type information with global references for better lookup
-
-                        # Find the static variable definition to get the correct type
-                        static_var = None
-                        for static in self.proc.statics.values():
-                            if static.id == array_name:
-                                static_var = static
-                                break
-
-                        if static_var:
-                            # Convert the CADL type to MLIR type to get correct dimensions
-                            cadl_mlir_type = self.convert_cadl_type(static_var.ty)
-                            if isinstance(cadl_mlir_type, ir.MemRefType):
-                                # Use the actual memref type from the static definition
-                                global_ref = self._get_global_reference(symbol_value, cadl_mlir_type)
-                            else:
-                                # Fallback for scalars
-                                memref_type = ir.MemRefType.get([], cadl_mlir_type)
-                                global_ref = self._get_global_reference(symbol_value, memref_type)
-                        else:
-                            # Fallback if we can't find the static definition
-                            element_type = ir.IntegerType.get_signless(32)
-                            array_size = 8  # Default size for arrays like thetas
-                            memref_type = ir.MemRefType.get([array_size], element_type)
-                            global_ref = self._get_global_reference(symbol_value, memref_type)
-
-                        # Convert indices
-                        indices = [self._convert_expr(idx) for idx in expr.indices]
-
-                        # Determine the element type from the memref
-                        if hasattr(global_ref.type, 'element_type'):
-                            element_type = global_ref.type.element_type
-                        else:
-                            # Fallback to i32
-                            element_type = ir.IntegerType.get_signless(32)
-
-                        # Use APS memload with the memref and indices
-                        return aps.MemLoad(element_type, global_ref, indices).result
-                    else:
-                        # Regular local array access
-                        base_value = self._convert_expr(expr.expr)
-                        indices = [self._convert_expr(idx) for idx in expr.indices]
-
-                        # Determine result type from the base memref type
-                        if hasattr(base_value.type, 'element_type'):
-                            result_type = base_value.type.element_type
-                        else:
-                            # Fallback to i32
-                            result_type = ir.IntegerType.get_signless(32)
-
-                        # Use APS memload for regular array access
-                        return aps.MemLoad(result_type, base_value, indices).result
+                symbol_value = self.get_symbol(base_name)
+                if isinstance(symbol_value, str):  # It's a global reference
+                    memref = self._get_global_reference(symbol_value)
                 else:
-                    # Complex base expression
-                    base_value = self._convert_expr(expr.expr)
-                    indices = [self._convert_expr(idx) for idx in expr.indices]
-
-                    # Determine result type from the base memref type
-                    if hasattr(base_value.type, 'element_type'):
-                        result_type = base_value.type.element_type
-                    else:
-                        # Fallback to i32
-                        result_type = ir.IntegerType.get_signless(32)
-
-                    # Use APS memload for general indexing
-                    return aps.MemLoad(result_type, base_value, indices).result
+                    memref = self._convert_expr(expr.expr)
+                indices = [self._convert_expr(idx) for idx in expr.indices]
         else:
             # Non-identifier base expression (e.g., function_call()[idx])
-            base_value = self._convert_expr(expr.expr)
+            memref = self._convert_expr(expr.expr)
             indices = [self._convert_expr(idx) for idx in expr.indices]
 
-            # Determine result type from the base memref type
-            if hasattr(base_value.type, 'element_type'):
-                result_type = base_value.type.element_type
-            else:
-                # Fallback to i32
-                result_type = ir.IntegerType.get_signless(32)
+        # Common memload logic: determine element type and load
+        if hasattr(memref.type, 'element_type'):
+            element_type = memref.type.element_type
+        else:
+            element_type = ir.IntegerType.get_signless(32)
 
-            # Use APS memload for general indexing
-            return aps.MemLoad(result_type, base_value, indices).result
+        return aps.MemLoad(element_type, memref, indices).result
 
     def _convert_index_assignment(self, lhs: IndexExpr, rhs_value: ir.Value) -> None:
         """
@@ -1136,10 +945,27 @@ class CADLMLIRConverter:
 
         raise ValueError("Invalid burst operation pattern")
 
+    def _extract_literal_value(self, expr: Expr) -> int:
+        """
+        Extract constant integer value from LitExpr.
+
+        Note: Parser validation ensures burst lengths are LitExpr at parse time,
+        so we can directly extract the value without MLIR conversion.
+        """
+        if not isinstance(expr, LitExpr):
+            raise ValueError(f"Expected LitExpr, got {type(expr).__name__}")
+
+        if not hasattr(expr.literal.lit, 'value'):
+            raise ValueError(f"Literal has no value attribute")
+
+        return expr.literal.lit.value
+
     def _convert_burst_load(self, stmt: AssignStmt) -> None:
         """
         Convert burst load: buffer[offset +: ] = _burst_read[cpu_addr +: length]
         to: aps.memburstload %cpu_addr, %buffer[%offset], %length
+
+        Burst length must be a compile-time constant.
         """
         lhs = stmt.lhs  # buffer[offset +: ]
         rhs = stmt.rhs  # _burst_read[cpu_addr +: length]
@@ -1153,7 +979,9 @@ class CADLMLIRConverter:
         cpu_addr = self._convert_expr(rhs.start)
         if rhs.length is None:
             raise ValueError("Burst read must have explicit length")
-        length = self._convert_expr(rhs.length)
+
+        # Extract constant length (parser ensures it's a LitExpr)
+        rhs_length_val = self._extract_literal_value(rhs.length)
 
         # Extract components from LHS (buffer[offset +: ])
         # Get memref for the buffer
@@ -1165,10 +993,15 @@ class CADLMLIRConverter:
 
         start_offset = self._convert_expr(lhs.start)
 
-        # Infer length if not specified on LHS
+        # Validate length if specified on both sides
         if lhs.length is not None:
-            # Length specified on both sides - could validate they match
-            pass
+            lhs_length_val = self._extract_literal_value(lhs.length)
+            if lhs_length_val != rhs_length_val:
+                raise ValueError(f"Burst length mismatch: buffer[+:{lhs_length_val}] = _burst_read[+:{rhs_length_val}]")
+
+        # Convert constant value back to MLIR constant for the operation
+        i32_type = ir.IntegerType.get_signless(32)
+        length = arith.ConstantOp(i32_type, rhs_length_val).result
 
         # Generate aps.memburstload operation
         # Arguments: cpu_addr, memref, start, length
@@ -1178,6 +1011,8 @@ class CADLMLIRConverter:
         """
         Convert burst store: _burst_write[cpu_addr +: length] = buffer[offset +: ]
         to: aps.memburststore %buffer[%offset], %cpu_addr, %length
+
+        Burst length must be a compile-time constant.
         """
         lhs = stmt.lhs  # _burst_write[cpu_addr +: length]
         rhs = stmt.rhs  # buffer[offset +: ]
@@ -1191,7 +1026,9 @@ class CADLMLIRConverter:
         cpu_addr = self._convert_expr(lhs.start)
         if lhs.length is None:
             raise ValueError("Burst write must have explicit length")
-        length = self._convert_expr(lhs.length)
+
+        # Extract constant length (parser ensures it's a LitExpr)
+        lhs_length_val = self._extract_literal_value(lhs.length)
 
         # Extract components from RHS (buffer[offset +: ])
         # Get memref for the buffer
@@ -1203,10 +1040,15 @@ class CADLMLIRConverter:
 
         start_offset = self._convert_expr(rhs.start)
 
-        # Infer length if not specified on RHS
+        # Validate length if specified on both sides
         if rhs.length is not None:
-            # Length specified on both sides - could validate they match
-            pass
+            rhs_length_val = self._extract_literal_value(rhs.length)
+            if lhs_length_val != rhs_length_val:
+                raise ValueError(f"Burst length mismatch: _burst_write[+:{lhs_length_val}] = buffer[+:{rhs_length_val}]")
+
+        # Convert constant value back to MLIR constant for the operation
+        i32_type = ir.IntegerType.get_signless(32)
+        length = arith.ConstantOp(i32_type, lhs_length_val).result
 
         # Generate aps.memburststore operation
         # Arguments: memref, start, cpu_addr, length
@@ -1234,8 +1076,8 @@ class CADLMLIRConverter:
                     break
 
             if static_var:
-                cadl_mlir_type = self.convert_cadl_type(static_var.ty)
-                return self._get_global_reference(symbol_value, cadl_mlir_type)
+                # Type is inferred from the GlobalOp in _get_global_reference
+                return self._get_global_reference(symbol_value)
             else:
                 raise ValueError(f"Cannot find static definition for global: {symbol_name}")
         else:
@@ -1316,6 +1158,40 @@ class CADLMLIRConverter:
         # Use comb.MuxOp for hardware-style conditional selection
         # MuxOp selects then_value when condition is true, else_value when false
         return comb.MuxOp(condition, then_value, else_value).result
+
+    def _convert_select_expr(self, expr: SelectExpr) -> ir.Value:
+        """
+        Convert select expression to MLIR conditional operations
+
+        Converts CADL select expressions like:
+            sel {
+                x == 0: 10,
+                x < 10: 20,
+                x < 20: 30,
+                1: 40,
+            }
+
+        To a chain of comb.MuxOp operations, evaluated from first to last.
+        The first matching condition takes precedence (short-circuit evaluation).
+        """
+        # Start with the default value
+        result = self._convert_expr(expr.default)
+
+        # Process arms in reverse order to build the mux chain
+        # This ensures the first matching condition takes precedence
+        for cond_expr, val_expr in reversed(expr.arms):
+            condition = self._convert_expr(cond_expr)
+            value = self._convert_expr(val_expr)
+
+            # Ensure condition is i1
+            if condition.type != ir.IntegerType.get_signless(1):
+                zero = arith.ConstantOp(condition.type, 0).result
+                condition = arith.CmpIOp(arith.CmpIPredicate.ne, condition, zero).result
+
+            # Mux: if condition then value else result
+            result = comb.MuxOp(condition, value, result).result
+
+        return result
 
 
 def convert_cadl_to_mlir(proc: Proc) -> ir.Module:

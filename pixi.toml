@@ -22,6 +22,7 @@ clean = { cmd = "rm -rf build"}
 
 # Python execution with CIRCT bindings
 python = { cmd = "python" }
+pytest = { cmd = "python -m pytest -s -v" }
 silicon = { cmd = "python dev_scripts/silicon.py" }
 
 # CADL Frontend - APS Frontend Tool
