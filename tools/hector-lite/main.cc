@@ -166,9 +166,9 @@ int main(int argc, char **argv) {
     // hector_argv[index++] = const_cast<char *>("--func-extract");
     // hector_argv[index++] = const_cast<char *>("--scf-iterargs");
     // dump-scf
-    ss << "--dump-scf=json=" << arg_output.c_str() << "/scf.json";
-    hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
-    strcpy(hector_argv[index++], ss.str().c_str()); ss.clear(); ss.str("");
+    // ss << "--dump-scf=json=" << arg_output.c_str() << "/scf.json";
+    // hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
+    // strcpy(hector_argv[index++], ss.str().c_str()); ss.clear(); ss.str("");
 
     hector_argv[index++] = const_cast<char *>("--canonicalize");
     hector_argv[index++] = const_cast<char *>("--scf-to-tor");
@@ -179,9 +179,9 @@ int main(int argc, char **argv) {
     hector_argv[index++] = const_cast<char *>("--canonicalize");
     hector_argv[index++] = const_cast<char *>("--split-schedule");
     // dump-tor
-    ss << "--dump-tor=json=" << arg_output.c_str() << "/tor.json";
-    hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
-    strcpy(hector_argv[index++], ss.str().c_str()); ss.clear(); ss.str("");
+    // ss << "--dump-tor=json=" << arg_output.c_str() << "/tor.json";
+    // hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
+    // strcpy(hector_argv[index++], ss.str().c_str()); ss.clear(); ss.str("");
 
     if (arg_genpr) {
         hector_argv[index++] = const_cast<char *>("--generate-pragma-report");

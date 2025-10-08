@@ -733,11 +733,6 @@ namespace {
         void runOnOperation() override {
             auto designOp = getOperation();
             
-            // 添加调试输出
-            llvm::outs() << "========================================\n";
-            llvm::outs() << "SCFToTOR Pass is RUNNING!\n";
-            llvm::outs() << "========================================\n";
-            
             {
                 RewritePatternSet Patterns(&getContext());
                 Patterns.add<GenerateGuardedStore>(&getContext());
@@ -749,8 +744,6 @@ namespace {
                 ConversionTarget target(getContext());
                 RewritePatternSet patterns(&getContext());
                 IndexTypeConverter converter;
-
-                llvm::outs() << "SCFToTOR: Starting main conversion phase\n";
 
                 target.addLegalDialect<tor::TORDialect>();
                 auto hasIndexType = [](Operation *op) {
@@ -807,12 +800,8 @@ namespace {
 
                 patterns.add<ForOpConversion>(converter, &getContext(), pipeline);
 
-                llvm::outs() << "SCFToTOR: Applying partial conversion...\n";
                 if (failed(applyPartialConversion(designOp, target, std::move(patterns)))) {
-                    llvm::errs() << "SCFToTOR: Conversion FAILED!\n";
                     signalPassFailure();
-                } else {
-                    llvm::outs() << "SCFToTOR: Conversion SUCCEEDED!\n";
                 }
             }
 

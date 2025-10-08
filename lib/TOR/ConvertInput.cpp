@@ -413,14 +413,14 @@ namespace {
                 : OpRewritePattern<mlir::ModuleOp>(ctx), top_function(top_function) {}
 
         LogicalResult matchAndRewrite(mlir::ModuleOp op, PatternRewriter &rewriter) const override {
-            llvm::errs() << "DesignOpPattern::matchAndRewrite called with top_function=" << top_function << "\n";
+            // llvm::errs() << "DesignOpPattern::matchAndRewrite called with top_function=" << top_function << "\n";
             
             if (isa<tor::DesignOp>(op.getBody()->front())) {
-                llvm::errs() << "  Already has tor::DesignOp, returning failure\n";
+                // llvm::errs() << "  Already has tor::DesignOp, returning failure\n";
                 return failure();
             }
 
-            llvm::errs() << "  Creating tor::DesignOp...\n";
+            // llvm::errs() << "  Creating tor::DesignOp...\n";
             Region tmp_region;
             rewriter.inlineRegionBefore(op.getRegion(), tmp_region, tmp_region.begin());
             op.getRegion().push_back(new Block);
@@ -428,7 +428,7 @@ namespace {
             auto designOp = rewriter.create<tor::DesignOp>(op.getLoc(), top_function);
             rewriter.inlineRegionBefore(tmp_region, designOp.getBody(), designOp.getBody().begin());
 
-            llvm::errs() << "  tor::DesignOp created successfully\n";
+            // llvm::errs() << "  tor::DesignOp created successfully\n";
             return success();
         }
 
@@ -807,11 +807,11 @@ namespace {
         void runOnOperation() override {
             auto moduleOp = getOperation();
             
-            llvm::errs() << "=== ConvertInputPass::runOnOperation START ===\n";
-            llvm::errs() << "  top_function = \"" << top_function << "\"\n";
-            llvm::errs() << "  resource = \"" << resource << "\"\n";
-            llvm::errs() << "  clock = " << clock << "\n";
-            llvm::errs() << "  output_path = \"" << output_path << "\"\n";
+            // llvm::errs() << "=== ConvertInputPass::runOnOperation START ===\n";
+            // llvm::errs() << "  top_function = \"" << top_function << "\"\n";
+            // llvm::errs() << "  resource = \"" << resource << "\"\n";
+            // llvm::errs() << "  clock = " << clock << "\n";
+            // llvm::errs() << "  output_path = \"" << output_path << "\"\n";
             
             // NEW WAY: Use default config (simplest approach)
             GreedyRewriteConfig config;
@@ -822,7 +822,7 @@ namespace {
             // moduleOp->setAttrs(DictionaryAttr::getWithSorted(&getContext(), {}));
             
             {
-                llvm::errs() << "  Phase 1: MulIOpConversion\n";
+                // llvm::errs() << "  Phase 1: MulIOpConversion\n";
                 moduleOp.walk([&](func::FuncOp op) {
                     RewritePatternSet Patterns(op.getContext());
                     Patterns.add<MulIOpConversion>(op.getContext());
@@ -831,7 +831,7 @@ namespace {
                 });
             }
             {
-                llvm::errs() << "  Phase 2: MulIOpErase\n";
+                // llvm::errs() << "  Phase 2: MulIOpErase\n";
                 ConversionTarget target(getContext());
                 RewritePatternSet patterns(&getContext());
                 target.addDynamicallyLegalOp<MulIOp>([](MulIOp op) {
@@ -844,27 +844,43 @@ namespace {
                     signalPassFailure();
             }
             {
-                llvm::errs() << "  Phase 3: DesignOpPattern (creating tor.design)\n";
-                llvm::errs() << "    Checking current ModuleOp structure:\n";
-                moduleOp.walk([&](Operation *op) {
-                    llvm::errs() << "      Found op: " << op->getName() << "\n";
-                    if (auto design = dyn_cast<tor::DesignOp>(op)) {
-                        llvm::errs() << "        -> Already has tor::DesignOp!\n";
-                    }
-                });
+                // llvm::errs() << "  Phase 3: Creating tor.design (manual approach)\n";
                 
-                RewritePatternSet Patterns(&getContext());
-                Patterns.add<DesignOpPattern>(moduleOp.getContext(), top_function);
-                llvm::errs() << "    Pattern added to set, now applying...\n";
-
-                auto result = applyPatternsAndFoldGreedily(moduleOp.getOperation(), std::move(Patterns), config);
-                if (failed(result)) {
-                    llvm::errs() << "    Phase 3: FAILED!\n";
-                    signalPassFailure();
+                // Check if already has tor::DesignOp
+                if (!llvm::isa<tor::DesignOp>(moduleOp.getBody()->front())) {
+                    // llvm::errs() << "    Manually creating tor::DesignOp...\n";
+                    
+                    OpBuilder builder(&getContext());
+                    Block *moduleBlock = moduleOp.getBody();
+                    
+                    // Collect all operations to move (before creating designOp)
+                    SmallVector<Operation *> opsToMove;
+                    for (Operation &op : llvm::make_early_inc_range(*moduleBlock)) {
+                        opsToMove.push_back(&op);
+                    }
+                    
+                    // llvm::errs() << "    Found " << opsToMove.size() << " operations to move\n";
+                    
+                    // Create tor::DesignOp at the start of module
+                    builder.setInsertionPointToStart(moduleBlock);
+                    auto designOp = builder.create<tor::DesignOp>(moduleOp.getLoc(), top_function);
+                    
+                    // Add entry block to designOp's body region
+                    Block *designBlock = new Block();
+                    designOp.getBody().push_back(designBlock);
+                    
+                    // Move all operations into designOp's body
+                    for (Operation *op : opsToMove) {
+                        op->moveBefore(designBlock, designBlock->end());
+                    }
+                    
+                    // llvm::errs() << "    tor::DesignOp created successfully with " 
+                    //              << designBlock->getOperations().size() << " operations inside\n";
                 } else {
-                    llvm::errs() << "    Phase 3: applyPatternsAndFoldGreedily returned success\n";
+                    // llvm::errs() << "    Already has tor::DesignOp, skipping\n";
                 }
-                llvm::errs() << "  Phase 3: Completed\n";
+                
+                // llvm::errs() << "  Phase 3: Completed\n";
             }
             {
                 RewritePatternSet Patterns(&getContext());
@@ -874,15 +890,36 @@ namespace {
             }
 
             {
-                RewritePatternSet Patterns(&getContext());
-                Patterns.add<FuncCallPattern>(&getContext(), top_function, resource, clock);
-
-                moduleOp->walk([&](func::FuncOp op) {
-                    if (op.getSymName() == top_function) {
-                        if (failed(applyPatternsAndFoldGreedily(op.getOperation(), std::move(Patterns), config)))
-                            signalPassFailure();
-                    }
+                // llvm::errs() << "  Phase 5: FuncCallPattern (converting func.func to tor.func)\n";
+                
+                // Walk to find the top function and apply pattern to the design containing it
+                bool foundTopFunction = false;
+                moduleOp->walk([&](tor::DesignOp designOp) {
+                    designOp.walk([&](func::FuncOp op) {
+                        // llvm::errs() << "    Found func.func: " << op.getSymName() << "\n";
+                        if (op.getSymName() == top_function && !foundTopFunction) {
+                            // llvm::errs() << "    Applying pattern to top function: " << top_function << "\n";
+                            foundTopFunction = true;
+                            
+                            // Create fresh pattern set and apply to the entire design
+                            RewritePatternSet Patterns(&getContext());
+                            Patterns.add<FuncCallPattern>(&getContext(), top_function, resource, clock);
+                            
+                            if (failed(applyPatternsAndFoldGreedily(designOp.getOperation(), std::move(Patterns), config))) {
+                                // llvm::errs() << "    Failed to apply pattern\n";
+                                signalPassFailure();
+                            } else {
+                                // llvm::errs() << "    Pattern applied successfully\n";
+                            }
+                        }
+                    });
                 });
+                
+                if (!foundTopFunction) {
+                    // llvm::errs() << "    WARNING: Top function '" << top_function << "' not found!\n";
+                }
+                
+                // llvm::errs() << "  Phase 5: Completed\n";
             }
 
             {
@@ -903,7 +940,7 @@ namespace {
                 }
             }
             
-            llvm::errs() << "=== ConvertInputPass::runOnOperation END ===\n";
+            // llvm::errs() << "=== ConvertInputPass::runOnOperation END ===\n";
         }
     };
 
