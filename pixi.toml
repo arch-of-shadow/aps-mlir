@@ -22,11 +22,14 @@ clean = { cmd = "rm -rf build"}
 
 # Python execution with CIRCT bindings
 python = { cmd = "python" }
-silicon = { cmd = "python silicon.py" }
+pytest = { cmd = "python -m pytest -s -v" }
+silicon = { cmd = "python dev_scripts/silicon.py" }
 
-# frontend
-parse = "python parse_with_errors.py"
-parse-summary = "python parse_with_errors.py --summary"
+# CADL Frontend - APS Frontend Tool
+aps-frontend = { cmd = "python aps-frontend" }
+parse = { cmd = "python aps-frontend parse" }
+parse-summary = { cmd = "python aps-frontend parse --summary" }
+mlir = { cmd = "python aps-frontend mlir" }
 
 
 [dependencies]

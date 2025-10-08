@@ -76,3 +76,4 @@ install/
 *_install/
 
 __*
+*.mlir

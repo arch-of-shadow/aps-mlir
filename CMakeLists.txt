@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20.0)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Set CMP0116 to NEW to avoid deprecation warning
 # This policy is about generated file dependencies
 if(POLICY CMP0116)
