@@ -41,8 +41,10 @@ int main(int argc, char **argv) {
     argparse::ArgumentParser program("hector-lite", "0.1");
     program.add_argument("-i", "--input").required()
             .help("Input MLIR file (e.g., examples/zyy.mlir)");
+    program.add_argument("-f", "--function").required()
+            .help("Specify the target function");
     program.add_argument("-o", "--output").required()
-            .help("Output MLIR file (e.g., examples/zyy_out.mlir)");
+            .help("Output path (e.g., zyy_out)");
     program.add_argument("--clock").required().default_value(std::string("10.0"))
             .help("Clock period in ns (default: 10.0)");
     program.add_argument("--resource").required().default_value(std::string("examples/resource.json"))
@@ -105,7 +107,7 @@ int main(int argc, char **argv) {
     hector_argv[index++] = const_cast<char *>(arg_input.c_str());
 
     hector_argv[index++] = const_cast<char *>("--allow-unregistered-dialect");
-    hector_argv[index++] = const_cast<char *>("--mlir-print-ir-after-all");  // 添加这一行
+    hector_argv[index++] = const_cast<char *>("--mlir-print-ir-after-all");
     // hector_argv[index++] = const_cast<char *>("--mlir-print-op-generic");
 
     ss << "--convert-math-to-call=resource=" << arg_resource.c_str();
@@ -118,20 +120,20 @@ int main(int argc, char **argv) {
 
     // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--struct-split");
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
-    hector_argv[index++] = const_cast<char *>("--unification-index-cast");
-    hector_argv[index++] = const_cast<char *>("--hls-unroll");
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
-    hector_argv[index++] = const_cast<char *>("--affine-loop-normalize");
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
-    hector_argv[index++] = const_cast<char *>("--new-array-partition");
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
-    hector_argv[index++] = const_cast<char *>("--array-opt");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--unification-index-cast");
+    // hector_argv[index++] = const_cast<char *>("--hls-unroll");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--affine-loop-normalize");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--new-array-partition");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--array-opt");
     // hector_argv[index++] = const_cast<char *>("--loop-merge");
     if (arg_gensg) {
       hector_argv[index++] = const_cast<char *>("--loop-tripcount");
     }
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
 
     hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--detect-reduction");
@@ -141,28 +143,28 @@ int main(int argc, char **argv) {
     // strcpy(hector_argv[index++], ss.str().c_str()); ss.clear(); ss.str("");
 
     // affine to scf
-    hector_argv[index++] = const_cast<char *>("--lower-affine-for");
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--lower-affine-for");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--array-use-offset");
     // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--mem-to-iter-args");
     // hector_argv[index++] = const_cast<char *>("--loop-flatten");
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
     hector_argv[index++] = const_cast<char *>("--expression-balance");
     // convert input
     
-    // auto arg_function = program.get<std::string>("--function");
-    // ss << "--convert-input=top-function=" << arg_function.c_str() << " clock=" << arg_clock.c_str() << " resource="
-    // << arg_resource.c_str();
-    // ss << "output-path=" << arg_output.c_str() << "/file";
-    // hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
-    // strcpy(hector_argv[index++], ss.str().c_str());
-    // ss.clear();
-    // ss.str("");
+    auto arg_function = program.get<std::string>("--function");
+    ss << "--convert-input=top-function=" << arg_function.c_str() << " clock=" << arg_clock.c_str() << " resource="
+    << arg_resource.c_str();
+    ss << " output-path=" << arg_output.c_str() << "/file";
+    hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));
+    strcpy(hector_argv[index++], ss.str().c_str());
+    ss.clear();
+    ss.str("");
 
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--func-extract");
-    hector_argv[index++] = const_cast<char *>("--scf-iterargs");
+    // hector_argv[index++] = const_cast<char *>("--scf-iterargs");
     // dump-scf
     ss << "--dump-scf=json=" << arg_output.c_str() << "/scf.json";
     hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));

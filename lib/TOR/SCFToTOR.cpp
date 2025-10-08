@@ -732,6 +732,12 @@ namespace {
     struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
         void runOnOperation() override {
             auto designOp = getOperation();
+            
+            // 添加调试输出
+            llvm::outs() << "========================================\n";
+            llvm::outs() << "SCFToTOR Pass is RUNNING!\n";
+            llvm::outs() << "========================================\n";
+            
             {
                 RewritePatternSet Patterns(&getContext());
                 Patterns.add<GenerateGuardedStore>(&getContext());
@@ -744,6 +750,7 @@ namespace {
                 RewritePatternSet patterns(&getContext());
                 IndexTypeConverter converter;
 
+                llvm::outs() << "SCFToTOR: Starting main conversion phase\n";
 
                 target.addLegalDialect<tor::TORDialect>();
                 auto hasIndexType = [](Operation *op) {
@@ -755,6 +762,15 @@ namespace {
                     }
                     return true;
                 };
+                // // 声明算术操作是 illegal，必须转换成 TOR dialect
+                // target.addIllegalOp<AddIOp, SubIOp, MulIOp>();
+                // target.addIllegalOp<AddFOp, SubFOp, MulFOp, DivFOp>();
+                // target.addIllegalOp<CmpIOp, CmpFOp>();
+                
+                // // 声明 SCF 控制流操作也是 illegal
+                // target.addIllegalOp<scf::ForOp, scf::WhileOp, scf::IfOp>();
+                // target.addIllegalOp<scf::YieldOp, scf::ConditionOp>();
+                
                 target.addDynamicallyLegalOp<DivUIOp>(hasIndexType);
                 target.addDynamicallyLegalOp<DivSIOp>(hasIndexType);
                 target.addDynamicallyLegalOp<RemUIOp>(hasIndexType);
@@ -791,9 +807,12 @@ namespace {
 
                 patterns.add<ForOpConversion>(converter, &getContext(), pipeline);
 
+                llvm::outs() << "SCFToTOR: Applying partial conversion...\n";
                 if (failed(applyPartialConversion(designOp, target, std::move(patterns)))) {
-                    llvm::errs() << "conversion fail" << "\n";
+                    llvm::errs() << "SCFToTOR: Conversion FAILED!\n";
                     signalPassFailure();
+                } else {
+                    llvm::outs() << "SCFToTOR: Conversion SUCCEEDED!\n";
                 }
             }
 
