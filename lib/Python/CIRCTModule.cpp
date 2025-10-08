@@ -9,6 +9,7 @@
 #include "CIRCTModules.h"
 
 #include "circt-c/Conversion.h"
+#include "APS/CAPI/APS.h"
 #include "circt-c/Dialect/AIG.h"
 #include "circt-c/Dialect/Arc.h"
 #include "circt-c/Dialect/Comb.h"
@@ -87,6 +88,10 @@ NB_MODULE(_circt, m) {
         MlirContext context = mlirPythonCapsuleToContext(wrappedCapsule.ptr());
 
         // Collect CIRCT dialects to register.
+        MlirDialectHandle aps = mlirGetDialectHandle__aps__();
+        mlirDialectHandleRegisterDialect(aps, context);
+        mlirDialectHandleLoadDialect(aps, context);
+
         MlirDialectHandle aig = mlirGetDialectHandle__aig__();
         mlirDialectHandleRegisterDialect(aig, context);
         mlirDialectHandleLoadDialect(aig, context);

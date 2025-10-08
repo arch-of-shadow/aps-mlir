@@ -1,5 +1,5 @@
 from circt.ir import Context, Location, Module, InsertionPoint, IntegerType, FunctionType, MemRefType, IndexType
-from circt.dialects import func, arith, memref
+from circt.dialects import func, arith, memref, aps
 import circt
 
 def build_minimal_add_with_memref():
@@ -36,7 +36,14 @@ def build_minimal_add_with_memref():
                 # add loaded + b
                 s = arith.AddIOp(loaded.result, b)
 
-                func.ReturnOp([s])
+                # add loaded + b
+                t = arith.AddIOp(s.result, s.result)
+
+                q = aps.CpuRfRead(i32, zero)
+
+                aps.CpuRfWrite(one, t)
+
+                func.ReturnOp([q])
 
         return module
 

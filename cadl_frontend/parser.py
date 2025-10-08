@@ -269,7 +269,31 @@ def format_lark_error(e: Exception, source: str, filename: Optional[str] = None)
 class CADLTransformer(Transformer):
     """Transformer to convert Lark parse tree to CADL AST"""
 
-    # Literals and identifiers  
+    def _validate_burst_operation(self, lhs: Expr, rhs: Expr) -> None:
+        """
+        Validate burst operation constraints:
+        - Burst lengths must be compile-time constants (literals)
+        """
+        def check_burst_length(expr: Expr, side_name: str) -> None:
+            """Check if expr is a burst operation with non-constant length"""
+            if isinstance(expr, RangeSliceExpr):
+                # Check if this is a burst operation
+                if isinstance(expr.expr, IdentExpr):
+                    if expr.expr.name in ("_burst_read", "_burst_write"):
+                        if expr.length is None:
+                            raise ValueError(f"Burst operation on {side_name} must have explicit length")
+                        # Require length to be a literal expression
+                        if not isinstance(expr.length, LitExpr):
+                            raise ValueError(
+                                f"Burst operation length on {side_name} must be a compile-time constant literal. "
+                                f"Got: {type(expr.length).__name__}"
+                            )
+
+        # Check both sides
+        check_burst_length(lhs, "LHS")
+        check_burst_length(rhs, "RHS")
+
+    # Literals and identifiers
     def number_lit(self, items):
         literal_str = str(items[0])
         literal = parse_literal_from_string(literal_str)
@@ -311,14 +335,6 @@ class CADLTransformer(Transformer):
 
     def basic_type(self, items):
         return CompoundType_Basic(items[0])
-
-    def fn_type(self, items):
-        args = items[0] if items[0] else []
-        ret = items[1] if items[1] else []
-        return CompoundType_FnTy(args, ret)
-
-    def compound_type_list(self, items):
-        return items
 
     # Function arguments
     def fn_arg(self, items):
@@ -447,6 +463,14 @@ class CADLTransformer(Transformer):
         end = items[4]    # Skip COLON token
         return SliceExpr(expr, start, end)
 
+    def range_slice_expr(self, items):
+        # Grammar: postfix_expr LBRACKET expr OP_PLUS COLON expr? RBRACKET
+        expr = items[0]
+        start = items[2]  # Skip LBRACKET token
+        # items[3] is OP_PLUS, items[4] is COLON
+        length = items[5] if len(items) > 6 and items[5] is not None else None
+        return RangeSliceExpr(expr, start, length)
+
     def paren_expr(self, items):
         # items = [LPAREN, expr_list, RPAREN]
         expr_list = items[1] if len(items) > 1 else []
@@ -464,14 +488,28 @@ class CADLTransformer(Transformer):
         else_branch = items[7]    # Skip KW_ELSE, LBRACE
         return IfExpr(condition, then_branch, else_branch)
 
-    def match_expr(self, items):
-        expr = items[0]
-        arms = items[1:]
-        return MatchExpr(expr, arms)
-
     def select_expr(self, items):
-        arms = items[:-1]
-        default = items[-1]
+        # Grammar: KW_SEL LBRACE sel_arm+ RBRACE
+        # items[0] = KW_SEL token
+        # items[1] = LBRACE token
+        # items[2:-1] = sel_arm tuples (condition, value)
+        # items[-1] = RBRACE token
+
+        # Filter out tokens, keep only sel_arm tuples
+        arms_raw = [item for item in items if isinstance(item, tuple)]
+
+        if len(arms_raw) == 0:
+            raise ValueError("select expression must have at least one arm")
+
+        if len(arms_raw) == 1:
+            # Only one arm - use it as default with no conditional arms
+            arms = []
+            default = arms_raw[0][1]  # Value part of the only arm
+        else:
+            # Multiple arms - all but last are conditional, last is default
+            arms = arms_raw[:-1]  # List of (condition, value) tuples
+            default = arms_raw[-1][1]  # Value part of last arm (ignore its condition)
+
         return SelectExpr(arms, default)
 
     def aggregate_expr(self, items):
@@ -479,11 +517,13 @@ class CADLTransformer(Transformer):
         expr_list = items[1]  # Skip LBRACE, get expr_list, skip RBRACE
         return AggregateExpr(expr_list)
 
-    def match_arm(self, items):
-        return (items[0], items[1])
-
     def sel_arm(self, items):
-        return (items[0], items[1])
+        # Grammar: expr COLON expr COMMA
+        # items[0] = condition expr
+        # items[1] = COLON token
+        # items[2] = value expr
+        # items[3] = COMMA token
+        return (items[0], items[2])
 
     def expr_list(self, items):
         # Filter out COMMA tokens, keep only expressions
@@ -517,7 +557,10 @@ class CADLTransformer(Transformer):
         # Type checking rule: let statements must have explicit type annotations
         if is_let and type_annotation is None:
             raise ValueError("'let' statements require explicit type annotation. Use 'let var: type = value;'")
-            
+
+        # Validate burst operation constraints
+        self._validate_burst_operation(lhs, rhs)
+
         return AssignStmt(is_let, lhs, rhs, type_annotation)
 
     def return_stmt(self, items):
@@ -552,12 +595,11 @@ class CADLTransformer(Transformer):
         return DoWhileStmt(bindings, body, condition)
 
     def directive_stmt(self, items):
-        name = str(items[0])
-        expr = items[1] if len(items) > 1 else None
+        # Grammar: LBRACKET_BRACKET IDENTIFIER (LPAREN expr RPAREN)? RBRACKET_BRACKET
+        # items[0] = [[, items[1] = IDENTIFIER, items[2] = (, items[3] = expr, items[4] = ), items[5] = ]]
+        name = str(items[1])  # IDENTIFIER is at index 1
+        expr = items[3] if len(items) > 4 else None  # expr is at index 3 if present (after LPAREN)
         return DirectiveStmt(name, expr)
-
-    def function_stmt(self, items):
-        return FunctionStmt(items[0])
 
     def spawn_stmt(self, items):
         return SpawnStmt(items)
@@ -574,34 +616,28 @@ class CADLTransformer(Transformer):
 
     def block_body(self, items):
         # Filter out LBRACE and RBRACE tokens, return only statements
-        return [item for item in items if hasattr(item, '__class__') and 'Stmt' in item.__class__.__name__]
+        return [item for item in items if isinstance(item, Stmt)]
 
-    # Function, static, thread definitions
-    def function(self, items):
-        name = str(items[1])      # Skip KW_FN
-        args = items[3] if len(items) > 3 and items[3] else []      # fn_arg_list after LPAREN
-        ret_types = items[7] if len(items) > 7 and items[7] else [] # compound_type_list after second LPAREN  
-        body = items[9] if len(items) > 9 else []                   # body after second RPAREN
-        return Function(name, args, ret_types, body)
-
+    # Static and thread definitions
     def static(self, items):
-        # Expected structure: KW_STATIC IDENTIFIER COLON data_type (ASSIGN expr)? SEMICOLON
-        name = str(items[1])  # IDENTIFIER token
-        type_info = items[3]  # data_type (already transformed)
-        expr = items[5] if len(items) > 5 else None  # expr (already transformed)
-        return Static(name, type_info, expr)
+        # Expected structure: attribute* KW_STATIC IDENTIFIER COLON data_type (ASSIGN expr)? SEMICOLON
+        # Extract attributes from beginning
+        attrs = []
+        idx = 0
+        while idx < len(items) and isinstance(items[idx], tuple):
+            attrs.append(items[idx])
+            idx += 1
 
-    def thread(self, items):
-        name = str(items[0])
-        body = items[1] if items[1] else []
-        return Thread(name, body)
+        # Now parse the rest: KW_STATIC IDENTIFIER COLON data_type ...
+        # items[idx] is KW_STATIC
+        name = str(items[idx + 1])  # IDENTIFIER token
+        type_info = items[idx + 3]  # data_type (already transformed)
+        expr = items[idx + 5] if len(items) > idx + 5 and items[idx + 5] is not None else None  # expr (already transformed)
 
-    # Attributes
-    def simple_attr(self, items):
-        return (str(items[0]), None)
+        # Convert attributes to dict
+        attr_dict = dict(attrs) if attrs else {}
 
-    def param_attr(self, items):
-        return (str(items[0]), items[1])
+        return Static(name, type_info, expr, attr_dict)
 
     # Flow definition
     def default_flow(self, items):
@@ -693,8 +729,6 @@ class CADLTransformer(Transformer):
             return RegfilePart(part)
         elif isinstance(part, Flow):
             return FlowPart(part)
-        elif isinstance(part, Function):
-            return FunctionPart(part)
         elif isinstance(part, Static):
             return StaticPart(part)
         return part
@@ -702,6 +736,17 @@ class CADLTransformer(Transformer):
     # Main processor
     def proc(self, items):
         return Proc.from_parts(items)
+
+    def simple_attr(self, items):
+        # items = [HASH, LBRACKET, IDENTIFIER, RBRACKET]
+        attr_name = items[2].value  # IDENTIFIER value
+        return (attr_name, None)
+
+    def param_attr(self, items):
+        # items = [HASH, LBRACKET, IDENTIFIER, LPAREN, expr, RPAREN, RBRACKET]
+        attr_name = items[2].value  # IDENTIFIER value
+        attr_expr = items[4]  # expr
+        return (attr_name, attr_expr)
 
     def start(self, items):
         return items[0]
