@@ -275,6 +275,59 @@ class TestControlFlowMLIR:
         # Should have multiple mux operations for nested ifs
         assert mlir.count("comb.mux") >= 2
 
+    def test_select_expression_simple(self):
+        """Test simple select expression"""
+        source = """
+        rtype test(rs1: u5, rd: u5) {
+            let x: u32 = _irf[rs1];
+            let result: u32 = sel {
+                x == 0: 10,
+                x > 0: 20,
+            };
+            _irf[rd] = result;
+        }
+        """
+        mlir = verify_mlir(source, ["comb.mux", "arith.cmpi"])
+        # Should have mux operations for select arms
+        assert mlir.count("comb.mux") >= 1
+
+    def test_select_expression_multiple_arms(self):
+        """Test select with multiple arms"""
+        source = """
+        rtype test(rs1: u5, rd: u5) {
+            let x: u32 = _irf[rs1];
+            let result: u32 = sel {
+                x == 0: 100,
+                x < 10: 200,
+                x < 20: 300,
+                x >= 20: 400,
+            };
+            _irf[rd] = result;
+        }
+        """
+        mlir = verify_mlir(source, ["comb.mux", "arith.cmpi"])
+        # Should have multiple mux operations (one per condition)
+        assert mlir.count("comb.mux") >= 3
+
+    def test_select_with_complex_values(self):
+        """Test select with complex expressions as values"""
+        source = """
+        rtype test(rs1: u5, rd: u5) {
+            let x: u32 = _irf[rs1];
+            let result: u32 = sel {
+                x == 0: x + 10,
+                x == 1: x * 20,
+                x > 10: x << 2,
+                1: 0,
+            };
+            _irf[rd] = result;
+        }
+        """
+        mlir = verify_mlir(source, ["comb.mux", "arith.addi", "arith.muli", "comb.shl"])
+        # Should have arithmetic operations in the select values
+        assert "arith.addi" in mlir
+        assert "arith.muli" in mlir
+
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
 class TestComplexExamples:

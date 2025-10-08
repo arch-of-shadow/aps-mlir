@@ -143,7 +143,11 @@ class TestZyyRTypeInstructions:
             let i0: u32 = 0;
             let n0: u32 = _irf[rs2];
 
-            do with (i: u32 = i0; i + 1) (sum: u32 = sum0; sum + 4) (n: u32 = n0; n) {
+            with
+                i: u32 = (i0, i + 1)
+                sum: u32 = (sum0, sum + 4)
+                n: u32 = (n0, n)
+            do {
                 let n_: u32 = n;
                 let sum_: u32 = sum + 4;
                 let i_: u32 = i + 1;
@@ -153,9 +157,11 @@ class TestZyyRTypeInstructions:
         }
         """
 
-        # This will likely fail due to complex do-while syntax
-        with pytest.raises(Exception) as exc_info:
-            self.verify_mlir_output(cadl_source)
+        # Loop should now convert successfully (falls back to scf.while)
+        result = self.verify_mlir_output(cadl_source)
+
+        # Verify the loop is in the output
+        assert "scf.while" in result or "scf.for" in result
 
     def test_many_add_sequence(self):
         """Test instruction with sequence of additions"""
@@ -390,8 +396,8 @@ class TestMLIROutputValidation:
     def test_mlir_module_structure(self):
         """Test that MLIR module has correct structure"""
         cadl_source = """
-        rtype test() {
-            return (123);
+        rtype test(a: u5) {
+            _irf[a] = (123);
         }
         """
 
@@ -419,11 +425,11 @@ class TestMLIROutputValidation:
     def test_ssa_value_uniqueness(self):
         """Test that SSA values are unique"""
         cadl_source = """
-        rtype complex(a: u32, b: u32) {
+        rtype complex(a: u32, b: u32, c: u5) {
             let x: u32 = a + b;
             let y: u32 = x * 2;
             let z: u32 = y - a;
-            return (z);
+            _irf[c] = (z);
         }
         """
 
@@ -442,7 +448,7 @@ class TestMLIROutputValidation:
     def test_type_consistency(self):
         """Test that types are consistent throughout conversion"""
         cadl_source = """
-        rtype typed(a: u32, b: u32, c: u32) {
+        rtype typed(a: u32, b: u32, c: u5) {
             let x: u32 = a;
             let y: u32 = b;
             _irf[c] = (x + y);

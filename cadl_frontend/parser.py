@@ -269,7 +269,31 @@ def format_lark_error(e: Exception, source: str, filename: Optional[str] = None)
 class CADLTransformer(Transformer):
     """Transformer to convert Lark parse tree to CADL AST"""
 
-    # Literals and identifiers  
+    def _validate_burst_operation(self, lhs: Expr, rhs: Expr) -> None:
+        """
+        Validate burst operation constraints:
+        - Burst lengths must be compile-time constants (literals)
+        """
+        def check_burst_length(expr: Expr, side_name: str) -> None:
+            """Check if expr is a burst operation with non-constant length"""
+            if isinstance(expr, RangeSliceExpr):
+                # Check if this is a burst operation
+                if isinstance(expr.expr, IdentExpr):
+                    if expr.expr.name in ("_burst_read", "_burst_write"):
+                        if expr.length is None:
+                            raise ValueError(f"Burst operation on {side_name} must have explicit length")
+                        # Require length to be a literal expression
+                        if not isinstance(expr.length, LitExpr):
+                            raise ValueError(
+                                f"Burst operation length on {side_name} must be a compile-time constant literal. "
+                                f"Got: {type(expr.length).__name__}"
+                            )
+
+        # Check both sides
+        check_burst_length(lhs, "LHS")
+        check_burst_length(rhs, "RHS")
+
+    # Literals and identifiers
     def number_lit(self, items):
         literal_str = str(items[0])
         literal = parse_literal_from_string(literal_str)
@@ -533,7 +557,10 @@ class CADLTransformer(Transformer):
         # Type checking rule: let statements must have explicit type annotations
         if is_let and type_annotation is None:
             raise ValueError("'let' statements require explicit type annotation. Use 'let var: type = value;'")
-            
+
+        # Validate burst operation constraints
+        self._validate_burst_operation(lhs, rhs)
+
         return AssignStmt(is_let, lhs, rhs, type_annotation)
 
     def return_stmt(self, items):
@@ -611,18 +638,6 @@ class CADLTransformer(Transformer):
         attr_dict = dict(attrs) if attrs else {}
 
         return Static(name, type_info, expr, attr_dict)
-
-    def thread(self, items):
-        name = str(items[0])
-        body = items[1] if items[1] else []
-        return Thread(name, body)
-
-    # Attributes
-    def simple_attr(self, items):
-        return (str(items[0]), None)
-
-    def param_attr(self, items):
-        return (str(items[0]), items[1])
 
     # Flow definition
     def default_flow(self, items):
