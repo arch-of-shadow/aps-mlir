@@ -241,20 +241,10 @@ class CADLMLIRConverter:
         for unsupported fixed-width types.
         """
         if isinstance(cadl_type, BasicType_ApFixed):
-            # TODO: Investigate !hw.int<width> for fixed-width signed integers
-            # For now, use standard MLIR integer types as fallback
-            if cadl_type.width <= 32:
-                return ir.IntegerType.get_signed(32)
-            else:
-                return ir.IntegerType.get_signed(64)
+            return ir.IntegerType.get_signed(cadl_type.width)
 
         elif isinstance(cadl_type, BasicType_ApUFixed):
-            # TODO: Investigate !hw.int<width> for fixed-width unsigned integers
-            # For now, use standard MLIR integer types as fallback
-            if cadl_type.width <= 32:
-                return ir.IntegerType.get_signless(32)
-            else:
-                return ir.IntegerType.get_signless(64)
+            return ir.IntegerType.get_signless(cadl_type.width)
 
         elif isinstance(cadl_type, BasicType_Float32):
             return ir.F32Type.get()
@@ -659,27 +649,45 @@ class CADLMLIRConverter:
         elif op == BinaryOp.GE:
             return arith.CmpIOp(arith.CmpIPredicate.sge, left, right).result
 
-        # Logical operations (use comb for hardware-style operations)
+        # Logical operations (convert to i1 first, then perform logical op)
         elif op == BinaryOp.AND:
-            # Logical AND - need to handle boolean context
+            # Logical AND - convert operands to i1 (boolean) first
+            # Convert left to i1 by comparing with zero (sgt: signed greater than)
+            if left.type != ir.IntegerType.get_signless(1):
+                zero_left = arith.ConstantOp(left.type, 0).result
+                left = arith.CmpIOp(arith.CmpIPredicate.sgt, left, zero_left).result
+            # Convert right to i1 by comparing with zero (sgt: signed greater than)
+            if right.type != ir.IntegerType.get_signless(1):
+                zero_right = arith.ConstantOp(right.type, 0).result
+                right = arith.CmpIOp(arith.CmpIPredicate.sgt, right, zero_right).result
+            # Now both are i1, perform logical AND
             return arith.AndIOp(left, right).result
         elif op == BinaryOp.OR:
-            # Logical OR - need to handle boolean context
+            # Logical OR - convert operands to i1 (boolean) first
+            # Convert left to i1 by comparing with zero (sgt: signed greater than)
+            if left.type != ir.IntegerType.get_signless(1):
+                zero_left = arith.ConstantOp(left.type, 0).result
+                left = arith.CmpIOp(arith.CmpIPredicate.sgt, left, zero_left).result
+            # Convert right to i1 by comparing with zero (sgt: signed greater than)
+            if right.type != ir.IntegerType.get_signless(1):
+                zero_right = arith.ConstantOp(right.type, 0).result
+                right = arith.CmpIOp(arith.CmpIPredicate.sgt, right, zero_right).result
+            # Now both are i1, perform logical OR
             return arith.OrIOp(left, right).result
 
-        # Bitwise operations (use comb dialect for hardware operations)
+        # Bitwise operations (use arith dialect for standard operations)
         elif op == BinaryOp.BIT_AND:
-            return comb.AndOp([left, right]).result
+            return arith.AndIOp(left, right).result
         elif op == BinaryOp.BIT_OR:
-            return comb.OrOp([left, right]).result
+            return arith.OrIOp(left, right).result
         elif op == BinaryOp.BIT_XOR:
-            return comb.XorOp([left, right]).result
+            return arith.XOrIOp(left, right).result
 
-        # Shift operations (prefer comb for hardware)
+        # Shift operations (use arith dialect for standard operations)
         elif op == BinaryOp.LSHIFT:
-            return comb.ShlOp(left, right).result  # Shift ops might use different syntax
+            return arith.ShLIOp(left, right).result
         elif op == BinaryOp.RSHIFT:
-            return comb.ShrUOp(left, right).result  # TODO: Handle arithmetic vs logical shift
+            return arith.ShRUIOp(left, right).result  # TODO: Handle arithmetic vs logical shift
 
         else:
             raise NotImplementedError(f"Binary operation not yet supported: {op}")
@@ -691,13 +699,18 @@ class CADLMLIRConverter:
             zero = arith.ConstantOp(operand.type, 0).result
             return arith.SubIOp(zero, operand).result
         elif op == UnaryOp.NOT:
-            # Logical NOT
-            one = arith.ConstantOp(operand.type, 1).result
-            return arith.XOrIOp(operand, one).result
+            # Logical NOT - convert operand to i1 first, then invert
+            # Convert to i1 by comparing with zero if not already i1 (sgt: signed greater than)
+            if operand.type != ir.IntegerType.get_signless(1):
+                zero = arith.ConstantOp(operand.type, 0).result
+                operand = arith.CmpIOp(arith.CmpIPredicate.sgt, operand, zero).result
+            # Now operand is i1, invert it (XOR with 1)
+            one_i1 = arith.ConstantOp(ir.IntegerType.get_signless(1), 1).result
+            return arith.XOrIOp(operand, one_i1).result
         elif op == UnaryOp.BIT_NOT:
             # Bitwise NOT (invert all bits)
             all_ones = arith.ConstantOp(operand.type, -1).result
-            return comb.XorOp([operand, all_ones]).result
+            return arith.XOrIOp(operand, all_ones).result
 
         # # Type cast operations
         # elif op == UnaryOp.SIGNED_CAST:
@@ -1089,7 +1102,7 @@ class CADLMLIRConverter:
         Convert slice expression to MLIR bit extraction
 
         Handles expressions like z[31:31] (extract bit 31) or z[15:8] (extract bits 15 to 8)
-        Uses CIRCT's comb dialect for bit manipulation
+        Uses comb.ExtractOp for constant indices, arith dialect for dynamic indices
         """
         # Convert the base expression
         base_value = self._convert_expr(expr.expr)
@@ -1128,9 +1141,9 @@ class CADLMLIRConverter:
             result_type = ir.IntegerType.get_signless(1)
             # Extract bit at dynamic position using shift and mask
             # result = (base_value >> start_val) & 1
-            shifted = comb.ShrUOp(base_value, start_val).result
+            shifted = arith.ShRUIOp(base_value, start_val).result
             one = arith.ConstantOp(base_value.type, 1).result
-            return comb.AndOp([shifted, one]).result
+            return arith.AndIOp(shifted, one).result
 
     def _convert_if_expr(self, expr: IfExpr) -> ir.Value:
         """
@@ -1139,7 +1152,7 @@ class CADLMLIRConverter:
         Converts CADL if expressions like:
             if z_neg {x + y_shift} else {x - y_shift}
 
-        Uses comb.MuxOp for hardware-oriented conditional selection
+        Uses arith.SelectOp for conditional selection
         """
         # Convert the condition
         condition = self._convert_expr(expr.condition)
@@ -1149,15 +1162,15 @@ class CADLMLIRConverter:
         else_value = self._convert_expr(expr.else_branch)
 
         # Ensure condition is a single bit (i1)
-        # If the condition is not i1, we need to check if it's non-zero
+        # If the condition is not i1, we need to check if it's greater than zero
         if condition.type != ir.IntegerType.get_signless(1):
-            # Convert to boolean by comparing with zero
+            # Convert to boolean by comparing with zero (sgt: signed greater than)
             zero = arith.ConstantOp(condition.type, 0).result
-            condition = arith.CmpIOp(arith.CmpIPredicate.ne, condition, zero).result
+            condition = arith.CmpIOp(arith.CmpIPredicate.sgt, condition, zero).result
 
-        # Use comb.MuxOp for hardware-style conditional selection
-        # MuxOp selects then_value when condition is true, else_value when false
-        return comb.MuxOp(condition, then_value, else_value).result
+        # Use arith.SelectOp for conditional selection
+        # SelectOp selects then_value when condition is true, else_value when false
+        return arith.SelectOp(condition, then_value, else_value).result
 
     def _convert_select_expr(self, expr: SelectExpr) -> ir.Value:
         """
@@ -1171,13 +1184,13 @@ class CADLMLIRConverter:
                 1: 40,
             }
 
-        To a chain of comb.MuxOp operations, evaluated from first to last.
+        To a chain of arith.SelectOp operations, evaluated from first to last.
         The first matching condition takes precedence (short-circuit evaluation).
         """
         # Start with the default value
         result = self._convert_expr(expr.default)
 
-        # Process arms in reverse order to build the mux chain
+        # Process arms in reverse order to build the select chain
         # This ensures the first matching condition takes precedence
         for cond_expr, val_expr in reversed(expr.arms):
             condition = self._convert_expr(cond_expr)
@@ -1186,10 +1199,10 @@ class CADLMLIRConverter:
             # Ensure condition is i1
             if condition.type != ir.IntegerType.get_signless(1):
                 zero = arith.ConstantOp(condition.type, 0).result
-                condition = arith.CmpIOp(arith.CmpIPredicate.ne, condition, zero).result
+                condition = arith.CmpIOp(arith.CmpIPredicate.sgt, condition, zero).result
 
-            # Mux: if condition then value else result
-            result = comb.MuxOp(condition, value, result).result
+            # Select: if condition then value else result
+            result = arith.SelectOp(condition, value, result).result
 
         return result
 
