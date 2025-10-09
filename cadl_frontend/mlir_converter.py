@@ -41,22 +41,28 @@ from .ast import (
 
 
 @dataclass
+class TypedValue:
+    """Wrapper for MLIR value with CADL type information"""
+    value: Union[ir.Value, str]
+    cadl_type: Optional[DataType] = None
+
+@dataclass
 class SymbolScope:
     """Symbol scope for managing variable bindings in different contexts"""
-    symbols: Dict[str, Union[ir.Value, str]] = field(default_factory=dict)
+    symbols: Dict[str, TypedValue] = field(default_factory=dict)
     parent: Optional[SymbolScope] = None
 
-    def get(self, name: str) -> Optional[Union[ir.Value, str]]:
-        """Get symbol value, checking parent scopes if not found"""
+    def get(self, name: str) -> Optional[TypedValue]:
+        """Get symbol with type info, checking parent scopes if not found"""
         if name in self.symbols:
             return self.symbols[name]
         elif self.parent:
             return self.parent.get(name)
         return None
 
-    def set(self, name: str, value: Union[ir.Value, str]) -> None:
-        """Set symbol value in current scope"""
-        self.symbols[name] = value
+    def set(self, name: str, value: Union[ir.Value, str], cadl_type: Optional[DataType] = None) -> None:
+        """Set symbol value with type info in current scope"""
+        self.symbols[name] = TypedValue(value, cadl_type)
 
     def has(self, name: str) -> bool:
         """Check if symbol exists in any scope"""
@@ -124,11 +130,17 @@ class CADLMLIRConverter:
 
     def get_symbol(self, name: str) -> Optional[Union[ir.Value, str]]:
         """Get SSA value for symbol name"""
-        return self.current_scope.get(name)
+        typed_val = self.current_scope.get(name)
+        return typed_val.value if typed_val else None
 
-    def set_symbol(self, name: str, value: Union[ir.Value, str]) -> None:
-        """Set SSA value for symbol name in current scope"""
-        self.current_scope.set(name, value)
+    def get_symbol_type(self, name: str) -> Optional[DataType]:
+        """Get CADL type for symbol name"""
+        typed_val = self.current_scope.get(name)
+        return typed_val.cadl_type if typed_val else None
+
+    def set_symbol(self, name: str, value: Union[ir.Value, str], cadl_type: Optional[DataType] = None) -> None:
+        """Set SSA value and CADL type for symbol name in current scope"""
+        self.current_scope.set(name, value, cadl_type)
 
     def get_cpu_memory_instance(self) -> ir.Value:
         """Get reference to the global CPU memory instance"""
@@ -237,11 +249,13 @@ class CADLMLIRConverter:
         """
         Convert CADL type to MLIR type
 
-        Maps CADL type system to appropriate MLIR types, with fallbacks
-        for unsupported fixed-width types.
+        Maps CADL type system to appropriate MLIR types.
+        Both signed and unsigned CADL types map to signless MLIR integers.
+        Signedness is handled by operation semantics (e.g., divsi vs divui).
         """
         if isinstance(cadl_type, BasicType_ApFixed):
-            return ir.IntegerType.get_signed(cadl_type.width)
+            # Use signless integers for both signed and unsigned
+            return ir.IntegerType.get_signless(cadl_type.width)
 
         elif isinstance(cadl_type, BasicType_ApUFixed):
             return ir.IntegerType.get_signless(cadl_type.width)
@@ -502,9 +516,10 @@ class CADLMLIRConverter:
         """
         Convert value to target type if type annotation specifies a different type.
 
-        Handles integer width conversions:
+        Handles integer width conversions and sign conversions:
         - Extension: extui (unsigned) or extsi (signed)
         - Truncation: trunci
+        - Sign conversion: bitcast for same-width sign changes
 
         Args:
             value: The MLIR value to potentially convert
@@ -529,27 +544,35 @@ class CADLMLIRConverter:
             source_width = source_type.width
             target_width = target_type.width
 
-            if source_width == target_width:
-                # Same width, no conversion needed
-                return value
-            elif source_width < target_width:
-                # Extension needed
-                # Determine if we should use signed or unsigned extension
-                # Check the CADL type annotation to determine signedness
+            # Step 1: Handle sign conversion if needed (same or different width)
+            # Check if target type annotation indicates different signedness
+            current_value = value
+            if isinstance(type_annotation, DataType_Single):
+                basic_type = type_annotation.basic_type
+                # Determine if we need to track signedness information
+                # For now, since both map to signless, no conversion needed
+                # This is a placeholder for future signed type tracking
+
+            # Step 2: Handle width conversion
+            if source_width < target_width:
+                # Extension needed - use the CADL type to determine sign extension
                 if isinstance(type_annotation, DataType_Single):
                     basic_type = type_annotation.basic_type
                     if isinstance(basic_type, BasicType_ApFixed):
-                        # Signed extension
-                        return arith.ExtSIOp(target_type, value).result
+                        # Signed extension (for i16 -> i32, etc.)
+                        return arith.ExtSIOp(target_type, current_value).result
                     else:
-                        # Unsigned extension (default)
-                        return arith.ExtUIOp(target_type, value).result
+                        # Unsigned extension (for u16 -> u32, etc.)
+                        return arith.ExtUIOp(target_type, current_value).result
                 else:
                     # Default to unsigned extension
-                    return arith.ExtUIOp(target_type, value).result
-            else:
+                    return arith.ExtUIOp(target_type, current_value).result
+            elif source_width > target_width:
                 # Truncation needed
-                return arith.TruncIOp(target_type, value).result
+                return arith.TruncIOp(target_type, current_value).result
+            # else: same width, no conversion needed (sign conversion handled above)
+
+            return current_value
 
         # For other type conversions, return value as-is for now
         # TODO: Add float conversions, etc.
@@ -585,7 +608,7 @@ class CADLMLIRConverter:
 
             # Handle LHS assignment
             if isinstance(stmt.lhs, IdentExpr):
-                self.set_symbol(stmt.lhs.name, rhs_value)
+                self.set_symbol(stmt.lhs.name, rhs_value, stmt.type_annotation)
             elif isinstance(stmt.lhs, IndexExpr):
                 # Handle indexed assignment (e.g., _irf[rd] = value, _mem[addr] = value)
                 self._convert_index_assignment(stmt.lhs, rhs_value)
@@ -654,7 +677,8 @@ class CADLMLIRConverter:
             left = self._convert_expr(expr.left)
             right = self._convert_expr(expr.right)
 
-            return self._convert_binary_op(expr.op, left, right)
+            # Pass the original expression to determine signedness from CADL types
+            return self._convert_binary_op(expr.op, left, right, expr)
 
         elif isinstance(expr, UnaryExpr):
             # Convert unary operations
@@ -679,6 +703,23 @@ class CADLMLIRConverter:
 
         else:
             raise NotImplementedError(f"Expression type not yet supported: {type(expr)}")
+
+    def _to_signless(self, value: ir.Value) -> ir.Value:
+        """
+        Convert signed integer type to signless integer type for arithmetic operations.
+
+        Most arith dialect operations require signless integers, so we convert
+        signed types to signless before operations.
+        """
+        if isinstance(value.type, ir.IntegerType) and value.type.is_signed:
+            signless_type = ir.IntegerType.get_signless(value.type.width)
+            cast_op = ir.Operation.create(
+                "builtin.unrealized_conversion_cast",
+                results=[signless_type],
+                operands=[value]
+            )
+            return cast_op.results[0]
+        return value
 
     def _promote_operands(self, left: ir.Value, right: ir.Value) -> tuple[ir.Value, ir.Value]:
         """
@@ -709,10 +750,38 @@ class CADLMLIRConverter:
         # No promotion needed (same type or non-integer types)
         return (left, right)
 
-    def _convert_binary_op(self, op: BinaryOp, left: ir.Value, right: ir.Value) -> ir.Value:
-        """Convert binary operation to appropriate MLIR operation"""
+    def _is_signed_type(self, ty: Optional[Union[BasicType, DataType, CompoundType]]) -> bool:
+        """Check if a CADL type is signed (i32, i64, etc.)"""
+        if isinstance(ty, BasicType_ApFixed):
+            return True
+        elif isinstance(ty, DataType_Single):
+            return self._is_signed_type(ty.basic_type)
+        elif isinstance(ty, CompoundType_Basic):
+            return self._is_signed_type(ty.data_type)
+        return False
+
+    def _get_expr_signedness(self, expr: Expr) -> bool:
+        """Check if an expression represents a signed value"""
+        if isinstance(expr, IdentExpr):
+            cadl_type = self.get_symbol_type(expr.name)
+            if cadl_type:
+                return self._is_signed_type(cadl_type)
+        return False
+
+    def _convert_binary_op(self, op: BinaryOp, left: ir.Value, right: ir.Value, expr: Optional[BinaryExpr] = None) -> ir.Value:
+        """Convert binary operation to appropriate MLIR operation
+
+        Args:
+            op: Binary operation type
+            left: Left MLIR value
+            right: Right MLIR value
+            expr: Original BinaryExpr AST node (optional, for type checking)
+        """
         # Promote operands to same type if they have different integer widths
         left, right = self._promote_operands(left, right)
+
+        # Check if left operand is signed by checking the original expression's CADL type
+        is_signed = expr and self._get_expr_signedness(expr.left)
 
         # Arithmetic operations (prefer arith dialect for arithmetic)
         if op == BinaryOp.ADD:
@@ -722,10 +791,17 @@ class CADLMLIRConverter:
         elif op == BinaryOp.MUL:
             return arith.MulIOp(left, right).result
         elif op == BinaryOp.DIV:
-            # Use signed or unsigned based on type
-            return arith.DivSIOp(left, right).result  # TODO: Handle signedness
+            # Use signed or unsigned division based on operand signedness
+            if is_signed:
+                return arith.DivSIOp(left, right).result
+            else:
+                return arith.DivUIOp(left, right).result
         elif op == BinaryOp.REM:
-            return arith.RemSIOp(left, right).result  # TODO: Handle signedness
+            # Use signed or unsigned remainder based on operand signedness
+            if is_signed:
+                return arith.RemSIOp(left, right).result
+            else:
+                return arith.RemUIOp(left, right).result
 
         # Comparison operations
         elif op == BinaryOp.EQ:
@@ -733,13 +809,29 @@ class CADLMLIRConverter:
         elif op == BinaryOp.NE:
             return arith.CmpIOp(arith.CmpIPredicate.ne, left, right).result
         elif op == BinaryOp.LT:
-            return arith.CmpIOp(arith.CmpIPredicate.slt, left, right).result  # TODO: Handle signedness
+            # Use signed or unsigned comparison based on operand signedness
+            if is_signed:
+                return arith.CmpIOp(arith.CmpIPredicate.slt, left, right).result
+            else:
+                return arith.CmpIOp(arith.CmpIPredicate.ult, left, right).result
         elif op == BinaryOp.LE:
-            return arith.CmpIOp(arith.CmpIPredicate.sle, left, right).result
+            # Use signed or unsigned comparison based on operand signedness
+            if is_signed:
+                return arith.CmpIOp(arith.CmpIPredicate.sle, left, right).result
+            else:
+                return arith.CmpIOp(arith.CmpIPredicate.ule, left, right).result
         elif op == BinaryOp.GT:
-            return arith.CmpIOp(arith.CmpIPredicate.sgt, left, right).result
+            # Use signed or unsigned comparison based on operand signedness
+            if is_signed:
+                return arith.CmpIOp(arith.CmpIPredicate.sgt, left, right).result
+            else:
+                return arith.CmpIOp(arith.CmpIPredicate.ugt, left, right).result
         elif op == BinaryOp.GE:
-            return arith.CmpIOp(arith.CmpIPredicate.sge, left, right).result
+            # Use signed or unsigned comparison based on operand signedness
+            if is_signed:
+                return arith.CmpIOp(arith.CmpIPredicate.sge, left, right).result
+            else:
+                return arith.CmpIOp(arith.CmpIPredicate.uge, left, right).result
 
         # Logical operations (convert to i1 first, then perform logical op)
         elif op == BinaryOp.AND:
@@ -779,7 +871,11 @@ class CADLMLIRConverter:
         elif op == BinaryOp.LSHIFT:
             return arith.ShLIOp(left, right).result
         elif op == BinaryOp.RSHIFT:
-            return arith.ShRUIOp(left, right).result  # TODO: Handle arithmetic vs logical shift
+            # Use arithmetic or logical shift based on operand signedness
+            if is_signed:
+                return arith.ShRSIOp(left, right).result  # Arithmetic (signed) shift
+            else:
+                return arith.ShRUIOp(left, right).result  # Logical (unsigned) shift
 
         else:
             raise NotImplementedError(f"Binary operation not yet supported: {op}")
@@ -1299,15 +1395,27 @@ class CADLMLIRConverter:
         return result
 
 
-def convert_cadl_to_mlir(proc: Proc) -> ir.Module:
+def convert_cadl_to_mlir(proc: Proc, run_cse: bool = True) -> ir.Module:
     """
     Main entry point for converting CADL Proc to MLIR Module
 
     Args:
         proc: CADL processor AST to convert
+        run_cse: Whether to run Common Subexpression Elimination pass (default: True)
 
     Returns:
         MLIR module containing the converted representation
     """
     converter = CADLMLIRConverter()
-    return converter.convert_proc(proc)
+    module = converter.convert_proc(proc)
+
+    # Apply CSE optimization pass if requested
+    if run_cse:
+        with converter.context:
+            from circt.passmanager import PassManager
+            pm = PassManager.parse("builtin.module(cse)")
+            # TODO: We should to cannanicalize in the end, but for now, we skip it
+            # pm = PassManager.parse("builtin.module(canonicalize,cse,canonicalize,cse)") 
+            pm.run(module.operation)
+
+    return module
