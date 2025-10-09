@@ -498,6 +498,63 @@ class CADLMLIRConverter:
         for stmt in stmts:
             self._convert_stmt(stmt)
 
+    def _convert_type_if_needed(self, value: ir.Value, type_annotation: Optional[DataType]) -> ir.Value:
+        """
+        Convert value to target type if type annotation specifies a different type.
+
+        Handles integer width conversions:
+        - Extension: extui (unsigned) or extsi (signed)
+        - Truncation: trunci
+
+        Args:
+            value: The MLIR value to potentially convert
+            type_annotation: Optional CADL type annotation from assignment
+
+        Returns:
+            Converted value if conversion needed, otherwise original value
+        """
+        if type_annotation is None:
+            return value
+
+        # Convert target CADL type to MLIR type
+        target_type = self.convert_cadl_type(type_annotation)
+        source_type = value.type
+
+        # Check if conversion is needed
+        if source_type == target_type:
+            return value
+
+        # Handle integer type conversions
+        if isinstance(source_type, ir.IntegerType) and isinstance(target_type, ir.IntegerType):
+            source_width = source_type.width
+            target_width = target_type.width
+
+            if source_width == target_width:
+                # Same width, no conversion needed
+                return value
+            elif source_width < target_width:
+                # Extension needed
+                # Determine if we should use signed or unsigned extension
+                # Check the CADL type annotation to determine signedness
+                if isinstance(type_annotation, DataType_Single):
+                    basic_type = type_annotation.basic_type
+                    if isinstance(basic_type, BasicType_ApFixed):
+                        # Signed extension
+                        return arith.ExtSIOp(target_type, value).result
+                    else:
+                        # Unsigned extension (default)
+                        return arith.ExtUIOp(target_type, value).result
+                else:
+                    # Default to unsigned extension
+                    return arith.ExtUIOp(target_type, value).result
+            else:
+                # Truncation needed
+                return arith.TruncIOp(target_type, value).result
+
+        # For other type conversions, return value as-is for now
+        # TODO: Add float conversions, etc.
+        return value
+
     def _convert_stmt(self, stmt: Stmt) -> None:
         """Convert single statement to MLIR operations"""
         if isinstance(stmt, ExprStmt):
@@ -522,6 +579,9 @@ class CADLMLIRConverter:
 
             # Convert RHS expression
             rhs_value = self._convert_expr(stmt.rhs)
+
+            # Apply type conversion if type annotation is present
+            rhs_value = self._convert_type_if_needed(rhs_value, stmt.type_annotation)
 
             # Handle LHS assignment
             if isinstance(stmt.lhs, IdentExpr):
@@ -620,8 +680,40 @@ class CADLMLIRConverter:
         else:
             raise NotImplementedError(f"Expression type not yet supported: {type(expr)}")
 
+    def _promote_operands(self, left: ir.Value, right: ir.Value) -> tuple[ir.Value, ir.Value]:
+        """
+        Promote operands to same type for binary operations.
+
+        When integer operands have different widths, extends the narrower one
+        to match the wider one (following hardware description language semantics).
+
+        Args:
+            left: Left operand value
+            right: Right operand value
+
+        Returns:
+            Tuple of (promoted_left, promoted_right) with matching types
+        """
+        # Check if both operands are integers with different widths
+        if isinstance(left.type, ir.IntegerType) and isinstance(right.type, ir.IntegerType):
+            left_width = left.type.width
+            right_width = right.type.width
+
+            if left_width < right_width:
+                # Extend left to match right (unsigned extension for safety)
+                return (arith.ExtUIOp(right.type, left).result, right)
+            elif right_width < left_width:
+                # Extend right to match left (unsigned extension for safety)
+                return (left, arith.ExtUIOp(left.type, right).result)
+
+        # No promotion needed (same type or non-integer types)
+        return (left, right)
+
     def _convert_binary_op(self, op: BinaryOp, left: ir.Value, right: ir.Value) -> ir.Value:
         """Convert binary operation to appropriate MLIR operation"""
+        # Promote operands to same type if they have different integer widths
+        left, right = self._promote_operands(left, right)
+
         # Arithmetic operations (prefer arith dialect for arithmetic)
         if op == BinaryOp.ADD:
             return arith.AddIOp(left, right).result
