@@ -4,15 +4,19 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Operation.h"
 #include "TOR/TOR.h"
 #include "TOR/Utils.h"
+#include "APS/APSOps.h"
 // #include "llvm/ADT/DenseMap.h"
+#include "llvm/Support/raw_ostream.h"
 #include "nlohmann/json.hpp"
 #include <cmath>
 #include <map>
 #include <string>
 #include <vector>
+#include <functional>
 
 const int BIT_WIDTH_TYPE = 7;
 
@@ -189,6 +193,114 @@ public:
       return false;
     }
     return true;
+  }
+
+  /// Get or create a per-memref resource ID for APS memory operations
+  /// This allows different memrefs to be scheduled independently
+  ///
+  /// For memref.global with impl="1rw": creates a resource with amount=1 (SRAM, single port)
+  /// For memref.global without impl: returns -1 (register file, fully parallel, no constraint)
+  int getOrCreateMemrefResource(mlir::Value memref) {
+    // Try to get the defining operation's name and check impl attribute
+    std::string memrefName = "memport_unknown";
+    bool hasImplAttr = false;
+
+    if (auto defOp = memref.getDefiningOp()) {
+      if (auto getGlobalOp = llvm::dyn_cast<mlir::memref::GetGlobalOp>(defOp)) {
+        std::string globalName = getGlobalOp.getName().str();
+
+        // Look up the memref.global declaration to check for impl attribute
+        auto moduleOp = defOp->getParentOfType<mlir::ModuleOp>();
+        if (moduleOp) {
+          auto globalOps = moduleOp.getOps<mlir::memref::GlobalOp>();
+          for (auto globalDecl : globalOps) {
+            if (globalDecl.getSymName() == globalName) {
+              // Check if it has impl attribute
+              if (globalDecl->hasAttr("impl")) {
+                hasImplAttr = true;
+                auto implAttr = globalDecl->getAttr("impl");
+                if (auto strAttr = llvm::dyn_cast<mlir::StringAttr>(implAttr)) {
+                  std::string implValue = strAttr.getValue().str();
+                  // For "1rw" SRAM, create a constrained resource
+                  if (implValue == "1rw") {
+                    memrefName = "memport_" + globalName + "_1rw";
+                  } else {
+                    // Other impl types, treat as SRAM for now
+                    memrefName = "memport_" + globalName + "_" + implValue;
+                  }
+                }
+              } else {
+                // No impl attribute: register file, no resource constraint needed
+                // Create a special resource with correct latency but unlimited amount
+                memrefName = "memport_" + globalName + "_regfile";
+              }
+              break;
+            }
+          }
+        }
+
+        // Fallback if we couldn't find the global declaration
+        if (!hasImplAttr && memrefName == "memport_unknown") {
+          // Assume register file (no constraint) by default
+          memrefName = "memport_unknown_regfile";
+        }
+      } else if (auto allocOp = llvm::dyn_cast<tor::AllocOp>(defOp)) {
+        // For tor.alloc, check if it has impl attribute
+        if (allocOp->hasAttr("impl")) {
+          hasImplAttr = true;
+          std::string opStr;
+          llvm::raw_string_ostream os(opStr);
+          os << defOp;
+          size_t hash = std::hash<std::string>{}(os.str());
+          memrefName = "memport_alloc_" + std::to_string(hash);
+        } else {
+          // No impl: register file
+          std::string opStr;
+          llvm::raw_string_ostream os(opStr);
+          os << defOp;
+          size_t hash = std::hash<std::string>{}(os.str());
+          memrefName = "memport_alloc_regfile_" + std::to_string(hash);
+        }
+      } else if (defOp->getName().getStringRef().str() == "aps.memdeclare") {
+        // For aps.memdeclare, check impl attribute
+        if (defOp->hasAttr("impl")) {
+          hasImplAttr = true;
+          std::string opStr;
+          llvm::raw_string_ostream os(opStr);
+          os << defOp;
+          size_t hash = std::hash<std::string>{}(os.str());
+          memrefName = "memport_aps_" + std::to_string(hash);
+        } else {
+          // No impl: register file
+          std::string opStr;
+          llvm::raw_string_ostream os(opStr);
+          os << defOp;
+          size_t hash = std::hash<std::string>{}(os.str());
+          memrefName = "memport_aps_regfile_" + std::to_string(hash);
+        }
+      }
+    }
+
+    // Check if resource already exists
+    if (NameToID.find(memrefName) != NameToID.end()) {
+      return NameToID[memrefName];
+    }
+
+    // Create a new resource with the same properties as base memport
+    int baseMemportId = NameToID["memport"];
+    const Component& baseMemport = Components[baseMemportId];
+
+    // Determine if this is a register file (unlimited resources) or SRAM (limited)
+    bool isRegfile = memrefName.find("_regfile") != std::string::npos;
+    int amount = isRegfile ? -1 : 1;  // -1 means unlimited, 1 means single port
+    bool hasConstraint = !isRegfile;   // Register files don't have resource constraints
+
+    // Create a new component
+    Component newComp(memrefName, baseMemport.delay, baseMemport.latency,
+                      baseMemport.II, hasConstraint, amount);
+    addComponent(newComp);
+
+    return NameToID[memrefName];
   }
 
 private:

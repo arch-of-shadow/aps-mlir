@@ -10,6 +10,7 @@
 #include "Schedule/ResourceDB.h"
 #include "TOR/TOR.h"
 #include "TOR/TORTypes.h"
+#include "APS/APSOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Matchers.h"
@@ -116,15 +117,32 @@ public:
                           ArrayRef<Value> Results, ArrayRef<Value> Operands,
                           OpAbstract::OpType type, ArrayRef<int> DepSigs,
                           ArrayRef<int> DepDists, const std::string& storageType) {
-    std::string rscName = "memport";
-    if (storageType == "RAM_1P") {
-      rscName = "memport_RAM_1P";
-    } else if (storageType == "RAM_T2P") {
-      rscName = "memport_RAM_T2P";
-    }
-    int rsc = RDB.getResourceID(rscName);
+    // First create the operation to extract memref
     Operations.push_back(std::make_unique<MemOpConcrete>(
-        MemOpConcrete(op, ParentLoop, ParentBB, rsc, Results, Operands, type)));
+        MemOpConcrete(op, ParentLoop, ParentBB, 0 /* temporary */, Results, Operands, type)));
+
+    auto newMemop = Operations.back()->getMemOp();
+    Value memref = newMemop->getMemRef();
+
+    // Determine resource based on memref and storage type
+    int rsc;
+    if (storageType == "RAM_1P") {
+      rsc = RDB.getResourceID("memport_RAM_1P");
+    } else if (storageType == "RAM_T2P") {
+      rsc = RDB.getResourceID("memport_RAM_T2P");
+    } else if (llvm::isa<aps::MemLoad>(op) || llvm::isa<aps::MemStore>(op)) {
+      // For APS memory operations, use per-memref resources
+      rsc = RDB.getOrCreateMemrefResource(memref);
+    } else {
+      // For other operations (tor.load, tor.store), use unified memport
+      rsc = RDB.getResourceID("memport");
+    }
+
+    // Update the resource ID using the setter on the concrete operation
+    auto concreteOp = llvm::dyn_cast<OpConcrete>(Operations.back().get());
+    if (concreteOp) {
+      concreteOp->setResourceId(rsc);
+    }
 
     int width = 0;
     if (Results.size() > 0) {
@@ -137,7 +155,6 @@ public:
     OpAbstract *newop = Operations.back().get();
     newop->setWidth(width);
 
-    auto newMemop = newop->getMemOp();
     for (unsigned i = 0; i < DepSigs.size(); ++i)
       newMemop->Dependences[DepSigs[i]] = DepDists[i];
 

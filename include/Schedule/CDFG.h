@@ -213,6 +213,8 @@ public:
 
   BasicBlock *getParentBB() override { return ParentBB; }
 
+  void setResourceId(int rsc) { ResourceId = rsc; }
+
 protected:
   OpType type;
   Operation *op;

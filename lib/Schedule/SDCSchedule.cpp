@@ -1014,11 +1014,12 @@ void SDCSchedule::addMemConstr(int memportRId, SDCSolver *SDC) {
         it.second[i]->getOp()->setAttr("slot", IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32),
                                slot));
         int var = it.second[i]->VarId;
-        for (auto x : vars[slot]){
-          if(x > var)SDC->addInitialConstraint(Constraint::CreateGE(var,x , II));
-          else SDC->addInitialConstraint(Constraint::CreateGE(x, var, II));
+        // For each operation in the same slot, add constraint that current op starts after previous ops
+        for (auto prevVar : vars[slot]){
+          // current op must start at least II cycles after previous op in same slot
+          SDC->addInitialConstraint(Constraint::CreateGE(var, prevVar, II));
         }
-          
+
         vars[slot].push_back(var);
       }
     }
@@ -1262,7 +1263,10 @@ SDCSolver *SDCSchedule::formulateSDC() {
 
   for (int i = 0; i < NumResource; ++i) {
     if (RDB.getName(i).rfind("memport", 0) == 0) {
-      addMemConstr(i, SDC);
+      // Only add constraints for memports with hard limits (SRAM, not register files)
+      if (RDB.hasHardLimit(i)) {
+        addMemConstr(i, SDC);
+      }
     } else if (RDB.getName(i).rfind("m_axi", 0) == 0) {
       // skip
     } else if (RDB.hasHardLimit(i)) {

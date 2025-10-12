@@ -122,8 +122,9 @@ int main(int argc, char **argv) {
     // hector_argv[index++] = const_cast<char *>("--struct-split");
     // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--unification-index-cast");
-    // hector_argv[index++] = const_cast<char *>("--hls-unroll");
-    // hector_argv[index++] = const_cast<char *>("--canonicalize");
+    hector_argv[index++] = const_cast<char *>("--hls-unroll");
+    hector_argv[index++] = const_cast<char *>("--cse");
+    hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--affine-loop-normalize");
     // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--new-array-partition");
@@ -135,7 +136,7 @@ int main(int argc, char **argv) {
     }
     // hector_argv[index++] = const_cast<char *>("--canonicalize");
 
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--detect-reduction");
 
     // ss << "--attribute-deletion=output-file=" << arg_output.c_str();

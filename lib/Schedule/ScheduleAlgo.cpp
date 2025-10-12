@@ -1012,6 +1012,109 @@ namespace scheduling {
             }
           }
         }
+
+        // Dependencies between regular memory operations and burst operations
+        // Burst operations should wait for all regular operations on the same memref to complete
+        for (auto &&op1: Operations) {
+            auto memop1 = op1->getMemOp();
+            if (memop1 == nullptr)
+                continue;
+
+            for (auto &&op2 : Operations) {
+                auto maxiop2 = op2->getMAxiOp();
+                if (maxiop2 == nullptr || op1.get() == op2.get())
+                    continue;
+
+                // Only process burst operations (aps.memburstload, aps.memburststore)
+                if (op2->getType() != OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                    op2->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP)
+                    continue;
+
+                // no dependency if not the same memref
+                if (memop1->getMemRef() != maxiop2->getMemRef())
+                    continue;
+
+                // Check if memop1 can reach maxiop2
+                int Distance = -1;
+                if (canReach(memop1, maxiop2, false))
+                    Distance = 0;
+                else if (canReach(memop1, maxiop2, true))
+                    Distance = 1;
+
+                if (Distance == -1)
+                    continue;
+
+                // Add appropriate dependencies
+                if (op1->getType() == OpAbstract::OpType::LOAD_OP &&
+                    op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP) {
+                    // LOAD -> BURST_WRITE: WAR
+                    addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_WAR));
+                } else if (op1->getType() == OpAbstract::OpType::STORE_OP &&
+                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP) {
+                    // STORE -> BURST_READ: WAR
+                    addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_WAR));
+                } else if (op1->getType() == OpAbstract::OpType::STORE_OP &&
+                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP) {
+                    // STORE -> BURST_WRITE: RAW (burst write reads from memory)
+                    addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_RAW));
+                } else if (op1->getType() == OpAbstract::OpType::LOAD_OP &&
+                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP) {
+                    // LOAD -> BURST_READ: RAR (no true dependency, but for ordering)
+                    addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_RAR));
+                }
+            }
+        }
+
+        // Dependencies from burst operations to regular memory operations
+        for (auto &&op1: Operations) {
+            auto maxiop1 = op1->getMAxiOp();
+            if (maxiop1 == nullptr)
+                continue;
+
+            // Only process burst operations
+            if (op1->getType() != OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                op1->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP)
+                continue;
+
+            for (auto &&op2 : Operations) {
+                auto memop2 = op2->getMemOp();
+                if (memop2 == nullptr || op1.get() == op2.get())
+                    continue;
+
+                // no dependency if not the same memref
+                if (maxiop1->getMemRef() != memop2->getMemRef())
+                    continue;
+
+                // Check if maxiop1 can reach memop2
+                int Distance = -1;
+                if (canReach(maxiop1, memop2, false))
+                    Distance = 0;
+                else if (canReach(maxiop1, memop2, true))
+                    Distance = 1;
+
+                if (Distance == -1)
+                    continue;
+
+                // Add appropriate dependencies
+                if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                    op2->getType() == OpAbstract::OpType::LOAD_OP) {
+                    // BURST_READ -> LOAD: RAW (burst read writes to memory)
+                    addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_RAW));
+                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                           op2->getType() == OpAbstract::OpType::STORE_OP) {
+                    // BURST_READ -> STORE: WAW (burst read writes to memory)
+                    addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_WAW));
+                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                           op2->getType() == OpAbstract::OpType::LOAD_OP) {
+                    // BURST_WRITE -> LOAD: WAR
+                    addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_WAR));
+                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                           op2->getType() == OpAbstract::OpType::STORE_OP) {
+                    // BURST_WRITE -> STORE: RAR (no true dependency, but for ordering)
+                    addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_RAR));
+                }
+            }
+        }
     }
 
     void getDescendants(
