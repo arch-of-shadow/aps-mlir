@@ -1,6 +1,14 @@
-#[impl("1rw")]
+#[array_partition_factor(4)]
+#[array_partition_style("block")] // or "cyclic"
 static mem_a: [u32; 16];
+
+#[array_partition_factor(4)]
+#[array_partition_style("block")] // or "cyclic"
 static mem_b: [u32; 16];
+
+#[array_partition_factor(4)]
+#[array_partition_style("block")] // or "cyclic"
+static mem_c: [u32; 16];
 
 #[opcode(7'b0101011)]
 #[funct7(7'b0000000)]
@@ -14,9 +22,9 @@ rtype burst_add(rs1: u5, rs2: u5, rd: u5) {
         let a: u32 = mem_a[i];
         let b: u32 = mem_b[i];
         let c: u32 = a + b;
-        mem_a[i] = c;
+        mem_c[i] = c;
         let i_: u32 = i + 1;
     } while (i_ < 16);
-    _burst_write[r1 +: 16] = mem_a[0 +: ];
+    _burst_write[r1 +: 16] = mem_c[0 +: ];
     _irf[rd] = 42;
 }
