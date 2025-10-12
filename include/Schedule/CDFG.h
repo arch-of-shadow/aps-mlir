@@ -2,7 +2,9 @@
 #define CDFG_H
 
 #include "TOR/TOR.h"
+#include "APS/APSOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
@@ -268,6 +270,10 @@ public:
 
   int getOpLength(mlir::Value length) {
     auto op = length.getDefiningOp();
+    if (!op) {
+      // Length is a BlockArgument or invalid - return default
+      return 1;
+    }
     if (auto constIndexOp = llvm::dyn_cast<arith::ConstantIndexOp>(op))
       return constIndexOp.value();
     if (auto constIntOp = llvm::dyn_cast<arith::ConstantIntOp>(op))
@@ -302,11 +308,25 @@ public:
       memref = mAxiWriteRequestOp.getMemref();
       request = mAxiWriteRequestOp.getResult();
       length = getOpLength(mAxiWriteRequestOp.getLength());
+    } else if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op)) {
+      // APS memory burst load operation
+      memref = memBurstLoadOp.getMemref();
+      addr = memBurstLoadOp.getStart();
+      length = getOpLength(memBurstLoadOp.getLength());
+    } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op)) {
+      // APS memory burst store operation
+      memref = memBurstStoreOp.getMemref();
+      addr = memBurstStoreOp.getStart();
+      length = getOpLength(memBurstStoreOp.getLength());
     }
 
-    auto mAxiCreateOp = llvm::dyn_cast<tor::AXICreateOp>(memref.getDefiningOp());
-    if (mAxiCreateOp->hasAttr("bus")) {
-        bus = dyn_cast<StringAttr>(mAxiCreateOp->getAttr("bus")).getValue().str();
+    // Check if memref is defined by an operation (not a BlockArgument)
+    if (auto defOp = memref.getDefiningOp()) {
+      if (auto mAxiCreateOp = llvm::dyn_cast<tor::AXICreateOp>(defOp)) {
+        if (mAxiCreateOp->hasAttr("bus")) {
+          bus = dyn_cast<StringAttr>(mAxiCreateOp->getAttr("bus")).getValue().str();
+        }
+      }
     }
   }
 private:
@@ -328,20 +348,25 @@ public:
   int getPartitionIndicies() {
     assert(hasFixedMemoryBank());
 
-    tor::MemRefType type = llvm::dyn_cast<tor::MemRefType>(memref.getType());
+    // Check if it's a TOR MemRefType (with partition properties)
+    if (auto torType = llvm::dyn_cast<tor::MemRefType>(memref.getType())) {
+      auto shape = torType.getShape();
+      auto property = torType.getProperty();
 
-    auto shape = type.getShape();
-    auto property = type.getProperty();
+      int idx = 0;
 
-    int idx = 0;
-
-    for (auto x : llvm::enumerate(partitionIndices)) {
-      APInt attr;
-      matchPattern(x.value(), m_ConstantInt(&attr));
-      if (property[x.index()].getValue() == "complete")
-        idx = idx * shape[x.index()] + attr.getLimitedValue();
+      for (auto x : llvm::enumerate(partitionIndices)) {
+        APInt attr;
+        matchPattern(x.value(), m_ConstantInt(&attr));
+        if (property[x.index()].getValue() == "complete")
+          idx = idx * shape[x.index()] + attr.getLimitedValue();
+      }
+      return idx;
     }
-    return idx;
+
+    // For standard memref types (mlir::MemRefType), no partition support
+    // Just return 0 as there's no partition information
+    return 0;
   }
 
   bool hasFixedMemoryBank() {
@@ -368,7 +393,10 @@ public:
   MemOpConcrete(Operation *op, Loop *ParentLoop, BasicBlock *ParentBB,
                 int resource, ArrayRef<Value> R, ArrayRef<Value> O, OpType type)
       : OpConcrete(op, ParentLoop, ParentBB, resource, R, O, type) {
-    assert(llvm::isa<tor::LoadOp>(op) || llvm::isa<tor::StoreOp>(op) || llvm::isa<tor::GuardedStoreOp>(op));
+    assert(llvm::isa<tor::LoadOp>(op) || llvm::isa<tor::StoreOp>(op) ||
+           llvm::isa<tor::GuardedStoreOp>(op) || llvm::isa<aps::MemLoad>(op) ||
+           llvm::isa<aps::MemStore>(op) || llvm::isa<mlir::memref::LoadOp>(op) ||
+           llvm::isa<mlir::memref::StoreOp>(op));
 
     if (auto loadOp = llvm::dyn_cast<tor::LoadOp>(op)) {
       memref = loadOp.getMemref();
@@ -385,6 +413,30 @@ public:
       addr = storeOp.getOperand(
           3); // the first index is the address in the memory bank
       partitionIndices = storeOp.getIndices().drop_front(1);
+    } else if (auto apsLoadOp = llvm::dyn_cast<aps::MemLoad>(op)) {
+      memref = apsLoadOp.getMemref();
+      if (apsLoadOp.getIndices().size() > 0) {
+        addr = apsLoadOp.getIndices()[0]; // first index is the address
+        partitionIndices = apsLoadOp.getIndices().drop_front(1);
+      }
+    } else if (auto apsStoreOp = llvm::dyn_cast<aps::MemStore>(op)) {
+      memref = apsStoreOp.getMemref();
+      if (apsStoreOp.getIndices().size() > 0) {
+        addr = apsStoreOp.getIndices()[0]; // first index is the address
+        partitionIndices = apsStoreOp.getIndices().drop_front(1);
+      }
+    } else if (auto memLoadOp = llvm::dyn_cast<mlir::memref::LoadOp>(op)) {
+      memref = memLoadOp.getMemref();
+      if (memLoadOp.getIndices().size() > 0) {
+        addr = memLoadOp.getIndices()[0];
+        partitionIndices = memLoadOp.getIndices().drop_front(1);
+      }
+    } else if (auto memStoreOp = llvm::dyn_cast<mlir::memref::StoreOp>(op)) {
+      memref = memStoreOp.getMemref();
+      if (memStoreOp.getIndices().size() > 0) {
+        addr = memStoreOp.getIndices()[0];
+        partitionIndices = memStoreOp.getIndices().drop_front(1);
+      }
     }
     Dependences.clear();
   }

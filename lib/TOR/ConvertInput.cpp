@@ -479,54 +479,55 @@ namespace {
             rewriter.eraseOp(op);
         });
         SmallVector<Operation *, 8> opsToErase;
-        funcOp.walk([&](memref::AllocaOp alloca) {
-          if (alloca->hasAttr("dataflow")) {
-            Type elementType;
-            auto dataflowString = llvm::dyn_cast<StringAttr>(alloca->getAttr("dataflow")).getValue();
-            if (dataflowString.contains("double")) {
-                elementType = rewriter.getF64Type();
-            }
-            else if (dataflowString.contains("float")) {
-                elementType = rewriter.getF32Type();
-            }
-            else if (dataflowString.contains("int")) {
-                elementType = rewriter.getI32Type();
-            }
-            else if (dataflowString.contains("long long")) {
-                elementType = rewriter.getI32Type();
-            }
-            else {
-                llvm_unreachable("Unkown dataflow type!");
-            }
-            int depth = 0;
-            llvm::Regex pattern(", .*>", llvm::Regex::RegexFlags::Newline);
-            llvm::SmallVector<StringRef, 8> matches;
-            if (pattern.match(dataflowString, &matches)) {
-              std::string depthStr =
-                  matches[0].substr(2, dataflowString.size() - 3).str();
-              depth = std::stoi(depthStr);
-            }
-            auto streamCreateOp = rewriter.create<tor::StreamCreateOp>(
-                op.getLoc(),
-                tor::StreamType::get(rewriter.getContext(),
-                                     elementType),
-                depth);
-            int castOpNum = 0;
-            Operation *castOp;
-            for (auto u : alloca->getUsers()) {
-                castOp = u;
-                ++castOpNum;
-            }
-            if (castOpNum != 1) {
-                llvm_unreachable("Unkown dataflow alloca type!");
-            }
-            castOp->getResult(0).replaceAllUsesWith(streamCreateOp);
-            opsToErase.push_back(castOp);
-            opsToErase.push_back(alloca);
-          }
-        });
-        for (auto *op : opsToErase)
-            rewriter.eraseOp(op);
+        // DISABLED: ConvertInput pass no longer modifies memref dialect operations
+        // funcOp.walk([&](memref::AllocaOp alloca) {
+        //   if (alloca->hasAttr("dataflow")) {
+        //     Type elementType;
+        //     auto dataflowString = llvm::dyn_cast<StringAttr>(alloca->getAttr("dataflow")).getValue();
+        //     if (dataflowString.contains("double")) {
+        //         elementType = rewriter.getF64Type();
+        //     }
+        //     else if (dataflowString.contains("float")) {
+        //         elementType = rewriter.getF32Type();
+        //     }
+        //     else if (dataflowString.contains("int")) {
+        //         elementType = rewriter.getI32Type();
+        //     }
+        //     else if (dataflowString.contains("long long")) {
+        //         elementType = rewriter.getI32Type();
+        //     }
+        //     else {
+        //         llvm_unreachable("Unkown dataflow type!");
+        //     }
+        //     int depth = 0;
+        //     llvm::Regex pattern(", .*>", llvm::Regex::RegexFlags::Newline);
+        //     llvm::SmallVector<StringRef, 8> matches;
+        //     if (pattern.match(dataflowString, &matches)) {
+        //       std::string depthStr =
+        //           matches[0].substr(2, dataflowString.size() - 3).str();
+        //       depth = std::stoi(depthStr);
+        //     }
+        //     auto streamCreateOp = rewriter.create<tor::StreamCreateOp>(
+        //         op.getLoc(),
+        //         tor::StreamType::get(rewriter.getContext(),
+        //                              elementType),
+        //         depth);
+        //     int castOpNum = 0;
+        //     Operation *castOp;
+        //     for (auto u : alloca->getUsers()) {
+        //         castOp = u;
+        //         ++castOpNum;
+        //     }
+        //     if (castOpNum != 1) {
+        //         llvm_unreachable("Unkown dataflow alloca type!");
+        //     }
+        //     castOp->getResult(0).replaceAllUsesWith(streamCreateOp);
+        //     opsToErase.push_back(castOp);
+        //     opsToErase.push_back(alloca);
+        //   }
+        // });
+        // for (auto *op : opsToErase)
+        //     rewriter.eraseOp(op);
         funcOp.walk([&](CallOp call) {
             auto funcName = call.getCallee();
             if (funcName.find("stream") == 0) {
@@ -547,106 +548,112 @@ namespace {
             rewriter.eraseOp(op);
         });
         rewriter.setInsertionPointToStart(op->getBlock());
-        funcOp.walk([&](memref::AllocaOp alloca) {    // 临时变量
-            auto memref = alloca.getMemref().getType();
-            tor::AllocOp alloc;
-            if (memref.getShape().empty()) {
-                auto newType = tor::MemRefType::get({1}, memref.getElementType(), {},
-                                                    StringAttr::get(op.getContext(), ""));
-                alloc = rewriter.create<tor::AllocOp>(op.getLoc(), newType, nullptr, nullptr, nullptr);
-                alloca.getResult().replaceAllUsesWith(alloc.getResult());
-                alloc.setLocalTypeAttr(StringAttr::get(alloc.getContext(), "local"));
-            } else {
-                auto newType = tor::MemRefType::get(memref.getShape(), memref.getElementType(), {},
-                                                    StringAttr::get(op.getContext(), ""));
-                alloc = rewriter.create<tor::AllocOp>(op.getLoc(), newType, nullptr, nullptr, nullptr);
-                alloca.getResult().replaceAllUsesWith(alloc.getResult());
-                alloc.setLocalTypeAttr(StringAttr::get(alloc.getContext(), "local"));
-            }
-            saveOldAttrWithName(alloc, alloca, "bind_storage_type");
-            saveOldAttrWithName(alloc, alloca, "bind_storage-line");
-            saveOldAttrWithName(alloc, alloca, "mode");
-            saveOldAttrWithName(alloc, alloca, "bus");
-            saveOldAttrWithName(alloc, alloca, "offset");
-            saveOldAttrWithName(alloc, alloca, "ARLEN");
-            saveOldAttrWithName(alloc, alloca, "AWLEN");
-            saveOldAttrWithName(alloc, alloca, "max_widen_bitwidth");
-            saveOldAttrWithName(alloc, alloca, "initial_addr");
-            saveOldAttrWithName(alloc, alloca, "interface-storage_type");
-            saveOldAttrWithName(alloc, alloca, "num_read_outstanding");
-            saveOldAttrWithName(alloc, alloca, "num_write_outstanding");
-            rewriter.eraseOp(alloca);
-        });
-        funcOp.walk([&](memref::AllocOp alloca) {
-            auto memref = alloca.getMemref().getType();
-            if (memref.getShape().empty()) {
-                auto newType = tor::MemRefType::get({1}, memref.getElementType(), {},
-                                                    StringAttr::get(op.getContext(), ""));
-                auto alloc = rewriter.create<tor::AllocOp>(op.getLoc(), newType, nullptr, nullptr, nullptr);
-                alloca.getResult().replaceAllUsesWith(alloc.getResult());
-            } else {
-                auto newType = tor::MemRefType::get(memref.getShape(), memref.getElementType(), {},
-                                                    StringAttr::get(op.getContext(), ""));
-                auto alloc = rewriter.create<tor::AllocOp>(op.getLoc(), newType, nullptr, nullptr, nullptr);
-                alloca.getResult().replaceAllUsesWith(alloc.getResult());
-            }
-            rewriter.eraseOp(alloca);
-        });
-        funcOp.walk([&](memref::LoadOp load) {
-            rewriter.setInsertionPoint(load);
-            auto new_load = rewriter.create<tor::LoadOp>(load.getLoc(), load.getResult().getType(),
-                                                         load.getOperand(0), 0, 0,
-                                                         load.getIndices());
-            load.getResult().replaceAllUsesWith(new_load.getResult());
-            if (load->getAttr("distance")) {
-              new_load->setAttr("distance", load->getAttr("distance"));
-            }
-            rewriter.eraseOp(load);
-        });
-        funcOp.walk([&](memref::StoreOp store) {
-            rewriter.setInsertionPoint(store);
-            auto new_store = rewriter.create<tor::StoreOp>(store.getLoc(), store.getValue(),
-                                                           store.getOperand(1), 0, 0,
-                                                           store.getIndices());
-            if (store->getAttr("distance")) {
-              new_store->setAttr("distance", store->getAttr("distance"));
-            }
-            rewriter.eraseOp(store);
-        });
-        funcOp.walk([&](memref::CastOp cast) {
-            cast.getResult().replaceAllUsesWith(cast.getOperand());
-            rewriter.eraseOp(cast);
-        });
-        rewriter.setInsertionPointToStart(op->getBlock());
-        unsigned idx = 0, oldIdx = 0;
-        while (idx < funcOp.getNumArguments()) {
-          auto arg = funcOp.getArgument(idx);
-          if (auto memref = dyn_cast<MemRefType>(arg.getType())) {
-            auto newType =
-                tor::MemRefType::get(memref.getShape(), memref.getElementType(),
-                                     {}, StringAttr::get(op.getContext(), ""));
-            auto alloc = rewriter.create<tor::AllocOp>(
-                funcOp.getLoc(), newType, nullptr, nullptr, nullptr);
-            saveOldArgAttrWithName(alloc, op, "bind_storage_type", oldIdx);
-            saveOldArgLineAttrWithName(alloc, op, "bind_storage", oldIdx);
-            saveOldArgLineAttrWithName(alloc, op, "interface", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "mode", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "bus", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "offset", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "ARLEN", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "AWLEN", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "max_widen_bitwidth", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "initial_addr", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "interface-storage_type", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "num_read_outstanding", oldIdx);
-            saveOldArgAttrWithName(alloc, op, "num_write_outstanding", oldIdx);
-            arg.replaceAllUsesWith(alloc.getResult());
-            (void)funcOp.eraseArgument(idx);
-          } else {
-            idx += 1;
-          }
-          oldIdx += 1;
-        }
+        // DISABLED: ConvertInput pass no longer modifies memref dialect operations
+        // funcOp.walk([&](memref::AllocaOp alloca) {    // 临时变量
+        //     auto memref = alloca.getMemref().getType();
+        //     tor::AllocOp alloc;
+        //     if (memref.getShape().empty()) {
+        //         auto newType = tor::MemRefType::get({1}, memref.getElementType(), {},
+        //                                             StringAttr::get(op.getContext(), ""));
+        //         alloc = rewriter.create<tor::AllocOp>(op.getLoc(), newType, nullptr, nullptr, nullptr);
+        //         alloca.getResult().replaceAllUsesWith(alloc.getResult());
+        //         alloc.setLocalTypeAttr(StringAttr::get(alloc.getContext(), "local"));
+        //     } else {
+        //         auto newType = tor::MemRefType::get(memref.getShape(), memref.getElementType(), {},
+        //                                             StringAttr::get(op.getContext(), ""));
+        //         alloc = rewriter.create<tor::AllocOp>(op.getLoc(), newType, nullptr, nullptr, nullptr);
+        //         alloca.getResult().replaceAllUsesWith(alloc.getResult());
+        //         alloc.setLocalTypeAttr(StringAttr::get(alloc.getContext(), "local"));
+        //     }
+        //     saveOldAttrWithName(alloc, alloca, "bind_storage_type");
+        //     saveOldAttrWithName(alloc, alloca, "bind_storage-line");
+        //     saveOldAttrWithName(alloc, alloca, "mode");
+        //     saveOldAttrWithName(alloc, alloca, "bus");
+        //     saveOldAttrWithName(alloc, alloca, "offset");
+        //     saveOldAttrWithName(alloc, alloca, "ARLEN");
+        //     saveOldAttrWithName(alloc, alloca, "AWLEN");
+        //     saveOldAttrWithName(alloc, alloca, "max_widen_bitwidth");
+        //     saveOldAttrWithName(alloc, alloca, "initial_addr");
+        //     saveOldAttrWithName(alloc, alloca, "interface-storage_type");
+        //     saveOldAttrWithName(alloc, alloca, "num_read_outstanding");
+        //     saveOldAttrWithName(alloc, alloca, "num_write_outstanding");
+        //     rewriter.eraseOp(alloca);
+        // });
+        // DISABLED: ConvertInput pass no longer modifies memref dialect operations
+        // funcOp.walk([&](memref::AllocOp alloca) {
+        //     auto memref = alloca.getMemref().getType();
+        //     if (memref.getShape().empty()) {
+        //         auto newType = tor::MemRefType::get({1}, memref.getElementType(), {},
+        //                                             StringAttr::get(op.getContext(), ""));
+        //         auto alloc = rewriter.create<tor::AllocOp>(op.getLoc(), newType, nullptr, nullptr, nullptr);
+        //         alloca.getResult().replaceAllUsesWith(alloc.getResult());
+        //     } else {
+        //         auto newType = tor::MemRefType::get(memref.getShape(), memref.getElementType(), {},
+        //                                             StringAttr::get(op.getContext(), ""));
+        //         auto alloc = rewriter.create<tor::AllocOp>(op.getLoc(), newType, nullptr, nullptr, nullptr);
+        //         alloca.getResult().replaceAllUsesWith(alloc.getResult());
+        //     }
+        //     rewriter.eraseOp(alloca);
+        // });
+        // DISABLED: ConvertInput pass no longer modifies memref dialect operations
+        // funcOp.walk([&](memref::LoadOp load) {
+        //     rewriter.setInsertionPoint(load);
+        //     auto new_load = rewriter.create<tor::LoadOp>(load.getLoc(), load.getResult().getType(),
+        //                                                  load.getOperand(0), 0, 0,
+        //                                                  load.getIndices());
+        //     load.getResult().replaceAllUsesWith(new_load.getResult());
+        //     if (load->getAttr("distance")) {
+        //       new_load->setAttr("distance", load->getAttr("distance"));
+        //     }
+        //     rewriter.eraseOp(load);
+        // });
+        // DISABLED: ConvertInput pass no longer modifies memref dialect operations
+        // funcOp.walk([&](memref::StoreOp store) {
+        //     rewriter.setInsertionPoint(store);
+        //     auto new_store = rewriter.create<tor::StoreOp>(store.getLoc(), store.getValue(),
+        //                                                    store.getOperand(1), 0, 0,
+        //                                                    store.getIndices());
+        //     if (store->getAttr("distance")) {
+        //       new_store->setAttr("distance", store->getAttr("distance"));
+        //     }
+        //     rewriter.eraseOp(store);
+        // });
+        // DISABLED: ConvertInput pass no longer modifies memref dialect operations
+        // funcOp.walk([&](memref::CastOp cast) {
+        //     cast.getResult().replaceAllUsesWith(cast.getOperand());
+        //     rewriter.eraseOp(cast);
+        // });
+        // DISABLED: ConvertInput pass no longer modifies memref dialect operations
+        // rewriter.setInsertionPointToStart(op->getBlock());
+        // unsigned idx = 0, oldIdx = 0;
+        // while (idx < funcOp.getNumArguments()) {
+        //   auto arg = funcOp.getArgument(idx);
+        //   if (auto memref = dyn_cast<MemRefType>(arg.getType())) {
+        //     auto newType =
+        //         tor::MemRefType::get(memref.getShape(), memref.getElementType(),
+        //                              {}, StringAttr::get(op.getContext(), ""));
+        //     auto alloc = rewriter.create<tor::AllocOp>(
+        //         funcOp.getLoc(), newType, nullptr, nullptr, nullptr);
+        //     saveOldArgAttrWithName(alloc, op, "bind_storage_type", oldIdx);
+        //     saveOldArgLineAttrWithName(alloc, op, "bind_storage", oldIdx);
+        //     saveOldArgLineAttrWithName(alloc, op, "interface", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "mode", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "bus", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "offset", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "ARLEN", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "AWLEN", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "max_widen_bitwidth", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "initial_addr", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "interface-storage_type", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "num_read_outstanding", oldIdx);
+        //     saveOldArgAttrWithName(alloc, op, "num_write_outstanding", oldIdx);
+        //     arg.replaceAllUsesWith(alloc.getResult());
+        //     (void)funcOp.eraseArgument(idx);
+        //   } else {
+        //     idx += 1;
+        //   }
+        //   oldIdx += 1;
+        // }
         static int func_num = 0;
         funcOp.walk([&](CallOp call) {
             // bool hasMem = false;
@@ -705,46 +712,47 @@ namespace {
                 : OpRewritePattern<FuncOp>(ctx), top_function(top_function), resource(resource), clock(clock) {}
 
         LogicalResult matchAndRewrite(FuncOp op, PatternRewriter &rewriter) const override {
-            std::map<std::string, Value> memory_mapping;
-            auto design = op->getParentOp();
-            design->walk([&](memref::GlobalOp global) {
-                rewriter.setInsertionPoint(global);
-                auto memref = global.getType();
-                tor::AllocOp alloc;
-                if (memref.getShape().empty()) {
-                    auto newType = tor::MemRefType::get({1}, memref.getElementType(), {},
-                                                        StringAttr::get(global.getContext(), ""));
-                    auto value = global.getInitialValue();
-                    auto value_d = value.has_value() && !llvm::isa<mlir::UnitAttr>(value.value()) ? value.value() : nullptr;
-                    alloc = rewriter.create<tor::AllocOp>(global.getLoc(), newType, nullptr, value_d, nullptr);
-                    memory_mapping[global.getSymName().str()] = alloc.getResult();
-                } else {
-                    auto newType = tor::MemRefType::get(memref.getShape(), memref.getElementType(), {},
-                                                        StringAttr::get(global.getContext(), ""));
-                    auto value = global.getInitialValue();
-                    auto value_d = value.has_value() && !llvm::isa<mlir::UnitAttr>(value.value()) ? value.value() : nullptr;
-                    alloc = rewriter.create<tor::AllocOp>(global.getLoc(), newType, nullptr, value_d, nullptr);
-                    memory_mapping[global.getSymName().str()] = alloc.getResult();
-                }
-                saveOldAttrWithName(alloc, global, "bind_storage_type");
-                saveOldAttrWithName(alloc, global, "bind_storage-line");
-                saveOldAttrWithName(alloc, global, "interface-line");
-                saveOldAttrWithName(alloc, global, "mode");
-                saveOldAttrWithName(alloc, global, "bus");
-                saveOldAttrWithName(alloc, global, "offset");
-                saveOldAttrWithName(alloc, global, "ARLEN");
-                saveOldAttrWithName(alloc, global, "AWLEN");
-                saveOldAttrWithName(alloc, global, "max_widen_bitwidth");
-                saveOldAttrWithName(alloc, global, "initial_addr");
-                saveOldAttrWithName(alloc, global, "interface-storage_type");
-                saveOldAttrWithName(alloc, global, "num_read_outstanding");
-                saveOldAttrWithName(alloc, global, "num_write_outstanding");
-                rewriter.eraseOp(global);
-            });
-            design->walk([&](memref::GetGlobalOp get_global) {
-                get_global.getResult().replaceAllUsesWith(memory_mapping[get_global.getName().str()]);
-                rewriter.eraseOp(get_global);
-            });
+            // DISABLED: ConvertInput pass no longer modifies memref dialect operations
+            // std::map<std::string, Value> memory_mapping;
+            // auto design = op->getParentOp();
+            // design->walk([&](memref::GlobalOp global) {
+            //     rewriter.setInsertionPoint(global);
+            //     auto memref = global.getType();
+            //     tor::AllocOp alloc;
+            //     if (memref.getShape().empty()) {
+            //         auto newType = tor::MemRefType::get({1}, memref.getElementType(), {},
+            //                                             StringAttr::get(global.getContext(), ""));
+            //         auto value = global.getInitialValue();
+            //         auto value_d = value.has_value() && !llvm::isa<mlir::UnitAttr>(value.value()) ? value.value() : nullptr;
+            //         alloc = rewriter.create<tor::AllocOp>(global.getLoc(), newType, nullptr, value_d, nullptr);
+            //         memory_mapping[global.getSymName().str()] = alloc.getResult();
+            //     } else {
+            //         auto newType = tor::MemRefType::get(memref.getShape(), memref.getElementType(), {},
+            //                                             StringAttr::get(global.getContext(), ""));
+            //         auto value = global.getInitialValue();
+            //         auto value_d = value.has_value() && !llvm::isa<mlir::UnitAttr>(value.value()) ? value.value() : nullptr;
+            //         alloc = rewriter.create<tor::AllocOp>(global.getLoc(), newType, nullptr, value_d, nullptr);
+            //         memory_mapping[global.getSymName().str()] = alloc.getResult();
+            //     }
+            //     saveOldAttrWithName(alloc, global, "bind_storage_type");
+            //     saveOldAttrWithName(alloc, global, "bind_storage-line");
+            //     saveOldAttrWithName(alloc, global, "interface-line");
+            //     saveOldAttrWithName(alloc, global, "mode");
+            //     saveOldAttrWithName(alloc, global, "bus");
+            //     saveOldAttrWithName(alloc, global, "offset");
+            //     saveOldAttrWithName(alloc, global, "ARLEN");
+            //     saveOldAttrWithName(alloc, global, "AWLEN");
+            //     saveOldAttrWithName(alloc, global, "max_widen_bitwidth");
+            //     saveOldAttrWithName(alloc, global, "initial_addr");
+            //     saveOldAttrWithName(alloc, global, "interface-storage_type");
+            //     saveOldAttrWithName(alloc, global, "num_read_outstanding");
+            //     saveOldAttrWithName(alloc, global, "num_write_outstanding");
+            //     rewriter.eraseOp(global);
+            // });
+            // design->walk([&](memref::GetGlobalOp get_global) {
+            //     get_global.getResult().replaceAllUsesWith(memory_mapping[get_global.getName().str()]);
+            //     rewriter.eraseOp(get_global);
+            // });
             solve(op, top_function, resource, clock, rewriter);
             return success();
         }

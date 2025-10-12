@@ -8,6 +8,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/Support/Debug.h"
 
@@ -223,6 +224,22 @@ namespace {
                     j["operands"].push_back(get_value(operand));
                 }
                 return j;
+            } else if (auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(op)) {
+                // Handle memref.get_global - treat it as loading a memory reference
+                j["op_type"] = "get_global";
+                j["name"] = get_dump(getGlobalOp);
+                j["memory_name"] = getGlobalOp.getName().str();
+                j["type"] = get_type(getGlobalOp.getResult().getType());
+            } else if (auto loadOp = dyn_cast<memref::LoadOp>(op)) {
+                // Handle memref.load operations
+                j["op_type"] = "load";
+                j["name"] = get_dump(loadOp);
+                j["memory"] = get_value(loadOp.getMemref());
+                j["indices"] = json::array();
+                for (auto idx : loadOp.getIndices()) {
+                    j["indices"].push_back(get_value(idx));
+                }
+                j["type"] = get_type(loadOp.getResult().getType());
             } else if (auto loadOp = dyn_cast<tor::LoadOp>(op)) {
                 j["op_type"] = "load";
                 j["name"] = get_dump(loadOp);
@@ -242,12 +259,21 @@ namespace {
                 for (auto val: returnOp->getOperands()) {
                     j["operands"].push_back(get_value(val));
                 }
+            } else if (auto storeOp = dyn_cast<memref::StoreOp>(op)) {
+                // Handle memref.store operations
+                j["op_type"] = "store";
+                j["memory"] = get_value(storeOp.getMemref());
+                j["value"] = get_value(storeOp.getValueToStore());
+                j["indices"] = json::array();
+                for (auto idx : storeOp.getIndices()) {
+                    j["indices"].push_back(get_value(idx));
+                }
             } else if (auto storeOp = dyn_cast<tor::StoreOp>(op)) {
                 assert(storeOp.getIndices().size() == 1);
                 j["op_type"] = "store";
                 j["index"] = get_value(storeOp.getIndices()[0]);
                 j["memory"] = get_value(storeOp.getMemref());
-                
+
                 j["value"] = get_value(storeOp.getValue());
             } else if (auto storeOp = dyn_cast<tor::GuardedStoreOp>(op)) {
                 j["op_type"] = "guardedstore";
@@ -268,6 +294,60 @@ namespace {
                 j["operands"] = json::array();
                 j["operands"].push_back(get_value(writeRfOp.getOperand(0)));
                 j["operands"].push_back(get_value(writeRfOp.getOperand(1)));
+            } else if (auto memDeclareOp = dyn_cast<aps::MemDeclare>(op)) {
+                // Handle aps.memdeclare - similar to alloc
+                j["op_type"] = "memdeclare";
+                j["name"] = get_dump(memDeclareOp);
+                j["type"] = get_type(memDeclareOp.getResult().getType());
+            } else if (auto memLoadOp = dyn_cast<aps::MemLoad>(op)) {
+                // Handle aps.memload
+                j["op_type"] = "memload";
+                j["name"] = get_dump(memLoadOp);
+                j["memory"] = get_value(memLoadOp.getMemref());
+                j["indices"] = json::array();
+                for (auto idx : memLoadOp.getIndices()) {
+                    j["indices"].push_back(get_value(idx));
+                }
+                j["type"] = get_type(memLoadOp.getResult().getType());
+            } else if (auto memStoreOp = dyn_cast<aps::MemStore>(op)) {
+                // Handle aps.memstore
+                j["op_type"] = "memstore";
+                j["memory"] = get_value(memStoreOp.getMemref());
+                j["value"] = get_value(memStoreOp.getValue());
+                j["indices"] = json::array();
+                for (auto idx : memStoreOp.getIndices()) {
+                    j["indices"].push_back(get_value(idx));
+                }
+            } else if (auto memBurstLoadOp = dyn_cast<aps::MemBurstLoad>(op)) {
+                // Handle aps.memburstload - burst load from CPU to APS scratchpad
+                j["op_type"] = "memburstload";
+                j["cpu_addr"] = get_value(memBurstLoadOp.getCpuAddr());
+                j["memory"] = get_value(memBurstLoadOp.getMemref());
+                j["start"] = get_value(memBurstLoadOp.getStart());
+                j["length"] = get_value(memBurstLoadOp.getLength());
+            } else if (auto memBurstStoreOp = dyn_cast<aps::MemBurstStore>(op)) {
+                // Handle aps.memburststore - burst store from APS scratchpad to CPU
+                j["op_type"] = "memburststore";
+                j["memory"] = get_value(memBurstStoreOp.getMemref());
+                j["start"] = get_value(memBurstStoreOp.getStart());
+                j["cpu_addr"] = get_value(memBurstStoreOp.getCpuAddr());
+                j["length"] = get_value(memBurstStoreOp.getLength());
+            } else if (auto allocaOp = dyn_cast<memref::AllocaOp>(op)) {
+                // Handle memref.alloca - stack allocation
+                j["op_type"] = "alloca";
+                j["name"] = get_dump(allocaOp);
+                j["type"] = get_type(allocaOp.getResult().getType());
+            } else if (auto allocOp = dyn_cast<memref::AllocOp>(op)) {
+                // Handle memref.alloc - heap allocation
+                j["op_type"] = "alloc";
+                j["name"] = get_dump(allocOp);
+                j["type"] = get_type(allocOp.getResult().getType());
+            } else if (auto castOp = dyn_cast<memref::CastOp>(op)) {
+                // Handle memref.cast - cast between memref types
+                j["op_type"] = "cast";
+                j["name"] = get_dump(castOp);
+                j["operand"] = get_value(castOp.getSource());
+                j["type"] = get_type(castOp.getResult().getType());
             } else {
                 // int
                 OPERATION(AddIOp, "add")
@@ -370,6 +450,22 @@ namespace {
                     sj["type"] = get_type(mem_type.getElementType());
                     if (allocOp->hasAttr("value_h")) {
                         sj["value_h"] = string(dyn_cast<mlir::StringAttr>(allocOp->getAttr("value_h")).getValue());
+                    }
+                    j["memory"].push_back(sj);
+                } else if (auto globalOp = dyn_cast<memref::GlobalOp>(op)) {
+                    // Handle memref.global operations (preserved from ConvertInput pass)
+                    json sj;
+                    sj["name"] = get_dump(globalOp);
+                    auto mem_type = globalOp.getType();
+                    if (!mem_type.getShape().empty()) {
+                        sj["size"] = mem_type.getShape()[0];
+                    } else {
+                        sj["size"] = 1;
+                    }
+                    sj["type"] = get_type(mem_type.getElementType());
+                    // Handle initial value if present
+                    if (globalOp.getInitialValue().has_value()) {
+                        // Could add value_h handling here if needed
                     }
                     j["memory"].push_back(sj);
                 } else if (isa<tor::StreamCreateOp>(op)) {

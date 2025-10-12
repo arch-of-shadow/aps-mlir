@@ -173,11 +173,11 @@ int main(int argc, char **argv) {
     hector_argv[index++] = const_cast<char *>("--canonicalize");
     hector_argv[index++] = const_cast<char *>("--scf-to-tor");
     hector_argv[index++] = const_cast<char *>("--canonicalize");
-    hector_argv[index++] = const_cast<char *>("--maxi-burst-infer");
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--maxi-burst-infer");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
     hector_argv[index++] = const_cast<char *>("--schedule-tor");
-    hector_argv[index++] = const_cast<char *>("--canonicalize");
-    hector_argv[index++] = const_cast<char *>("--split-schedule");
+    // hector_argv[index++] = const_cast<char *>("--canonicalize");
+    // hector_argv[index++] = const_cast<char *>("--split-schedule");
     // dump-tor
     // ss << "--dump-tor=json=" << arg_output.c_str() << "/tor.json";
     // hector_argv[index] = static_cast<char *>(malloc(strlen(ss.str().c_str()) + 1));

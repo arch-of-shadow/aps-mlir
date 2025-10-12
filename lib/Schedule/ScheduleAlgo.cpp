@@ -8,6 +8,7 @@
 #include "APS/APSDialect.h"
 #include "APS/APSOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
 
 #include "Schedule/DbgHelper.h"
@@ -492,6 +493,140 @@ namespace scheduling {
                                                {constOp.getResult()}, SmallVector<Value>{});
                 lastHead->addOperation(newOpA);
                 ValueMap[constOp.getResult()] = newOpA;
+            } else if (auto getGlobalOp = llvm::dyn_cast<mlir::memref::GetGlobalOp>(op)) {
+                // Handle memref.get_global - get reference to global memory
+                Value result = getGlobalOp.getResult();
+                OpAbstract *newOpA = createOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    std::vector<Value>{},  // No operands
+                    OpAbstract::OpType::DEFINED_OP
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memLoadOp = llvm::dyn_cast<mlir::memref::LoadOp>(op)) {
+                // Handle memref.load
+                Value result = memLoadOp.getResult();
+                OpAbstract *newOpA = createMemOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    std::vector<Value>{memLoadOp.getIndices().begin(), memLoadOp.getIndices().end()},
+                    OpAbstract::OpType::LOAD_OP,
+                    SmallVector<int, 2>(),  // No dependence signatures
+                    SmallVector<int, 2>(),  // No dependence distances
+                    ""  // No storage type
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memStoreOp = llvm::dyn_cast<mlir::memref::StoreOp>(op)) {
+                // Handle memref.store
+                Value mem = memStoreOp.getMemref();
+                std::vector<Value> operands{memStoreOp.getIndices().begin(), memStoreOp.getIndices().end()};
+                operands.push_back(memStoreOp.getValueToStore());
+
+                OpAbstract *newOpA = createMemOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{mem},
+                    operands,
+                    OpAbstract::OpType::STORE_OP,
+                    SmallVector<int, 2>(),  // No dependence signatures
+                    SmallVector<int, 2>(),  // No dependence distances
+                    ""  // No storage type
+                );
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto apsMemLoadOp = llvm::dyn_cast<aps::MemLoad>(op)) {
+                // Handle aps.memload
+                Value result = apsMemLoadOp.getResult();
+                OpAbstract *newOpA = createMemOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    std::vector<Value>{apsMemLoadOp.getIndices().begin(), apsMemLoadOp.getIndices().end()},
+                    OpAbstract::OpType::LOAD_OP,
+                    SmallVector<int, 2>(),
+                    SmallVector<int, 2>(),
+                    ""
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto apsMemStoreOp = llvm::dyn_cast<aps::MemStore>(op)) {
+                // Handle aps.memstore
+                Value mem = apsMemStoreOp.getMemref();
+                std::vector<Value> operands{apsMemStoreOp.getIndices().begin(), apsMemStoreOp.getIndices().end()};
+                operands.push_back(apsMemStoreOp.getValue());
+
+                OpAbstract *newOpA = createMemOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{mem},
+                    operands,
+                    OpAbstract::OpType::STORE_OP,
+                    SmallVector<int, 2>(),
+                    SmallVector<int, 2>(),
+                    ""
+                );
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op)) {
+                // Handle aps.memburstload - similar to M_AXI burst operations
+                std::vector<Value> operands{
+                    memBurstLoadOp.getCpuAddr(),
+                    memBurstLoadOp.getStart(),
+                    memBurstLoadOp.getLength()
+                };
+                OpAbstract *newOpA = createMAxiBurstOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{},  // No result
+                    operands,
+                    OpAbstract::OpType::M_AXI_BURST_READ_OP
+                );
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op)) {
+                // Handle aps.memburststore - similar to M_AXI burst operations
+                std::vector<Value> operands{
+                    memBurstStoreOp.getStart(),
+                    memBurstStoreOp.getCpuAddr(),
+                    memBurstStoreOp.getLength()
+                };
+                OpAbstract *newOpA = createMAxiBurstOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{},  // No result
+                    operands,
+                    OpAbstract::OpType::M_AXI_BURST_WRITE_OP
+                );
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memDeclareOp = llvm::dyn_cast<aps::MemDeclare>(op)) {
+                // Handle aps.memdeclare - similar to alloc, can be omitted from scheduling
+                // Just track the result value if needed
+                Value result = memDeclareOp.getResult();
+                OpAbstract *newOpA = createOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    std::vector<Value>{},
+                    OpAbstract::OpType::DEFINED_OP
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (llvm::isa<mlir::memref::AllocOp, mlir::memref::AllocaOp, mlir::memref::CastOp>(op)) {
+                // Handle memref.alloc, memref.alloca, memref.cast - omit from scheduling
+                // These are typically handled at compile time or don't need scheduling
+                if (op.getNumResults() > 0) {
+                    Value result = op.getResult(0);
+                    OpAbstract *newOpA = createOp(
+                        &op, parentLoop, lastHead,
+                        std::vector<Value>{result},
+                        std::vector<Value>{op.getOperands().begin(), op.getOperands().end()},
+                        OpAbstract::OpType::DEFINED_OP
+                    );
+                    ValueMap[result] = newOpA;
+                    OperationMap[&op] = newOpA;
+                    lastHead->addOperation(newOpA);
+                }
             } else {
                 OpAbstract *newOpA = createOp(
                         &op, parentLoop, lastHead,

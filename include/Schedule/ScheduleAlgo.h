@@ -84,7 +84,7 @@ public:
 
     if (Results.size() > 0) {
       // TODO: bit width analysis，不同长度位宽的如何表示？
-      if (llvm::dyn_cast<arith::CmpFOp>(op) || llvm::dyn_cast<tor::CmpFOp>(op)) 
+      if (llvm::dyn_cast<arith::CmpFOp>(op) || llvm::dyn_cast<tor::CmpFOp>(op))
         width = Operands[0].getType().getIntOrFloatBitWidth();
       else if (llvm::dyn_cast<arith::SIToFPOp>(op) || llvm::dyn_cast<arith::UIToFPOp>(op) ||
                 llvm::dyn_cast<arith::ExtFOp>(op) || llvm::dyn_cast<arith::TruncFOp>(op) ||
@@ -93,8 +93,18 @@ public:
         width = Operands[0].getType().getIntOrFloatBitWidth();
       else if (Results[0].getType().isIntOrFloat())
         width = Results[0].getType().getIntOrFloatBitWidth();
-      else
-        assert(0 && "not support type!\n");
+      else if (llvm::isa<mlir::MemRefType>(Results[0].getType())) {
+        // For memref types (e.g., memref.get_global), use element type width if available
+        auto memrefType = llvm::cast<mlir::MemRefType>(Results[0].getType());
+        if (memrefType.getElementType().isIntOrFloat())
+          width = memrefType.getElementType().getIntOrFloatBitWidth();
+        else
+          width = 32; // Default width for non-IntOrFloat memref element types
+      }
+      else {
+        // For other types (e.g., index, etc.), use a default width
+        width = 32;
+      }
     }
 
     newop->setWidth(width);
