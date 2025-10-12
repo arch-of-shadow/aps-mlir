@@ -73,7 +73,7 @@ class TestBasicMLIRConversion:
             _irf[c] = and_result + or_result + xor_result;
         }
         """
-        mlir = verify_mlir(source, ["comb.and", "comb.or", "comb.xor"])
+        mlir = verify_mlir(source, ["arith.andi", "arith.ori", "arith.xori"])
 
     def test_shift_operations(self):
         """Test shift operations"""
@@ -84,7 +84,7 @@ class TestBasicMLIRConversion:
             _irf[rd] = left + right;
         }
         """
-        mlir = verify_mlir(source, ["comb.shl", "comb.shru"])
+        mlir = verify_mlir(source, ["arith.shli", "arith.shrui"])
 
     def test_comparison_operations(self):
         """Test comparison operations"""
@@ -256,8 +256,8 @@ class TestControlFlowMLIR:
             _irf[rd] = result;
         }
         """
-        # If expressions generate comb.mux operations
-        mlir = verify_mlir(source, ["comb.mux", "arith.cmpi"])
+        # If expressions generate arith.select operations
+        mlir = verify_mlir(source, ["arith.select", "arith.cmpi"])
 
     def test_nested_if(self):
         """Test nested if expressions"""
@@ -271,9 +271,9 @@ class TestControlFlowMLIR:
             _irf[rd] = result;
         }
         """
-        mlir = verify_mlir(source, ["comb.mux"])
-        # Should have multiple mux operations for nested ifs
-        assert mlir.count("comb.mux") >= 2
+        mlir = verify_mlir(source, ["arith.select"])
+        # Should have multiple select operations for nested ifs
+        assert mlir.count("arith.select") >= 2
 
     def test_select_expression_simple(self):
         """Test simple select expression"""
@@ -287,9 +287,9 @@ class TestControlFlowMLIR:
             _irf[rd] = result;
         }
         """
-        mlir = verify_mlir(source, ["comb.mux", "arith.cmpi"])
-        # Should have mux operations for select arms
-        assert mlir.count("comb.mux") >= 1
+        mlir = verify_mlir(source, ["arith.select", "arith.cmpi"])
+        # Should have select operations for select arms
+        assert mlir.count("arith.select") >= 1
 
     def test_select_expression_multiple_arms(self):
         """Test select with multiple arms"""
@@ -305,9 +305,9 @@ class TestControlFlowMLIR:
             _irf[rd] = result;
         }
         """
-        mlir = verify_mlir(source, ["comb.mux", "arith.cmpi"])
-        # Should have multiple mux operations (one per condition)
-        assert mlir.count("comb.mux") >= 3
+        mlir = verify_mlir(source, ["arith.select", "arith.cmpi"])
+        # Should have multiple select operations (one per condition)
+        assert mlir.count("arith.select") >= 3
 
     def test_select_with_complex_values(self):
         """Test select with complex expressions as values"""
@@ -323,7 +323,7 @@ class TestControlFlowMLIR:
             _irf[rd] = result;
         }
         """
-        mlir = verify_mlir(source, ["comb.mux", "arith.addi", "arith.muli", "comb.shl"])
+        mlir = verify_mlir(source, ["arith.select", "arith.addi", "arith.muli", "arith.shli"])
         # Should have arithmetic operations in the select values
         assert "arith.addi" in mlir
         assert "arith.muli" in mlir
@@ -378,7 +378,7 @@ class TestComplexExamples:
             _irf[rd] = x_final;
         }
         """
-        verify_mlir(source, ["comb.shru", "comb.shl", "comb.xor", "comb.mux"])
+        verify_mlir(source, ["arith.shrui", "arith.shli", "arith.xori", "arith.select"])
 
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
