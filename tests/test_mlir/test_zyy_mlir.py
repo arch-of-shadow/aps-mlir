@@ -52,6 +52,7 @@ class TestZyyRTypeInstructions:
         cadl_source = """
         rtype constant(rs1: u5, rs2: u5, rd: u5) {
             let r0: u32 = 0;
+            _irf[rd] = r0;
         }
         """
 
@@ -352,9 +353,10 @@ class TestSimpleMLIRConversions:
     def test_simple_flow(self):
         """Test simple flow conversion"""
         cadl_source = """
-        flow process(x: u32, y: u32) {
+        flow process(x: u32, y: u32, z: u5) {
             let sum: u32 = x + y;
             let product: u32 = x * y;
+            _irf[z] = (sum + product);
         }
         """
 
