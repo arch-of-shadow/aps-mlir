@@ -34,7 +34,7 @@ from .ast import (
     BasicType_String, BasicType_USize,
     DataType_Single, DataType_Array, DataType_Instance,
     CompoundType_Basic,
-    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, SelectExpr, AggregateExpr, StringLitExpr,
+    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, SelectExpr, AggregateExpr, ArrayLiteralExpr, StringLitExpr,
     AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt, DirectiveStmt, WithBinding,
     BinaryOp, UnaryOp, FlowKind
 )
@@ -390,6 +390,9 @@ class CADLMLIRConverter:
             # Create uninitialized global
             global_op = memref.GlobalOp(global_name, memref_type)
 
+        # Add var_name attribute matching the global name
+        global_op.attributes["var_name"] = ir.StringAttr.get(global_name)
+
         # Store the global op for type inference
         self.global_ops[global_name] = global_op
 
@@ -411,6 +414,7 @@ class CADLMLIRConverter:
         Handles:
         - StringLitExpr -> StringAttr
         - LitExpr with integer -> IntegerAttr
+        - ArrayLiteralExpr -> ArrayAttr with typed elements
         - None -> UnitAttr (for presence-only attributes)
         """
         if expr is None:
@@ -434,6 +438,15 @@ class CADLMLIRConverter:
                     # Float attribute
                     mlir_type = self.convert_cadl_type(literal.ty)
                     return ir.FloatAttr.get(mlir_type, value)
+
+        if isinstance(expr, ArrayLiteralExpr):
+            # Array attribute - convert each element and create ArrayAttr
+            element_attrs = []
+            for elem_expr in expr.elements:
+                elem_attr = self._convert_attribute_value(elem_expr)
+                if elem_attr is not None:
+                    element_attrs.append(elem_attr)
+            return ir.ArrayAttr.get(element_attrs)
 
         if isinstance(expr, IdentExpr):
             # Identifier - treat as string symbol

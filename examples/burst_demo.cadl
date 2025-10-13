@@ -1,13 +1,16 @@
-#[array_partition_factor(4)]
-#[array_partition_style("block")] // or "cyclic"
-static mem_a: [u32; 16];
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static mem_a: [u32; 16] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
 
-#[array_partition_factor(4)]
-#[array_partition_style("block")] // or "cyclic"
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
 static mem_b: [u32; 16];
 
-#[array_partition_factor(4)]
-#[array_partition_style("block")] // or "cyclic"
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
 static mem_c: [u32; 16];
 
 #[opcode(7'b0101011)]
@@ -18,6 +21,7 @@ rtype burst_add(rs1: u5, rs2: u5, rd: u5) {
     mem_a[0 +: ] = _burst_read[r1 +: 16];
     mem_b[0 +: ] = _burst_read[r2 +: 16];
     // a[i] = a[i] + b[i]
+    [[unroll(4)]]
     with i: u32 = (0, i_) do {
         let a: u32 = mem_a[i];
         let b: u32 = mem_b[i];
