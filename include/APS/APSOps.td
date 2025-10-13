@@ -58,21 +58,27 @@ def MemBurstLoad : APSOp<"memburstload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let description = [{
     Transfers a sequence of data from CPU memory to APS scratchpad memory in a burst fashion.
     Reads 'length' elements from CPU memory starting at 'cpu_addr'
-    and writes them to the APS scratchpad (memref) starting at 'start' index.
+    and writes them to the APS scratchpad (memref or vector of memrefs) starting at 'start' index.
+
+    After array partitioning, memrefs can be a variadic list of partitioned memref slices.
 
     Example:
       aps.memburstload %cpu_addr, %aps_mem[%start], %length
         : i64, memref<1024xi32>, i32, i32 -> ()
+
+      // After array partition with factor 4:
+      aps.memburstload %cpu_addr, %mem0, %mem1, %mem2, %mem3[%start], %length
+        : i64, memref<256xi32>, memref<256xi32>, memref<256xi32>, memref<256xi32>, i32, i32 -> ()
   }];
   let arguments = (ins
     AnySignlessInteger:$cpu_addr,
-    AnyMemRef:$memref,
+    Variadic<AnyMemRef>:$memrefs,
     AnySignlessInteger:$start,
     AnySignlessInteger:$length
   );
   let assemblyFormat = [{
-    $cpu_addr `,` $memref `[` $start `]` `,` $length attr-dict
-    `:` type($cpu_addr) `,` type($memref) `,` type($start) `,` type($length)
+    $cpu_addr `,` `(` $memrefs `)` `[` $start `]` `,` $length attr-dict
+    `:` type($cpu_addr) `,` `(` type($memrefs) `)` `,` type($start) `,` type($length)
   }];
 }
 
@@ -80,22 +86,28 @@ def MemBurstStore : APSOp<"memburststore", [MemoryEffects<[MemRead, MemWrite]>]>
   let summary = "burst store from APS scratchpad memory to CPU memory";
   let description = [{
     Transfers a sequence of data from APS scratchpad memory to CPU memory in a burst fashion.
-    Reads 'length' elements starting from 'start' index in the APS scratchpad (memref)
+    Reads 'length' elements starting from 'start' index in the APS scratchpad (memref or vector of memrefs)
     and writes them to the CPU memory starting at 'cpu_addr'.
+
+    After array partitioning, memrefs can be a variadic list of partitioned memref slices.
 
     Example:
       aps.memburststore %aps_mem[%start], %cpu_addr, %length
-        : memref<1024xi32>, i64, i32 -> ()
+        : memref<1024xi32>, i32, i64, i32 -> ()
+
+      // After array partition with factor 4:
+      aps.memburststore %mem0, %mem1, %mem2, %mem3[%start], %cpu_addr, %length
+        : memref<256xi32>, memref<256xi32>, memref<256xi32>, memref<256xi32>, i32, i64, i32 -> ()
   }];
   let arguments = (ins
-    AnyMemRef:$memref,
+    Variadic<AnyMemRef>:$memrefs,
     AnySignlessInteger:$start,
     AnySignlessInteger:$cpu_addr,
     AnySignlessInteger:$length
   );
   let assemblyFormat = [{
-    $memref `[` $start `]` `,` $cpu_addr `,` $length attr-dict
-    `:` type($memref) `,` type($start) `,` type($cpu_addr) `,` type($length)
+    `(` $memrefs `)` `[` $start `]` `,` $cpu_addr `,` $length attr-dict
+    `:` `(` type($memrefs) `)` `,` type($start) `,` type($cpu_addr) `,` type($length)
   }];
 }
 

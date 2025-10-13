@@ -1218,8 +1218,9 @@ class CADLMLIRConverter:
         length = arith.ConstantOp(i32_type, rhs_length_val).result
 
         # Generate aps.memburstload operation
-        # Arguments: cpu_addr, memref, start, length
-        aps.MemBurstLoad(cpu_addr, buffer_memref, start_offset, length)
+        # Arguments: cpu_addr, memrefs (as list), start, length
+        # Wrap single memref in a list to support variadic memrefs
+        aps.MemBurstLoad(cpu_addr, [buffer_memref], start_offset, length)
 
     def _convert_burst_store(self, stmt: AssignStmt) -> None:
         """
@@ -1265,8 +1266,9 @@ class CADLMLIRConverter:
         length = arith.ConstantOp(i32_type, lhs_length_val).result
 
         # Generate aps.memburststore operation
-        # Arguments: memref, start, cpu_addr, length
-        aps.MemBurstStore(buffer_memref, start_offset, cpu_addr, length)
+        # Arguments: memrefs (as list), start, cpu_addr, length
+        # Wrap single memref in a list to support variadic memrefs
+        aps.MemBurstStore([buffer_memref], start_offset, cpu_addr, length)
 
     def _convert_range_slice_assignment(self, lhs: RangeSliceExpr, rhs_value: ir.Value) -> None:
         """Handle regular range slice assignments (not burst operations)"""
