@@ -25,4 +25,14 @@ def APSMemToMemRef : Pass<"aps-mem-to-memref", "::mlir::func::FuncOp"> {
   let constructor = "mlir::createAPSMemToMemRefPass()";
 }
 
+def MemRefToAPSMem : Pass<"affine-mem-to-aps-mem", "::mlir::func::FuncOp"> {
+  let summary = "Convert affine.load/affine.store to APS memload/memstore";
+  let description = [{
+    This pass converts affine.load and affine.store operations to APS
+    memload and memstore operations. Index-typed indices are automatically
+    cast to i32 type as used by APS memory operations.
+  }];
+  let constructor = "mlir::createAffineMemToAPSMemPass()";
+}
+
 #endif // APS_PASSES

@@ -2,6 +2,7 @@ add_mlir_library(APS
   aps.cpp
   SCFForIndexCast.cpp
   APSMemToMemRef.cpp
+  AffineMemToAPSMem.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/APS
@@ -11,6 +12,7 @@ add_mlir_library(APS
   MLIRAPSPassIncGen
 
   LINK_LIBS PUBLIC
+  MLIRAffineDialect
   MLIRArithDialect
   MLIRFuncDialect
   MLIRMemRefDialect

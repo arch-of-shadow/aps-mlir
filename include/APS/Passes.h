@@ -10,6 +10,7 @@ namespace mlir {
     
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createSCFForIndexCastPass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAPSMemToMemRefPass();
+std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAffineMemToAPSMemPass();
 
 #define GEN_PASS_REGISTRATION
 #include "APS/Passes.h.inc"
