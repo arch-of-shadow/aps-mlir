@@ -53,6 +53,49 @@ def MemStore : APSOp<"memstore", [MemoryEffects<[MemWrite]>]> {
   let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices)";
 }
 
+def GlobalLoad : APSOp<"globalload", [MemoryEffects<[MemRead]>]> {
+  let summary = "load from scalar global variable";
+  let description = [{
+    Loads a value from a scalar global variable (memref<element_type>).
+    This operation is specifically for scalar globals, not arrays.
+
+    Unlike aps.memload which takes indices, this operation directly loads
+    from a rank-0 memref representing a single scalar value.
+
+    Designed to enable optimization passes (e.g., canonicalization) to fuse
+    store->load chains after loop unrolling, converting memory dependencies
+    into SSA dataflow.
+
+    Example:
+      %value = aps.globalload @count : i32
+  }];
+  let arguments = (ins FlatSymbolRefAttr:$global_name);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$global_name attr-dict `:` type($result)";
+  let hasCanonicalizer = 1;
+}
+
+def GlobalStore : APSOp<"globalstore", [MemoryEffects<[MemWrite]>]> {
+  let summary = "store to scalar global variable";
+  let description = [{
+    Stores a value to a scalar global variable (memref<element_type>).
+    This operation is specifically for scalar globals, not arrays.
+
+    Unlike aps.memstore which takes indices, this operation directly stores
+    to a rank-0 memref representing a single scalar value.
+
+    Designed to enable optimization passes (e.g., canonicalization) to fuse
+    store->load chains after loop unrolling, converting memory dependencies
+    into SSA dataflow.
+
+    Example:
+      aps.globalstore %value, @count : i32
+  }];
+  let arguments = (ins AnyType:$value, FlatSymbolRefAttr:$global_name);
+  let assemblyFormat = "$value `,` $global_name attr-dict `:` type($value)";
+  let hasCanonicalizer = 1;
+}
+
 def MemBurstLoad : APSOp<"memburstload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "burst load from CPU memory to APS scratchpad memory";
   let description = [{

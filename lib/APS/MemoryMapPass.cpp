@@ -120,6 +120,9 @@ private:
       if (!group.banks.empty()) {
         auto memrefType = llvm::cast<MemRefType>(group.banks[0].getType());
         uint64_t numElements = memrefType.getNumElements();
+        if (numElements == 1) {
+          continue; // Skip single-element memrefs
+        }
         uint32_t elementSize = memrefType.getElementTypeBitWidth() / 8;
         bankSize = numElements * elementSize;
       }
@@ -132,7 +135,7 @@ private:
 
       // Get actual number of banks (may differ from factor due to partitioning)
       uint32_t actualNumBanks = group.banks.size();
-
+      
       // Create mem_entry operation
       builder.create<aps::MemEntryOp>(
         moduleOp.getLoc(),
@@ -146,6 +149,9 @@ private:
 
       // Update address for next group (align to next bank boundary)
       currentAddress += bankSize * actualNumBanks;
+
+      // Align to next 4-byte boundary
+      currentAddress += (4 - (currentAddress % 4));
 
       LLVM_DEBUG(llvm::dbgs() << "Memory map entry: " << group.originalName
                              << " at 0x" << llvm::utohexstr(currentAddress - bankSize * actualNumBanks)
