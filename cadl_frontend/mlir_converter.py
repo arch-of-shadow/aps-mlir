@@ -173,6 +173,22 @@ class CADLMLIRConverter:
             self.current_global_refs[global_name] = global_ref.result
         return self.current_global_refs[global_name]
 
+    def _is_scalar_global(self, global_name: str) -> bool:
+        """Check if a global is a scalar (rank-0 memref)"""
+        if global_name not in self.global_ops:
+            return False
+
+        type_attr = self.global_ops[global_name].type_
+        if hasattr(type_attr, 'value'):
+            memory_type = type_attr.value
+        else:
+            memory_type = type_attr
+
+        # Check if it's a rank-0 memref (scalar)
+        if isinstance(memory_type, ir.MemRefType):
+            return len(memory_type.shape) == 0
+        return False
+
     def _declare_global_memory(self) -> None:
         """Declare global CPU memory at module level using memref.global"""
         if "_cpu_memory" not in self.global_ops:
@@ -621,7 +637,16 @@ class CADLMLIRConverter:
 
             # Handle LHS assignment
             if isinstance(stmt.lhs, IdentExpr):
-                self.set_symbol(stmt.lhs.name, rhs_value, stmt.type_annotation)
+                # Check if assigning to a global scalar variable
+                symbol_value = self.get_symbol(stmt.lhs.name)
+                if isinstance(symbol_value, str) and self._is_scalar_global(symbol_value):
+                    # Global scalar assignment: use aps.globalstore
+                    symbol_ref = ir.FlatSymbolRefAttr.get(symbol_value)
+                    aps.GlobalStore(rhs_value, symbol_ref)
+                    # Don't update symbol table - it remains as a global reference
+                else:
+                    # Local variable assignment or non-scalar global
+                    self.set_symbol(stmt.lhs.name, rhs_value, stmt.type_annotation)
             elif isinstance(stmt.lhs, IndexExpr):
                 # Handle indexed assignment (e.g., _irf[rd] = value, _mem[addr] = value)
                 self._convert_index_assignment(stmt.lhs, rhs_value)
@@ -675,13 +700,29 @@ class CADLMLIRConverter:
 
             # If it's a global variable reference, load from it
             if isinstance(value, str):
-                global_ref = self._get_global_reference(value)
-                # Extract element type from the memref type
-                if hasattr(global_ref.type, 'element_type'):
-                    element_type = global_ref.type.element_type
+                # Check if it's a scalar global (use aps.globalload) or array (use aps.memload)
+                if self._is_scalar_global(value):
+                    # Scalar global: use aps.globalload with symbol reference
+                    # Get element type from the rank-0 memref
+                    type_attr = self.global_ops[value].type_
+                    if hasattr(type_attr, 'value'):
+                        memory_type = type_attr.value
+                    else:
+                        memory_type = type_attr
+                    element_type = memory_type.element_type
+
+                    # Create symbol reference attribute
+                    symbol_ref = ir.FlatSymbolRefAttr.get(value)
+                    return aps.GlobalLoad(element_type, symbol_ref).result
                 else:
-                    element_type = ir.IntegerType.get_signless(32)
-                return aps.MemLoad(element_type, global_ref, []).result
+                    # Array global: use aps.memload (existing behavior)
+                    global_ref = self._get_global_reference(value)
+                    # Extract element type from the memref type
+                    if hasattr(global_ref.type, 'element_type'):
+                        element_type = global_ref.type.element_type
+                    else:
+                        element_type = ir.IntegerType.get_signless(32)
+                    return aps.MemLoad(element_type, global_ref, []).result
             else:
                 return value
 
