@@ -484,6 +484,13 @@ namespace {
                     sj["operands"] = get_attr(nop.getValueAttr());
                     sj["type"] = get_type(nop.getType());
                     j["constants"].push_back(sj);
+                } else if (auto memMapOp = dyn_cast<aps::MemoryMapOp>(op)) {
+                    // Handle aps.memorymap - skip it as it's metadata for memory layout
+                    // The actual memref.global operations are already processed
+                } else if (auto memEntryOp = dyn_cast<aps::MemEntryOp>(op)) {
+                    // Handle aps.mem_entry - skip it as it's metadata for memory partitioning
+                } else if (auto memFinishOp = dyn_cast<aps::MemFinishOp>(op)) {
+                    // Handle aps.mem_finish - terminator for memorymap, skip it
                 } else {
                     op.dump();
                     assert(false);

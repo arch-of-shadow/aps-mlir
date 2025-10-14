@@ -122,6 +122,7 @@ int main(int argc, char **argv) {
     // hector_argv[index++] = const_cast<char *>("--struct-split");
     // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--unification-index-cast");
+    hector_argv[index++] = const_cast<char *>("--memory-map");
     hector_argv[index++] = const_cast<char *>("--scf-for-index-cast");
     hector_argv[index++] = const_cast<char *>("--aps-mem-to-memref");
     hector_argv[index++] = const_cast<char *>("--canonicalize");
