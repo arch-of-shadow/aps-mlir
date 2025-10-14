@@ -7,11 +7,16 @@ files and transforming them to MLIR (Multi-Level Intermediate Representation).
 """
 
 import sys
+import os
 import argparse
 from typing import Optional
 from cadl_frontend import parse_proc
 from cadl_frontend.parser import CADLParseError
 from cadl_frontend.mlir_converter import convert_cadl_to_mlir
+from cadl_frontend.debug import (
+    set_debug_level, set_module_debug_level, DebugLevel,
+    dbg_debug, dbg_info, dbg_warning, dbg_error, dbg_critical
+)
 
 
 def parse_cadl(input_file: str, summary: bool = False) -> None:
@@ -20,10 +25,10 @@ def parse_cadl(input_file: str, summary: bool = False) -> None:
         with open(input_file, 'r') as f:
             source = f.read()
 
-        print(f"Parsing CADL file: {input_file}")
+        dbg_info(f"Parsing CADL file: {input_file}")
         ast = parse_proc(source, input_file)
 
-        print("Parse successful!")
+        dbg_info("Parse successful!")
 
         if summary:
             # Summary mode - show brief statistics
@@ -62,13 +67,13 @@ def parse_cadl(input_file: str, summary: bool = False) -> None:
             print(ast.pretty_print())
 
     except CADLParseError as e:
-        print(f"Parse Error:\n{e}")
+        dbg_critical(f"Parse Error:\n{e}")
         sys.exit(1)
     except FileNotFoundError:
-        print(f"Error: File '{input_file}' not found")
+        dbg_critical(f"Error: File '{input_file}' not found")
         sys.exit(1)
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        dbg_critical(f"Unexpected error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
@@ -80,18 +85,18 @@ def convert_to_mlir(input_file: str, output_file: Optional[str] = None, verify: 
         with open(input_file, 'r') as f:
             source = f.read()
 
-        print(f"Parsing CADL file: {input_file}")
+        dbg_info(f"Parsing CADL file: {input_file}")
         ast = parse_proc(source, input_file)
-        print("Parse successful!")
+        dbg_info("Parse successful!")
 
-        print(f"Converting to MLIR...")
+        dbg_info(f"Converting to MLIR...")
         mlir_module = convert_cadl_to_mlir(ast)
-        print("MLIR conversion successful!")
+        dbg_info("MLIR conversion successful!")
 
         mlir_text = str(mlir_module)
 
         if verify:
-            print(f"Verifying MLIR...")
+            dbg_info(f"Verifying MLIR...")
             try:
                 # Try to parse the generated MLIR to verify it's valid
                 import circt.ir as ir
@@ -99,9 +104,9 @@ def convert_to_mlir(input_file: str, output_file: Optional[str] = None, verify: 
                 with ir.Context() as ctx:
                     circt.register_dialects(ctx)
                     ir.Module.parse(mlir_text)
-                print("MLIR verification successful!")
+                dbg_info("MLIR verification successful!")
             except Exception as e:
-                print(f"MLIR verification failed: {e}")
+                dbg_critical(f"MLIR verification failed: {e}")
                 print(mlir_text, file=sys.stderr)
                 if not output_file:
                     sys.exit(1)
@@ -110,22 +115,22 @@ def convert_to_mlir(input_file: str, output_file: Optional[str] = None, verify: 
             # Write to file
             with open(output_file, 'w') as f:
                 f.write(mlir_text)
-            print(f"MLIR written to: {output_file}")
+            dbg_info(f"MLIR written to: {output_file}")
         else:
             # Print to stdout
-            print(f"\nGenerated MLIR:")
-            print("=" * 60)
+            dbg_info(f"\nGenerated MLIR:")
+            dbg_info("=" * 60)
             print(mlir_text)
-            print("=" * 60)
+            dbg_info("=" * 60)
 
     except CADLParseError as e:
-        print(f"Parse Error:\n{e}")
+        dbg_critical(f"Parse Error:\n{e}")
         sys.exit(1)
     except FileNotFoundError:
-        print(f"Error: File '{input_file}' not found")
+        dbg_critical(f"Error: File '{input_file}' not found")
         sys.exit(1)
     except Exception as e:
-        print(f"Conversion error: {e}")
+        dbg_critical(f"Conversion error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
@@ -143,6 +148,11 @@ Examples:
   aps-frontend mlir examples/simple.cadl            # Convert to MLIR (stdout)
   aps-frontend mlir examples/simple.cadl -o out.mlir # Convert to MLIR file
   aps-frontend mlir examples/simple.cadl --no-verify # Skip MLIR verification
+
+Debug examples (environment variables):
+  APS_DEBUG=INFO pixi run mlir file.cadl                    # Set INFO level
+  APS_DEBUG=DEBUG pixi run mlir file.cadl                   # Enable DEBUG level
+  APS_DEBUG_MODULE=loop_transform=DEBUG pixi run mlir file.cadl  # Per-module debug
         ''',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -187,6 +197,48 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # Level mapping
+    level_map = {
+        'DEBUG': DebugLevel.DEBUG,
+        'INFO': DebugLevel.INFO,
+        'WARNING': DebugLevel.WARNING,
+        'ERROR': DebugLevel.ERROR,
+        'CRITICAL': DebugLevel.CRITICAL,
+        'OFF': DebugLevel.OFF,
+    }
+
+    # Configure debug system - Environment variables first, then CLI args override
+    debug_level_set = False
+
+    # Check APS_DEBUG environment variable
+    aps_debug_env = os.environ.get('APS_DEBUG')
+    if aps_debug_env:
+        aps_debug_env = aps_debug_env.upper()
+        if aps_debug_env in level_map:
+            set_debug_level(level_map[aps_debug_env])
+            debug_level_set = True
+        else:
+            print(f"Warning: Invalid APS_DEBUG value '{aps_debug_env}', ignoring")
+
+    # Set default if nothing specified
+    if not debug_level_set:
+        set_debug_level(DebugLevel.WARNING)
+
+    # Configure per-module debug levels from environment
+    aps_debug_module_env = os.environ.get('APS_DEBUG_MODULE')
+    if aps_debug_module_env:
+        for module_spec in aps_debug_module_env.split(','):
+            module_spec = module_spec.strip()
+            if '=' in module_spec:
+                module_name, level_str = module_spec.split('=', 1)
+                level_str = level_str.upper()
+                if level_str in level_map:
+                    set_module_debug_level(module_name, level_map[level_str])
+                else:
+                    print(f"Warning: Invalid debug level '{level_str}' in APS_DEBUG_MODULE, ignoring")
+            else:
+                print(f"Warning: Invalid module spec '{module_spec}' in APS_DEBUG_MODULE, expected MODULE=LEVEL")
 
     if not args.command:
         parser.print_help()
