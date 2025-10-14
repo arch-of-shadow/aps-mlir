@@ -93,6 +93,7 @@ namespace mlir {
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createLinalgConvAttrPass();
 
     std::unique_ptr<Pass> createRaiseSCFToAffinePass();
+
 #define GEN_PASS_REGISTRATION
 
 #include "TOR/Passes.h.inc"

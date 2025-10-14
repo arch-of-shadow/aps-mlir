@@ -3,6 +3,7 @@ add_mlir_library(APS
   SCFForIndexCast.cpp
   APSMemToMemRef.cpp
   AffineMemToAPSMem.cpp
+  MemoryMapPass.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/APS

@@ -35,4 +35,19 @@ def MemRefToAPSMem : Pass<"affine-mem-to-aps-mem", "::mlir::func::FuncOp"> {
   let constructor = "mlir::createAffineMemToAPSMemPass()";
 }
 
+def MemoryMap : Pass<"memory-map", "::mlir::ModuleOp"> {
+  let summary = "Generate memory map for global memrefs after array partition";
+  let description = [{
+    This pass generates a memory address map for all global memrefs in the module,
+    including partitioned arrays. It creates an aps.memorymap operation containing
+    aps.mem_entry operations for each memref group.
+
+    For partitioned arrays, all partition banks are grouped under a single mem_entry
+    with information about the partition mode (cyclic/block), number of banks, and
+    base address assignment.
+  }];
+  let constructor = "mlir::createMemoryMapPass()";
+  let dependentDialects = ["aps::APSDialect", "memref::MemRefDialect"];
+}
+
 #endif // APS_PASSES
