@@ -13,7 +13,7 @@ static mem_b: [u32; 16];
 #[partition_cyclic_array([1])]
 static mem_c: [u32; 16];
 
-static count: u32 = 0;
+static count: u8 = 0;
 
 #[opcode(7'b0101011)]
 #[funct7(7'b0000000)]
