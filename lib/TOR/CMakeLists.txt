@@ -52,6 +52,9 @@ add_mlir_dialect_library(MLIRTOR
     MemrefGlobalToConstant.cpp
     EmbedWeightsAndOptimizeLoadPass.cpp
     # TosaReshapeNoDataLayoutPass.cpp
+
+    RaiseToAffine.cpp
+
     ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include/TOR
     ${RROJECT_SOURCE_DIR}/include/Schedule

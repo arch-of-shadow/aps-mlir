@@ -1,3 +1,4 @@
+#include "APS/APSOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -17,6 +18,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/InliningUtils.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 
 #include "TOR/PassDetail.h"
@@ -184,7 +186,12 @@ bool checkValueUsers(Value val, int64_t rankNum) {
       // if (getFuncOpByVal(val).getSymName() == call.getCallee()) {
       //   return false;
       // }
+    } else if (auto burst_read = dyn_cast<aps::MemBurstLoad>(op)) {
+      //
+    } else if (auto burst_write = dyn_cast<aps::MemBurstStore>(op)) {
+      //
     } else {
+      // TODO: handle burst load/store here!
       LLVM_DEBUG(llvm::dbgs() << "Unknown memory operation: " << op << "\n");
       return false;
     }
@@ -464,6 +471,60 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
         }
       }
       new_part.push_back(Partition{store, bank});
+    } else if (auto burstLoad = dyn_cast<aps::MemBurstLoad>(op)) {
+      SmallVector<Value> newOperands;
+      newOperands.push_back(burstLoad.getCpuAddr());  // cpu_addr
+      for (auto memref : newArray) {
+        newOperands.push_back(memref);
+      }
+      newOperands.push_back(burstLoad.getStart());    // start index
+      newOperands.push_back(burstLoad.getLength());   // length
+
+      rewriter.setInsertionPoint(burstLoad);
+      auto newBurstLoad = rewriter.replaceOpWithNewOp<aps::MemBurstLoad>(burstLoad, TypeRange{}, newOperands);
+
+      // Transfer partition attributes to the new operation
+      SmallVector<mlir::Attribute> dimAttrs, factorAttrs, cyclicAttrs;
+      auto ctx = rewriter.getContext();
+      for (size_t rank = 0; rank < partition.size(); ++rank) {
+        if (partition[rank]) {
+          dimAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), rank));
+          factorAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), factorMap.at(rank)));
+          cyclicAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), cyclicMap.at(rank)));
+        }
+      }
+      if (!dimAttrs.empty()) {
+        newBurstLoad->setAttr("partition_dim_array", ArrayAttr::get(ctx, dimAttrs));
+        newBurstLoad->setAttr("partition_factor_array", ArrayAttr::get(ctx, factorAttrs));
+        newBurstLoad->setAttr("partition_cyclic_array", ArrayAttr::get(ctx, cyclicAttrs));
+      }
+    } else if (auto burstStore = dyn_cast<aps::MemBurstStore>(op)) {
+      SmallVector<Value> newOperands;
+      for (auto memref : newArray) {
+        newOperands.push_back(memref);
+      }
+      newOperands.push_back(burstStore.getStart());     // start index
+      newOperands.push_back(burstStore.getCpuAddr());   // cpu_addr
+      newOperands.push_back(burstStore.getLength());    // length
+
+      rewriter.setInsertionPoint(burstStore);
+      auto newBurstStore = rewriter.replaceOpWithNewOp<aps::MemBurstStore>(burstStore, TypeRange{}, newOperands);
+
+      // Transfer partition attributes to the new operation
+      SmallVector<mlir::Attribute> dimAttrs, factorAttrs, cyclicAttrs;
+      auto ctx = rewriter.getContext();
+      for (size_t rank = 0; rank < partition.size(); ++rank) {
+        if (partition[rank]) {
+          dimAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), rank));
+          factorAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), factorMap.at(rank)));
+          cyclicAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), cyclicMap.at(rank)));
+        }
+      }
+      if (!dimAttrs.empty()) {
+        newBurstStore->setAttr("partition_dim_array", ArrayAttr::get(ctx, dimAttrs));
+        newBurstStore->setAttr("partition_factor_array", ArrayAttr::get(ctx, factorAttrs));
+        newBurstStore->setAttr("partition_cyclic_array", ArrayAttr::get(ctx, cyclicAttrs));
+      }
     } else if (auto callOp = dyn_cast<func::CallOp>(op)) {
       auto operands = op->getOperands();
       SmallVector<Value, 4> newOperands;
@@ -580,6 +641,77 @@ void getNewGlobalArray(Operation *op, SmallVector<Value> newArray,
   }
 }
 
+void updateMemoryMapEntry(Operation *globalOp, SmallVector<Value> &newArray,
+                         DenseMap<int, int> factorMap, DenseMap<int, bool> cyclicMap,
+                         PatternRewriter &rewriter) {
+  auto globalOpCast = cast<memref::GlobalOp>(globalOp);
+  auto symName = globalOpCast.getSymName();
+
+  // Find the memory map in the module
+  auto moduleOp = globalOp->getParentOfType<ModuleOp>();
+  aps::MemoryMapOp memoryMapOp;
+  moduleOp->walk([&](aps::MemoryMapOp op) {
+    memoryMapOp = op;
+    return WalkResult::interrupt();
+  });
+
+  if (!memoryMapOp) {
+    return; // No memory map found
+  }
+
+  // Find the mem_entry that references this global
+  aps::MemEntryOp targetEntry;
+  memoryMapOp.getRegion().walk([&](aps::MemEntryOp entry) {
+    auto banks = entry.getBankSymbols();
+    for (auto bankAttr : banks) {
+      if (auto symRef = dyn_cast<FlatSymbolRefAttr>(bankAttr)) {
+        if (symRef.getValue() == symName) {
+          targetEntry = entry;
+          return WalkResult::interrupt();
+        }
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  if (!targetEntry) {
+    return; // Entry not found
+  }
+
+  // Create new bank symbols array from the partitioned memrefs
+  SmallVector<Attribute> newBankSymbols;
+  for (auto val : newArray) {
+    auto getGlobalOp = cast<memref::GetGlobalOp>(val.getDefiningOp());
+    // Get the actual GlobalOp to extract its symbol
+    auto globalName = getGlobalOp.getName();
+    newBankSymbols.push_back(FlatSymbolRefAttr::get(rewriter.getContext(), globalName));
+  }
+
+  // Get partition info (use first partitioned dimension)
+  uint32_t numBanks = newArray.size();
+  uint32_t cyclicMode = 0;
+  if (!factorMap.empty() && !cyclicMap.empty()) {
+    // Get the first partitioned dimension
+    auto firstDim = factorMap.begin()->first;
+    cyclicMode = cyclicMap[firstDim] ? 1 : 0;
+  }
+
+  // Create a new mem_entry with updated banks
+  rewriter.setInsertionPoint(targetEntry);
+  rewriter.create<aps::MemEntryOp>(
+    targetEntry.getLoc(),
+    targetEntry.getNameAttr(),
+    rewriter.getArrayAttr(newBankSymbols),
+    targetEntry.getBaseAddressAttr(),
+    targetEntry.getBankSizeAttr(),
+    rewriter.getUI32IntegerAttr(numBanks),
+    rewriter.getUI32IntegerAttr(cyclicMode)
+  );
+
+  // Erase the old entry
+  rewriter.eraseOp(targetEntry);
+}
+
 void globalPartitionFunc(Operation *op, SmallVector<bool> partition,
                          MemRefType memref, DenseMap<int, int> factorMap,
                          DenseMap<int, bool> cyclicMap,
@@ -595,6 +727,10 @@ void globalPartitionFunc(Operation *op, SmallVector<bool> partition,
     changeMemrefAndOperands(getGlobalOp, memref, factorMap, cyclicMap, rewriter,
                             partition, newGlobalArray);
   }
+
+  // Update the memory map entry for this global
+  updateMemoryMapEntry(op, newArray, factorMap, cyclicMap, rewriter);
+
   for (auto AI : newArray) {
     AI.getDefiningOp()->erase();
   }

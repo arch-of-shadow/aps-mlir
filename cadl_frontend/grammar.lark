@@ -137,8 +137,14 @@ body: SEMICOLON                                        -> empty_body
 expr_list: expr (COMMA expr)*
 
 // Attributes
-attribute: HASH LBRACKET IDENTIFIER RBRACKET                    -> simple_attr
-         | HASH LBRACKET IDENTIFIER LPAREN expr RPAREN RBRACKET -> param_attr
+attribute: HASH LBRACKET IDENTIFIER RBRACKET                                    -> simple_attr
+         | HASH LBRACKET IDENTIFIER LPAREN attr_expr RPAREN RBRACKET            -> param_attr
+
+// Attribute expressions (allow array literals in addition to regular expressions)
+?attr_expr: expr
+          | LBRACKET attr_expr_list RBRACKET                                    -> array_literal
+
+attr_expr_list: attr_expr (COMMA attr_expr)*
 
 // Flow definition
 flow: attribute* KW_FLOW IDENTIFIER LPAREN fn_arg_list? RPAREN body     -> default_flow

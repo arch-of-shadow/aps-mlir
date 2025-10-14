@@ -58,21 +58,27 @@ def MemBurstLoad : APSOp<"memburstload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let description = [{
     Transfers a sequence of data from CPU memory to APS scratchpad memory in a burst fashion.
     Reads 'length' elements from CPU memory starting at 'cpu_addr'
-    and writes them to the APS scratchpad (memref) starting at 'start' index.
+    and writes them to the APS scratchpad (memref or vector of memrefs) starting at 'start' index.
+
+    After array partitioning, memrefs can be a variadic list of partitioned memref slices.
 
     Example:
       aps.memburstload %cpu_addr, %aps_mem[%start], %length
         : i64, memref<1024xi32>, i32, i32 -> ()
+
+      // After array partition with factor 4:
+      aps.memburstload %cpu_addr, %mem0, %mem1, %mem2, %mem3[%start], %length
+        : i64, memref<256xi32>, memref<256xi32>, memref<256xi32>, memref<256xi32>, i32, i32 -> ()
   }];
   let arguments = (ins
     AnySignlessInteger:$cpu_addr,
-    AnyMemRef:$memref,
+    Variadic<AnyMemRef>:$memrefs,
     AnySignlessInteger:$start,
     AnySignlessInteger:$length
   );
   let assemblyFormat = [{
-    $cpu_addr `,` $memref `[` $start `]` `,` $length attr-dict
-    `:` type($cpu_addr) `,` type($memref) `,` type($start) `,` type($length)
+    $cpu_addr `,` `(` $memrefs `)` `[` $start `]` `,` $length attr-dict
+    `:` type($cpu_addr) `,` `(` type($memrefs) `)` `,` type($start) `,` type($length)
   }];
 }
 
@@ -80,23 +86,93 @@ def MemBurstStore : APSOp<"memburststore", [MemoryEffects<[MemRead, MemWrite]>]>
   let summary = "burst store from APS scratchpad memory to CPU memory";
   let description = [{
     Transfers a sequence of data from APS scratchpad memory to CPU memory in a burst fashion.
-    Reads 'length' elements starting from 'start' index in the APS scratchpad (memref)
+    Reads 'length' elements starting from 'start' index in the APS scratchpad (memref or vector of memrefs)
     and writes them to the CPU memory starting at 'cpu_addr'.
+
+    After array partitioning, memrefs can be a variadic list of partitioned memref slices.
 
     Example:
       aps.memburststore %aps_mem[%start], %cpu_addr, %length
-        : memref<1024xi32>, i64, i32 -> ()
+        : memref<1024xi32>, i32, i64, i32 -> ()
+
+      // After array partition with factor 4:
+      aps.memburststore %mem0, %mem1, %mem2, %mem3[%start], %cpu_addr, %length
+        : memref<256xi32>, memref<256xi32>, memref<256xi32>, memref<256xi32>, i32, i64, i32 -> ()
   }];
   let arguments = (ins
-    AnyMemRef:$memref,
+    Variadic<AnyMemRef>:$memrefs,
     AnySignlessInteger:$start,
     AnySignlessInteger:$cpu_addr,
     AnySignlessInteger:$length
   );
   let assemblyFormat = [{
-    $memref `[` $start `]` `,` $cpu_addr `,` $length attr-dict
-    `:` type($memref) `,` type($start) `,` type($cpu_addr) `,` type($length)
+    `(` $memrefs `)` `[` $start `]` `,` $cpu_addr `,` $length attr-dict
+    `:` `(` type($memrefs) `)` `,` type($start) `,` type($cpu_addr) `,` type($length)
   }];
+}
+
+def MemoryMapOp : APSOp<"memorymap", [
+    SingleBlockImplicitTerminator<"aps::MemFinishOp">
+]> {
+  let summary = "Memory address map for global memrefs";
+  let description = [{
+    The "aps.memorymap" operation represents a memory address map for all global memrefs,
+    including partitioned arrays. It contains entries for each memref with address assignments.
+
+    Example:
+      aps.memorymap {
+        aps.mem_entry "mem_a" : banks([@mem_a_0, @mem_a_1, @mem_a_2, @mem_a_3]),
+                               base(0), size(16), count(4), cyclic(1)
+        aps.mem_finish
+      }
+  }];
+  let regions = (region SizedRegion<1> : $region);
+  let hasCustomAssemblyFormat = 1;
+}
+
+def MemEntryOp : APSOp<"mem_entry", [HasParent<"MemoryMapOp">]> {
+  let summary = "Memory entry for a memref with all partition banks";
+  let description = [{
+    The "aps.mem_entry" operation represents a single memref's memory allocation,
+    including all partition banks if the memref has been partitioned.
+
+    Arguments:
+    - name: Original memref name (e.g., "mem_a")
+    - bank_symbols: Array of symbol names for each partition bank [@mem_a_0, @mem_a_1, ...]
+    - base_address: Base address for bank 0 (u32)
+    - bank_size: Size per bank in bytes (u32)
+    - num_banks: Number of partition banks (u32)
+    - cyclic: Partition mode - 1 for cyclic, 0 for block (u32)
+
+    Address calculation:
+    - Cyclic: bank_idx = element_idx % num_banks
+    - Block: bank_idx = element_idx / (total_elements / num_banks)
+    - Physical address: base_address + bank_idx * bank_size + offset_in_bank * element_size
+  }];
+  let arguments = (ins
+    StrAttr : $name,
+    ArrayAttr : $bank_symbols,
+    UI32Attr : $base_address,
+    UI32Attr : $bank_size,
+    UI32Attr : $num_banks,
+    UI32Attr : $cyclic
+  );
+  let assemblyFormat = [{
+    $name `:` `banks` `(` $bank_symbols `)` `,`
+    `base` `(` $base_address `)` `,`
+    `size` `(` $bank_size `)` `,`
+    `count` `(` $num_banks `)` `,`
+    `cyclic` `(` $cyclic `)`
+    attr-dict
+  }];
+}
+
+def MemFinishOp : APSOp<"mem_finish", [Terminator, HasParent<"MemoryMapOp">]> {
+  let summary = "Terminator for memory map";
+  let description = [{
+    The "aps.mem_finish" operation serves as the terminator for the memory map region.
+  }];
+  let assemblyFormat = "attr-dict";
 }
 
 // def SubOp : ToyOp<"sub", [Pure]> {

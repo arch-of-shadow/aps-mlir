@@ -37,6 +37,10 @@ namespace mlir
   {
     class AffineDialect;
   }
+  namespace arith
+  {
+    class ArithDialect;
+  }
   namespace LLVM
   {
     class LLVMDialect;

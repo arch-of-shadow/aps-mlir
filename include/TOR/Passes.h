@@ -32,6 +32,8 @@ namespace mlir {
 
     std::unique_ptr<OperationPass<mlir::func::FuncOp>> createArrayPartitionPass();
 
+    std::unique_ptr<OperationPass<mlir::ModuleOp>> createNewArrayPartitionPass();
+
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createRemoveRedundantAccessPass();
     
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createKrnlLowerPass();
@@ -89,6 +91,9 @@ namespace mlir {
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createRemoveFuncArgPass();
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createMinMaxToCmpSelectPass();
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createLinalgConvAttrPass();
+
+    std::unique_ptr<Pass> createRaiseSCFToAffinePass();
+
 #define GEN_PASS_REGISTRATION
 
 #include "TOR/Passes.h.inc"
