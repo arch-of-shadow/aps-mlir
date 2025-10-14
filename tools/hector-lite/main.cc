@@ -122,13 +122,22 @@ int main(int argc, char **argv) {
     // hector_argv[index++] = const_cast<char *>("--struct-split");
     // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--unification-index-cast");
+    hector_argv[index++] = const_cast<char *>("--scf-for-index-cast");
+    hector_argv[index++] = const_cast<char *>("--aps-mem-to-memref");
+    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    hector_argv[index++] = const_cast<char *>("--raise-scf-to-affine");
+    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    hector_argv[index++] = const_cast<char *>("--affine-raise-from-memref");
+    hector_argv[index++] = const_cast<char *>("--canonicalize");
     hector_argv[index++] = const_cast<char *>("--hls-unroll");
     hector_argv[index++] = const_cast<char *>("--cse");
     hector_argv[index++] = const_cast<char *>("--canonicalize");
-    // hector_argv[index++] = const_cast<char *>("--affine-loop-normalize");
-    // hector_argv[index++] = const_cast<char *>("--canonicalize");
-    // hector_argv[index++] = const_cast<char *>("--new-array-partition");
-    // hector_argv[index++] = const_cast<char *>("--canonicalize");
+    hector_argv[index++] = const_cast<char *>("--affine-loop-normalize");
+    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    hector_argv[index++] = const_cast<char *>("--new-array-partition");
+    hector_argv[index++] = const_cast<char *>("--canonicalize");
+    hector_argv[index++] = const_cast<char *>("--affine-mem-to-aps-mem");
+    hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--array-opt");
     // hector_argv[index++] = const_cast<char *>("--loop-merge");
     if (arg_gensg) {
@@ -144,8 +153,8 @@ int main(int argc, char **argv) {
     // strcpy(hector_argv[index++], ss.str().c_str()); ss.clear(); ss.str("");
 
     // affine to scf
-    // hector_argv[index++] = const_cast<char *>("--lower-affine-for");
-    // hector_argv[index++] = const_cast<char *>("--canonicalize");
+    hector_argv[index++] = const_cast<char *>("--lower-affine-for");
+    hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--array-use-offset");
     // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--mem-to-iter-args");

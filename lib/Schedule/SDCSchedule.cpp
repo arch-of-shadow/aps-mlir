@@ -990,6 +990,8 @@ void SDCSchedule::addMemConstr(int memportRId, SDCSolver *SDC) {
   // assume no overlapping execution of basic blocks
   int amount = RDB.getAmount(memportRId);
   int II = RDB.getII(memportRId);
+  llvm::errs() << "addMemConstr called for resource: " << RDB.getName(memportRId)
+               << " (ID=" << memportRId << ", amount=" << amount << ", II=" << II << ")\n";
   for (auto &&BB : BasicBlocks) {
     if (!needSchedule(BB.get()))
       continue;
@@ -1001,6 +1003,7 @@ void SDCSchedule::addMemConstr(int memportRId, SDCSolver *SDC) {
                          [&](SDCOpWrapper *op) {
                              return op->getMemOp() != nullptr && op->getResource() == memportRId;
                          });
+    llvm::errs() << "  Found " << constrainedOp.size() << " operations with this resource\n";
     llvm::DenseMap<mlir::Value, std::vector<SDCOpWrapper*>> memrefOpMap;
     for (int i = 0, n = constrainedOp.size(); i < n; ++i) {
       MemOpConcrete *memop = constrainedOp[i]->getMemOp();
@@ -1008,6 +1011,7 @@ void SDCSchedule::addMemConstr(int memportRId, SDCSolver *SDC) {
     }
 
     for (auto it: memrefOpMap) {
+      llvm::errs() << "    Processing memref group with " << it.second.size() << " operations\n";
       std::vector<std::vector<int>> vars(amount);
       for (size_t i = 0; i < it.second.size(); ++i) {
         int slot = i % amount;
@@ -1017,6 +1021,7 @@ void SDCSchedule::addMemConstr(int memportRId, SDCSolver *SDC) {
         // For each operation in the same slot, add constraint that current op starts after previous ops
         for (auto prevVar : vars[slot]){
           // current op must start at least II cycles after previous op in same slot
+          llvm::errs() << "      Adding constraint: Var" << var << " >= Var" << prevVar << " + " << II << "\n";
           SDC->addInitialConstraint(Constraint::CreateGE(var, prevVar, II));
         }
 
@@ -1258,6 +1263,19 @@ SDCSolver *SDCSchedule::formulateSDC() {
       }
     }
 
+  // Debug: Print all memory operations and their resources
+  llvm::errs() << "=== Debug: All memory operations ===\n";
+  for (auto &&BB : BasicBlocks) {
+    for (auto op : BB->getOperations()) {
+      if (op->getMemOp() != nullptr) {
+        llvm::errs() << "  MemOp: " << op->getOp()->getName()
+                     << " resource=" << RDB.getName(op->getResource())
+                     << " (ID=" << op->getResource() << ")\n";
+      }
+    }
+  }
+  llvm::errs() << "====================================\n";
+
   // Resource constraints;
   int NumResource = RDB.getNumResource();
 
@@ -1276,6 +1294,41 @@ SDCSolver *SDCSchedule::formulateSDC() {
   // add m_axi constraint
   // burst maxi and normal maxi should be considered together
   addMAxiConstr(SDC);
+
+  // Add constraints for aps.readrf and aps.writerf operations
+  // readrf should be early, writerf should be at the end
+  llvm::SmallVector<SDCOpWrapper *> writeRfOps;
+  llvm::SmallVector<SDCOpWrapper *> readRfOps;
+  llvm::SmallVector<SDCOpWrapper *> otherOps;
+
+  for (auto &&BB : BasicBlocks) {
+    if (!needSchedule(BB.get()))
+      continue;
+    for (auto op : BB->getOperations()) {
+      auto sdcOp = llvm::dyn_cast<SDCOpWrapper>(op);
+      if (llvm::isa<aps::CpuRfWrite>(sdcOp->getOp())) {
+        writeRfOps.push_back(sdcOp);
+      } else if (llvm::isa<aps::CpuRfRead>(sdcOp->getOp())) {
+        readRfOps.push_back(sdcOp);
+      } else if (!llvm::isa<arith::ConstantOp, memref::GetGlobalOp, tor::ReturnOp>(sdcOp->getOp())) {
+        // Collect non-constant, non-global, non-return operations
+        otherOps.push_back(sdcOp);
+      }
+    }
+  }
+
+  // Add constraints: all other operations must complete before writerf
+  for (auto writeRfOp : writeRfOps) {
+    for (auto otherOp : otherOps) {
+      int latency = RDB.getLatency(otherOp->getResource(), otherOp->getWidth());
+      llvm::errs() << "Adding writerf ordering constraint: Var" << writeRfOp->VarId
+                   << " >= Var" << otherOp->VarId << " + " << latency
+                   << " (" << otherOp->getOp()->getName().getStringRef() << " -> "
+                   << writeRfOp->getOp()->getName().getStringRef() << ")\n";
+      SDC->addInitialConstraint(Constraint::CreateGE(
+        writeRfOp->VarId, otherOp->VarId, latency));
+    }
+  }
 
   auto getFuncOp = [&](SDCOpWrapper *op) {
     if (auto callOp = llvm::dyn_cast<tor::CallOp>(op->getOp())) {

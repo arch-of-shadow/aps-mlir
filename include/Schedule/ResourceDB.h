@@ -99,12 +99,19 @@ public:
   int getII(int id) { return Components[id].II; }
 
   int bitwidthIdx(int bitwidth) {
+    if (!(bitwidth == 0 || __builtin_popcount(bitwidth) == 1)) {
+      llvm::errs() << "ERROR: Invalid bitwidth " << bitwidth << " (not a power of 2)\n";
+    }
     assert((bitwidth == 0 || __builtin_popcount(bitwidth) == 1) &&
            "bitwidth should be the power of 2");
     return (__CHAR_BIT__ * sizeof(uint32_t) - __builtin_clz(bitwidth | 1) - 1);
   }
 
   float getDelay(int id, int bitwidth) {
+    // Normalize bitwidth to nearest power of 2 (round up)
+    if (bitwidth > 0 && __builtin_popcount(bitwidth) != 1) {
+      bitwidth = 1 << (32 - __builtin_clz(bitwidth - 1));
+    }
     int index = bitwidthIdx(bitwidth);
     return Components[id].delay[index];
   }
@@ -112,6 +119,15 @@ public:
   std::string getName(int id) { return Components[id].name; }
 
   int getLatency(int id, int bitwidth) {
+    // Normalize bitwidth to nearest power of 2 (round up)
+    // This handles constants with arbitrary bitwidths (e.g., 5-bit constants)
+    if (bitwidth > 0 && __builtin_popcount(bitwidth) != 1) {
+      // Round up to next power of 2
+      int normalized = 1 << (32 - __builtin_clz(bitwidth - 1));
+      // llvm::errs() << "getLatency: normalizing bitwidth " << bitwidth
+      //              << " -> " << normalized << " for resource " << Components[id].name << "\n";
+      bitwidth = normalized;
+    }
     int index = bitwidthIdx(bitwidth);
     if (Components[id].name == "addf" && index != 6) {
 //      llvm::outs() << "error\n";
@@ -205,22 +221,33 @@ public:
     std::string memrefName = "memport_unknown";
     bool hasImplAttr = false;
 
+    llvm::errs() << "getOrCreateMemrefResource called for memref\n";
     if (auto defOp = memref.getDefiningOp()) {
+      llvm::errs() << "  defOp: " << defOp->getName() << "\n";
       if (auto getGlobalOp = llvm::dyn_cast<mlir::memref::GetGlobalOp>(defOp)) {
         std::string globalName = getGlobalOp.getName().str();
+        llvm::errs() << "  Found GetGlobalOp, globalName=" << globalName << "\n";
 
         // Look up the memref.global declaration to check for impl attribute
-        auto moduleOp = defOp->getParentOfType<mlir::ModuleOp>();
-        if (moduleOp) {
-          auto globalOps = moduleOp.getOps<mlir::memref::GlobalOp>();
-          for (auto globalDecl : globalOps) {
+        // Try DesignOp first (for TOR dialect), then ModuleOp
+        mlir::Operation* containerOp = defOp->getParentOfType<tor::DesignOp>();
+        if (!containerOp) {
+          containerOp = defOp->getParentOfType<mlir::ModuleOp>();
+        }
+
+        if (containerOp) {
+          llvm::errs() << "  Container op: " << containerOp->getName() << "\n";
+          // Walk through all operations in the container to find memref.global
+          containerOp->walk([&](mlir::memref::GlobalOp globalDecl) {
             if (globalDecl.getSymName() == globalName) {
+              llvm::errs() << "  Found matching GlobalOp\n";
               // Check if it has impl attribute
               if (globalDecl->hasAttr("impl")) {
                 hasImplAttr = true;
                 auto implAttr = globalDecl->getAttr("impl");
                 if (auto strAttr = llvm::dyn_cast<mlir::StringAttr>(implAttr)) {
                   std::string implValue = strAttr.getValue().str();
+                  llvm::errs() << "  Found impl=" << implValue << "\n";
                   // For "1rw" SRAM, create a constrained resource
                   if (implValue == "1rw") {
                     memrefName = "memport_" + globalName + "_1rw";
@@ -230,13 +257,15 @@ public:
                   }
                 }
               } else {
+                llvm::errs() << "  No impl attribute, treating as regfile\n";
                 // No impl attribute: register file, no resource constraint needed
                 // Create a special resource with correct latency but unlimited amount
                 memrefName = "memport_" + globalName + "_regfile";
               }
-              break;
+              return mlir::WalkResult::interrupt();  // Stop walking once found
             }
-          }
+            return mlir::WalkResult::advance();
+          });
         }
 
         // Fallback if we couldn't find the global declaration
@@ -283,6 +312,8 @@ public:
 
     // Check if resource already exists
     if (NameToID.find(memrefName) != NameToID.end()) {
+      llvm::errs() << "  Returning existing resource: " << memrefName
+                   << " (ID=" << NameToID[memrefName] << ")\n";
       return NameToID[memrefName];
     }
 
@@ -295,11 +326,15 @@ public:
     int amount = isRegfile ? -1 : 1;  // -1 means unlimited, 1 means single port
     bool hasConstraint = !isRegfile;   // Register files don't have resource constraints
 
+    llvm::errs() << "  Creating new resource: " << memrefName
+                 << " amount=" << amount << " hasConstraint=" << hasConstraint << "\n";
+
     // Create a new component
     Component newComp(memrefName, baseMemport.delay, baseMemport.latency,
                       baseMemport.II, hasConstraint, amount);
     addComponent(newComp);
 
+    llvm::errs() << "  New resource ID=" << NameToID[memrefName] << "\n";
     return NameToID[memrefName];
   }
 

@@ -14,7 +14,7 @@
 #include "TOR/Passes.h"
 
 #include "APS/APSDialect.h"
-
+#include "APS/Passes.h"
 
 class HectorMemRefInsider
     : public mlir::MemRefElementTypeInterface::FallbackModel<HectorMemRefInsider> {};
@@ -41,6 +41,7 @@ int hector_driver(int argc, char **argv) {
     registry_hector.insert<aps::APSDialect>();
 
     mlir::registerTORPasses();
+    mlir::registerAPSPasses();
     
     // registry_hector.addExtension(+[](MLIRContext *ctx, LLVM::LLVMDialect *dialect) {
     //     LLVM::LLVMFunctionType::attachInterface<HectorMemRefInsider>(*ctx);

@@ -358,7 +358,7 @@ def ReturnOp : TOROp<"return", [Terminator, ParentOneOf<["FuncOp"/*, "ModuleOp"*
 
 }
 
-def CallOp : TOROp<"call", [CallOpInterface/*, DeclareOpInterfaceMethods<SymbolUserOpInterface>*/]> {
+def CallOp : TOROp<"call", [CallOpInterface, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "tor call operation";
   let description = [{
     The "tor.call" operation represents a direct call to a tor.func

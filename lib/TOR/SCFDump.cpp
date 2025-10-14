@@ -322,13 +322,19 @@ namespace {
                 // Handle aps.memburstload - burst load from CPU to APS scratchpad
                 j["op_type"] = "memburstload";
                 j["cpu_addr"] = get_value(memBurstLoadOp.getCpuAddr());
-                j["memory"] = get_value(memBurstLoadOp.getMemref());
+                // Handle multiple memrefs (after array partitioning)
+                for (auto memref : memBurstLoadOp.getMemrefs()) {
+                    j["memory"].push_back(get_value(memref));
+                }
                 j["start"] = get_value(memBurstLoadOp.getStart());
                 j["length"] = get_value(memBurstLoadOp.getLength());
             } else if (auto memBurstStoreOp = dyn_cast<aps::MemBurstStore>(op)) {
                 // Handle aps.memburststore - burst store from APS scratchpad to CPU
                 j["op_type"] = "memburststore";
-                j["memory"] = get_value(memBurstStoreOp.getMemref());
+                // Handle multiple memrefs (after array partitioning)
+                for (auto memref : memBurstStoreOp.getMemrefs()) {
+                    j["memory"].push_back(get_value(memref));
+                }
                 j["start"] = get_value(memBurstStoreOp.getStart());
                 j["cpu_addr"] = get_value(memBurstStoreOp.getCpuAddr());
                 j["length"] = get_value(memBurstStoreOp.getLength());

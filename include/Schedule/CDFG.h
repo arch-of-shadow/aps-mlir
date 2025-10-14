@@ -258,6 +258,10 @@ public:
   Value getRequest() const {return request; }
   int getLength() const {return length; }
 
+  // Override getWidth() to return a fixed valid bitwidth (32-bit, power of 2)
+  // M_AXI operations don't have a meaningful bitwidth in the same sense as arithmetic ops
+  int getWidth() const override { return 32; }
+
   bool isWrite() const {
     return type == OpType::M_AXI_WRITE_OP || type == OpType::M_AXI_WRITE_REQUEST_OP || type == OpType::M_AXI_BURST_WRITE_OP;
   }
@@ -312,12 +316,22 @@ public:
       length = getOpLength(mAxiWriteRequestOp.getLength());
     } else if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op)) {
       // APS memory burst load operation
-      memref = memBurstLoadOp.getMemref();
+      // For scheduling purposes, use the first memref
+      // (all partitions of the same array should have the same scheduling constraints)
+      auto memrefs = memBurstLoadOp.getMemrefs();
+      if (!memrefs.empty()) {
+        memref = *memrefs.begin();
+      }
       addr = memBurstLoadOp.getStart();
       length = getOpLength(memBurstLoadOp.getLength());
     } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op)) {
       // APS memory burst store operation
-      memref = memBurstStoreOp.getMemref();
+      // For scheduling purposes, use the first memref
+      // (all partitions of the same array should have the same scheduling constraints)
+      auto memrefs = memBurstStoreOp.getMemrefs();
+      if (!memrefs.empty()) {
+        memref = *memrefs.begin();
+      }
       addr = memBurstStoreOp.getStart();
       length = getOpLength(memBurstStoreOp.getLength());
     }
