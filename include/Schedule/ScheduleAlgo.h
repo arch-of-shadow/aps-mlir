@@ -132,6 +132,7 @@ public:
       rsc = RDB.getResourceID("memport_RAM_T2P");
     } else if (llvm::isa<aps::MemLoad>(op) || llvm::isa<aps::MemStore>(op)) {
       // For APS memory operations, use per-memref resources
+      // All memories are treated as 1RW (one read or write per cycle)
       rsc = RDB.getOrCreateMemrefResource(memref);
     } else {
       // For other operations (tor.load, tor.store), use unified memport

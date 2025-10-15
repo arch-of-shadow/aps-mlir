@@ -214,12 +214,11 @@ public:
   /// Get or create a per-memref resource ID for APS memory operations
   /// This allows different memrefs to be scheduled independently
   ///
-  /// For memref.global with impl="1rw": creates a resource with amount=1 (SRAM, single port)
-  /// For memref.global without impl: returns -1 (register file, fully parallel, no constraint)
+  /// All memories are now treated as 1RW (one-read-one-write) with amount=1,
+  /// meaning only one read or write operation can occur per cycle.
   int getOrCreateMemrefResource(mlir::Value memref) {
-    // Try to get the defining operation's name and check impl attribute
+    // Generate a unique name for this memref resource
     std::string memrefName = "memport_unknown";
-    bool hasImplAttr = false;
 
     llvm::errs() << "getOrCreateMemrefResource called for memref\n";
     if (auto defOp = memref.getDefiningOp()) {
@@ -227,86 +226,22 @@ public:
       if (auto getGlobalOp = llvm::dyn_cast<mlir::memref::GetGlobalOp>(defOp)) {
         std::string globalName = getGlobalOp.getName().str();
         llvm::errs() << "  Found GetGlobalOp, globalName=" << globalName << "\n";
-
-        // Look up the memref.global declaration to check for impl attribute
-        // Try DesignOp first (for TOR dialect), then ModuleOp
-        mlir::Operation* containerOp = defOp->getParentOfType<tor::DesignOp>();
-        if (!containerOp) {
-          containerOp = defOp->getParentOfType<mlir::ModuleOp>();
-        }
-
-        if (containerOp) {
-          llvm::errs() << "  Container op: " << containerOp->getName() << "\n";
-          // Walk through all operations in the container to find memref.global
-          containerOp->walk([&](mlir::memref::GlobalOp globalDecl) {
-            if (globalDecl.getSymName() == globalName) {
-              llvm::errs() << "  Found matching GlobalOp\n";
-              // Check if it has impl attribute
-              if (globalDecl->hasAttr("impl")) {
-                hasImplAttr = true;
-                auto implAttr = globalDecl->getAttr("impl");
-                if (auto strAttr = llvm::dyn_cast<mlir::StringAttr>(implAttr)) {
-                  std::string implValue = strAttr.getValue().str();
-                  llvm::errs() << "  Found impl=" << implValue << "\n";
-                  // For "1rw" SRAM, create a constrained resource
-                  if (implValue == "1rw") {
-                    memrefName = "memport_" + globalName + "_1rw";
-                  } else {
-                    // Other impl types, treat as SRAM for now
-                    memrefName = "memport_" + globalName + "_" + implValue;
-                  }
-                }
-              } else {
-                llvm::errs() << "  No impl attribute, treating as regfile\n";
-                // No impl attribute: register file, no resource constraint needed
-                // Create a special resource with correct latency but unlimited amount
-                memrefName = "memport_" + globalName + "_regfile";
-              }
-              return mlir::WalkResult::interrupt();  // Stop walking once found
-            }
-            return mlir::WalkResult::advance();
-          });
-        }
-
-        // Fallback if we couldn't find the global declaration
-        if (!hasImplAttr && memrefName == "memport_unknown") {
-          // Assume register file (no constraint) by default
-          memrefName = "memport_unknown_regfile";
-        }
+        // All memories are 1RW regardless of attributes
+        memrefName = "memport_" + globalName + "_1rw";
       } else if (auto allocOp = llvm::dyn_cast<tor::AllocOp>(defOp)) {
-        // For tor.alloc, check if it has impl attribute
-        if (allocOp->hasAttr("impl")) {
-          hasImplAttr = true;
-          std::string opStr;
-          llvm::raw_string_ostream os(opStr);
-          os << defOp;
-          size_t hash = std::hash<std::string>{}(os.str());
-          memrefName = "memport_alloc_" + std::to_string(hash);
-        } else {
-          // No impl: register file
-          std::string opStr;
-          llvm::raw_string_ostream os(opStr);
-          os << defOp;
-          size_t hash = std::hash<std::string>{}(os.str());
-          memrefName = "memport_alloc_regfile_" + std::to_string(hash);
-        }
+        // For tor.alloc, always treat as 1RW
+        std::string opStr;
+        llvm::raw_string_ostream os(opStr);
+        os << defOp;
+        size_t hash = std::hash<std::string>{}(os.str());
+        memrefName = "memport_alloc_1rw_" + std::to_string(hash);
       } else if (defOp->getName().getStringRef().str() == "aps.memdeclare") {
-        // For aps.memdeclare, check impl attribute
-        if (defOp->hasAttr("impl")) {
-          hasImplAttr = true;
-          std::string opStr;
-          llvm::raw_string_ostream os(opStr);
-          os << defOp;
-          size_t hash = std::hash<std::string>{}(os.str());
-          memrefName = "memport_aps_" + std::to_string(hash);
-        } else {
-          // No impl: register file
-          std::string opStr;
-          llvm::raw_string_ostream os(opStr);
-          os << defOp;
-          size_t hash = std::hash<std::string>{}(os.str());
-          memrefName = "memport_aps_regfile_" + std::to_string(hash);
-        }
+        // For aps.memdeclare, always treat as 1RW
+        std::string opStr;
+        llvm::raw_string_ostream os(opStr);
+        os << defOp;
+        size_t hash = std::hash<std::string>{}(os.str());
+        memrefName = "memport_aps_1rw_" + std::to_string(hash);
       }
     }
 
@@ -321,10 +256,9 @@ public:
     int baseMemportId = NameToID["memport"];
     const Component& baseMemport = Components[baseMemportId];
 
-    // Determine if this is a register file (unlimited resources) or SRAM (limited)
-    bool isRegfile = memrefName.find("_regfile") != std::string::npos;
-    int amount = isRegfile ? -1 : 1;  // -1 means unlimited, 1 means single port
-    bool hasConstraint = !isRegfile;   // Register files don't have resource constraints
+    // All memories are now 1RW: single port with resource constraint
+    int amount = 1;         // 1 means single port (one read or write per cycle)
+    bool hasConstraint = true;  // All memories have resource constraints
 
     llvm::errs() << "  Creating new resource: " << memrefName
                  << " amount=" << amount << " hasConstraint=" << hasConstraint << "\n";
