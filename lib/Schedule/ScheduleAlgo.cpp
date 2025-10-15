@@ -199,7 +199,7 @@ namespace scheduling {
                 }
                 auto allocOp = llvm::dyn_cast<tor::AllocOp>(loadOp.getMemref().getDefiningOp());
                 std::string storageType = "";
-                if (allocOp->hasAttr("bind_storage_type")) {
+                if (allocOp && allocOp->hasAttr("bind_storage_type")) {
                     storageType = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
                     setPragmaStructureAttrStatusByOp(allocOp, "bind_storage");
                 }
@@ -251,7 +251,7 @@ namespace scheduling {
                 }
                 auto allocOp = llvm::dyn_cast<tor::AllocOp>(storeOp.getMemref().getDefiningOp());
                 std::string storageType = "";
-                if (allocOp->hasAttr("bind_storage_type")) {
+                if (allocOp && allocOp->hasAttr("bind_storage_type")) {
                     setPragmaStructureAttrStatusByOp(allocOp, "bind_storage");
                     storageType = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
                 }
@@ -283,7 +283,7 @@ namespace scheduling {
                 }
                 auto allocOp = llvm::dyn_cast<tor::AllocOp>(storeOp.getMemref().getDefiningOp());
                 std::string storageType = "";
-                if (allocOp->hasAttr("bind_storage_type")) {
+                if (allocOp && allocOp->hasAttr("bind_storage_type")) {
                     setPragmaStructureAttrStatusByOp(allocOp, "bind_storage");
                     storageType = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
                 }

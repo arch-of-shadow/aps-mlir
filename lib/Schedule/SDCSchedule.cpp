@@ -85,17 +85,29 @@ int SDCSchedule::get_memportMII(Loop *L) {
 
   int resMII = 1;
   for (auto kv : MemTable) {
-    auto allocOp = cast<tor::AllocOp>(kv.first.getDefiningOp());
-    if (allocOp->hasAttr("bind_storage_type")) {
-      auto type = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
-      if (type == "RAM_1P") {
-        resMII = std::max(resMII, kv.second);
-      } else if (type == "RAM_T2P") {
-        resMII = std::max(resMII, (kv.second + 1) / 2);
+    auto defOp = kv.first.getDefiningOp();
+
+    // Handle both tor::AllocOp and memref::GetGlobalOp
+    if (auto allocOp = llvm::dyn_cast<tor::AllocOp>(defOp)) {
+      if (allocOp->hasAttr("bind_storage_type")) {
+        auto type = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
+        if (type == "RAM_1P") {
+          resMII = std::max(resMII, kv.second);
+        } else if (type == "RAM_T2P") {
+          resMII = std::max(resMII, (kv.second + 1) / 2);
+        } else {
+          assert(false && "memref type not supported");
+        }
       } else {
-        assert(false && "memref type not supported");
+        resMII = std::max(resMII, (kv.second + numport - 1) / numport);
       }
+    } else if (llvm::isa<memref::GetGlobalOp>(defOp)) {
+      // For memref.get_global, treat as regfile with no storage constraints
+      // Use default port-based calculation
+      resMII = std::max(resMII, (kv.second + numport - 1) / numport);
     } else {
+      // Unknown memref source
+      llvm::errs() << "Warning: Unknown memref defining operation in get_memportMII\n";
       resMII = std::max(resMII, (kv.second + numport - 1) / numport);
     }
   }
@@ -2024,13 +2036,23 @@ void SDCSchedule::assignSlotAttrAfterSchedule() {
         for (auto opA : BB->getOperations()) {
           if (auto memOp = opA->getMemOp()) {
             auto memref = memOp->getMemRef();
-            auto allocOp = cast<tor::AllocOp>(memref.getDefiningOp());
-            if (allocOp->hasAttr("bind_storage_type")) {
-              auto type = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
-              if (type == "RAM_1P")
+            auto defOp = memref.getDefiningOp();
+
+            // Handle both tor::AllocOp and memref::GetGlobalOp
+            if (auto allocOp = llvm::dyn_cast<tor::AllocOp>(defOp)) {
+              if (allocOp->hasAttr("bind_storage_type")) {
+                auto type = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
+                if (type == "RAM_1P")
+                  continue;
+              } else if (numport == 1) {
                 continue;
-            } else if (numport == 1) {
-              continue;
+              }
+            } else if (llvm::isa<memref::GetGlobalOp>(defOp)) {
+              // For memref.get_global, treat as multi-port regfile
+              // Skip if only single port available
+              if (numport == 1) {
+                continue;
+              }
             }
             memOpAs.push_back(opA);
             if (memrefFirstUsedTimes.find(memref) != memrefFirstUsedTimes.end()) {
