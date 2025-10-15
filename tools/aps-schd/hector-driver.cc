@@ -16,6 +16,8 @@
 #include "APS/APSDialect.h"
 #include "APS/Passes.h"
 
+#include "circt/Dialect/Comb/CombOps.h"
+
 class HectorMemRefInsider
     : public mlir::MemRefElementTypeInterface::FallbackModel<HectorMemRefInsider> {};
 
@@ -39,6 +41,7 @@ int hector_driver(int argc, char **argv) {
     registry_hector.insert<mlir::func::FuncDialect>();
     registry_hector.insert<mlir::math::MathDialect>();
     registry_hector.insert<aps::APSDialect>();
+    registry_hector.insert<circt::comb::CombDialect>();
 
     mlir::registerTORPasses();
     mlir::registerAPSPasses();

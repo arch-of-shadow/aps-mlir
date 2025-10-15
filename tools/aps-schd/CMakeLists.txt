@@ -1,15 +1,13 @@
-add_executable(hector-lite
+add_executable(aps-schd
         main.cc
         )
 
-target_link_libraries(hector-lite PRIVATE
+target_link_libraries(aps-schd PRIVATE
         MLIROptLib
-        
-        -Wl,--start-group
         MLIRTOR
         TORSCHEDULE
-        -Wl,--end-group
         APS
+        CIRCTComb
         
         ${LP_SOLVE_LIB}
         nlohmann_json::nlohmann_json

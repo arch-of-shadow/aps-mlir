@@ -38,7 +38,7 @@
 #include "argparse.hpp"
 
 int main(int argc, char **argv) {
-    argparse::ArgumentParser program("hector-lite", "0.1");
+    argparse::ArgumentParser program("aps-schd", "0.1");
     program.add_argument("-i", "--input").required()
             .help("Input MLIR file (e.g., examples/zyy.mlir)");
     program.add_argument("-f", "--function").required()

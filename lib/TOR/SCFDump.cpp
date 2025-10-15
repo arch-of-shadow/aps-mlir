@@ -12,6 +12,8 @@
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/Support/Debug.h"
 
+#include "circt/Dialect/Comb/CombOps.h"
+
 #include "APS/APSDialect.h"
 #include "APS/APSOps.h"
 #include "TOR/TORDialect.h"
@@ -412,6 +414,16 @@ namespace {
                 OPERATION(math::TanhOp, "tanh")
                 OPERATION(math::SinOp, "sin")
 
+                // comb operations
+                if (auto extractOp = dyn_cast<circt::comb::ExtractOp>(op)) {
+                    j["op_type"] = "extract";
+                    j["name"] = get_dump(extractOp);
+                    j["type"] = get_type(extractOp.getResult().getType());
+                    j["operands"] = json::array();
+                    j["operands"].push_back(get_value(extractOp.getInput()));
+                    j["from"] = extractOp.getLowBit();
+                    return j;
+                }
 
                 std::cout << "Not support op " << std::string(op->getName().stripDialect().data(), op->getName().stripDialect().size()) << std::endl;
 
