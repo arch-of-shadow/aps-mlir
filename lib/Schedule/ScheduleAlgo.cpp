@@ -888,6 +888,26 @@ namespace scheduling {
     void ScheduleBase::buildTensorDFG() {
         auto dep_analysis = tor::DependenceAnalysis();
 
+        // Helper function to check if two memrefs refer to the same global memory
+        // This is needed because memrefs in different blocks may have different SSA values
+        // (from different memref.get_global operations) but refer to the same global symbol
+        auto isSameGlobalMemref = [](Value memref1, Value memref2) -> bool {
+            // Direct SSA value comparison
+            if (memref1 == memref2)
+                return true;
+
+            // Check if both are results of memref.get_global operations
+            auto getGlobal1 = memref1.getDefiningOp<mlir::memref::GetGlobalOp>();
+            auto getGlobal2 = memref2.getDefiningOp<mlir::memref::GetGlobalOp>();
+
+            if (getGlobal1 && getGlobal2) {
+                // Compare the global symbol names
+                return getGlobal1.getNameAttr() == getGlobal2.getNameAttr();
+            }
+
+            return false;
+        };
+
         // dependence of tensors
         for (auto &&op1: Operations) {
             auto memop1 = op1->getMemOp();
@@ -900,7 +920,7 @@ namespace scheduling {
                 continue;
 
             // no dependency if not the same memref
-            if (memop1->getMemRef() != memop2->getMemRef())
+            if (!isSameGlobalMemref(memop1->getMemRef(), memop2->getMemRef()))
                 continue;
 
             if (op1->getType() == OpAbstract::OpType::LOAD_OP &&
@@ -1031,18 +1051,47 @@ namespace scheduling {
                     continue;
 
                 // no dependency if not the same memref
-                if (memop1->getMemRef() != maxiop2->getMemRef())
+                if (!isSameGlobalMemref(memop1->getMemRef(), maxiop2->getMemRef())) {
                     continue;
+                }
+
+                // Debug: log when memrefs match
+                llvm::errs() << "DEBUG: Memref match found between "
+                             << op1->getOp()->getName() << " and "
+                             << op2->getOp()->getName() << "\n";
+                llvm::errs() << "  memop1 ParentBB: " << memop1->getParentBB()
+                             << ", ParentLoop: " << memop1->getParentLoop() << "\n";
+                llvm::errs() << "  maxiop2 ParentBB: " << maxiop2->getParentBB()
+                             << ", ParentLoop: " << maxiop2->getParentLoop() << "\n";
 
                 // Check if memop1 can reach maxiop2
                 int Distance = -1;
-                if (canReach(memop1, maxiop2, false))
-                    Distance = 0;
-                else if (canReach(memop1, maxiop2, true))
-                    Distance = 1;
+                bool canReachDirect = canReach(memop1, maxiop2, false);
+                bool canReachLoop = canReach(memop1, maxiop2, true);
 
-                if (Distance == -1)
+                llvm::errs() << "  canReach(false): " << canReachDirect
+                             << ", canReach(true): " << canReachLoop << "\n";
+
+                // Special case: if memop1 is inside a loop and maxiop2 is outside the loop,
+                // this is a loop-exit dependency and should have Distance = 0
+                if (memop1->getParentLoop() != nullptr && maxiop2->getParentLoop() == nullptr) {
+                    // Check if maxiop2 is in a block that follows the loop
+                    if (canReachDirect || canReachLoop) {
+                        Distance = 0;
+                        llvm::errs() << "  Special case: loop-exit dependency, setting Distance = 0\n";
+                    }
+                } else if (canReachDirect) {
+                    Distance = 0;
+                } else if (canReachLoop) {
+                    Distance = 1;
+                }
+
+                if (Distance == -1) {
+                    llvm::errs() << "  Distance == -1, skipping dependency\n";
                     continue;
+                }
+
+                llvm::errs() << "  Distance: " << Distance << ", adding dependency\n";
 
                 // Add appropriate dependencies
                 if (op1->getType() == OpAbstract::OpType::LOAD_OP &&
@@ -1082,7 +1131,7 @@ namespace scheduling {
                     continue;
 
                 // no dependency if not the same memref
-                if (maxiop1->getMemRef() != memop2->getMemRef())
+                if (!isSameGlobalMemref(maxiop1->getMemRef(), memop2->getMemRef()))
                     continue;
 
                 // Check if maxiop1 can reach memop2
