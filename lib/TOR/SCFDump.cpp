@@ -330,6 +330,15 @@ namespace {
                 }
                 j["start"] = get_value(memBurstLoadOp.getStart());
                 j["length"] = get_value(memBurstLoadOp.getLength());
+            } else if (auto globalLoadOp = dyn_cast<aps::GlobalLoad>(op)) {
+                // Handle aps.globalload - load a scalar global variable
+                j["op_type"] = "globalload";
+                j["memory"] = globalLoadOp.getGlobalName();
+            } else if (auto globalStoreOp = dyn_cast<aps::GlobalStore>(op)) {
+                // Handle aps.globalstore - store a scalar global variable
+                j["op_type"] = "globalstore";
+                j["memory"] = globalStoreOp.getGlobalName();
+                j["value"] = get_value(globalStoreOp.getValue());
             } else if (auto memBurstStoreOp = dyn_cast<aps::MemBurstStore>(op)) {
                 // Handle aps.memburststore - burst store from APS scratchpad to CPU
                 j["op_type"] = "memburststore";
