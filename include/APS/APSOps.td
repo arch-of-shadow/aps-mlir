@@ -53,6 +53,49 @@ def MemStore : APSOp<"memstore", [MemoryEffects<[MemWrite]>]> {
   let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices)";
 }
 
+def GlobalLoad : APSOp<"globalload", [MemoryEffects<[MemRead]>]> {
+  let summary = "load from scalar global variable";
+  let description = [{
+    Loads a value from a scalar global variable (memref<element_type>).
+    This operation is specifically for scalar globals, not arrays.
+
+    Unlike aps.memload which takes indices, this operation directly loads
+    from a rank-0 memref representing a single scalar value.
+
+    Designed to enable optimization passes (e.g., canonicalization) to fuse
+    store->load chains after loop unrolling, converting memory dependencies
+    into SSA dataflow.
+
+    Example:
+      %value = aps.globalload @count : i32
+  }];
+  let arguments = (ins FlatSymbolRefAttr:$global_name);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$global_name attr-dict `:` type($result)";
+  let hasCanonicalizer = 1;
+}
+
+def GlobalStore : APSOp<"globalstore", [MemoryEffects<[MemWrite]>]> {
+  let summary = "store to scalar global variable";
+  let description = [{
+    Stores a value to a scalar global variable (memref<element_type>).
+    This operation is specifically for scalar globals, not arrays.
+
+    Unlike aps.memstore which takes indices, this operation directly stores
+    to a rank-0 memref representing a single scalar value.
+
+    Designed to enable optimization passes (e.g., canonicalization) to fuse
+    store->load chains after loop unrolling, converting memory dependencies
+    into SSA dataflow.
+
+    Example:
+      aps.globalstore %value, @count : i32
+  }];
+  let arguments = (ins AnyType:$value, FlatSymbolRefAttr:$global_name);
+  let assemblyFormat = "$value `,` $global_name attr-dict `:` type($value)";
+  let hasCanonicalizer = 1;
+}
+
 def MemBurstLoad : APSOp<"memburstload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "burst load from CPU memory to APS scratchpad memory";
   let description = [{
@@ -109,6 +152,70 @@ def MemBurstStore : APSOp<"memburststore", [MemoryEffects<[MemRead, MemWrite]>]>
     `(` $memrefs `)` `[` $start `]` `,` $cpu_addr `,` $length attr-dict
     `:` `(` type($memrefs) `)` `,` type($start) `,` type($cpu_addr) `,` type($length)
   }];
+}
+
+def MemoryMapOp : APSOp<"memorymap", [
+    SingleBlockImplicitTerminator<"aps::MemFinishOp">
+]> {
+  let summary = "Memory address map for global memrefs";
+  let description = [{
+    The "aps.memorymap" operation represents a memory address map for all global memrefs,
+    including partitioned arrays. It contains entries for each memref with address assignments.
+
+    Example:
+      aps.memorymap {
+        aps.mem_entry "mem_a" : banks([@mem_a_0, @mem_a_1, @mem_a_2, @mem_a_3]),
+                               base(0), size(16), count(4), cyclic(1)
+        aps.mem_finish
+      }
+  }];
+  let regions = (region SizedRegion<1> : $region);
+  let hasCustomAssemblyFormat = 1;
+}
+
+def MemEntryOp : APSOp<"mem_entry", [HasParent<"MemoryMapOp">]> {
+  let summary = "Memory entry for a memref with all partition banks";
+  let description = [{
+    The "aps.mem_entry" operation represents a single memref's memory allocation,
+    including all partition banks if the memref has been partitioned.
+
+    Arguments:
+    - name: Original memref name (e.g., "mem_a")
+    - bank_symbols: Array of symbol names for each partition bank [@mem_a_0, @mem_a_1, ...]
+    - base_address: Base address for bank 0 (u32)
+    - bank_size: Size per bank in bytes (u32)
+    - num_banks: Number of partition banks (u32)
+    - cyclic: Partition mode - 1 for cyclic, 0 for block (u32)
+
+    Address calculation:
+    - Cyclic: bank_idx = element_idx % num_banks
+    - Block: bank_idx = element_idx / (total_elements / num_banks)
+    - Physical address: base_address + bank_idx * bank_size + offset_in_bank * element_size
+  }];
+  let arguments = (ins
+    StrAttr : $name,
+    ArrayAttr : $bank_symbols,
+    UI32Attr : $base_address,
+    UI32Attr : $bank_size,
+    UI32Attr : $num_banks,
+    UI32Attr : $cyclic
+  );
+  let assemblyFormat = [{
+    $name `:` `banks` `(` $bank_symbols `)` `,`
+    `base` `(` $base_address `)` `,`
+    `size` `(` $bank_size `)` `,`
+    `count` `(` $num_banks `)` `,`
+    `cyclic` `(` $cyclic `)`
+    attr-dict
+  }];
+}
+
+def MemFinishOp : APSOp<"mem_finish", [Terminator, HasParent<"MemoryMapOp">]> {
+  let summary = "Terminator for memory map";
+  let description = [{
+    The "aps.mem_finish" operation serves as the terminator for the memory map region.
+  }];
+  let assemblyFormat = "attr-dict";
 }
 
 // def SubOp : ToyOp<"sub", [Pure]> {

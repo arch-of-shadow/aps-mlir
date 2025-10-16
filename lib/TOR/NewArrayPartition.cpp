@@ -641,6 +641,77 @@ void getNewGlobalArray(Operation *op, SmallVector<Value> newArray,
   }
 }
 
+void updateMemoryMapEntry(Operation *globalOp, SmallVector<Value> &newArray,
+                         DenseMap<int, int> factorMap, DenseMap<int, bool> cyclicMap,
+                         PatternRewriter &rewriter) {
+  auto globalOpCast = cast<memref::GlobalOp>(globalOp);
+  auto symName = globalOpCast.getSymName();
+
+  // Find the memory map in the module
+  auto moduleOp = globalOp->getParentOfType<ModuleOp>();
+  aps::MemoryMapOp memoryMapOp;
+  moduleOp->walk([&](aps::MemoryMapOp op) {
+    memoryMapOp = op;
+    return WalkResult::interrupt();
+  });
+
+  if (!memoryMapOp) {
+    return; // No memory map found
+  }
+
+  // Find the mem_entry that references this global
+  aps::MemEntryOp targetEntry;
+  memoryMapOp.getRegion().walk([&](aps::MemEntryOp entry) {
+    auto banks = entry.getBankSymbols();
+    for (auto bankAttr : banks) {
+      if (auto symRef = dyn_cast<FlatSymbolRefAttr>(bankAttr)) {
+        if (symRef.getValue() == symName) {
+          targetEntry = entry;
+          return WalkResult::interrupt();
+        }
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  if (!targetEntry) {
+    return; // Entry not found
+  }
+
+  // Create new bank symbols array from the partitioned memrefs
+  SmallVector<Attribute> newBankSymbols;
+  for (auto val : newArray) {
+    auto getGlobalOp = cast<memref::GetGlobalOp>(val.getDefiningOp());
+    // Get the actual GlobalOp to extract its symbol
+    auto globalName = getGlobalOp.getName();
+    newBankSymbols.push_back(FlatSymbolRefAttr::get(rewriter.getContext(), globalName));
+  }
+
+  // Get partition info (use first partitioned dimension)
+  uint32_t numBanks = newArray.size();
+  uint32_t cyclicMode = 0;
+  if (!factorMap.empty() && !cyclicMap.empty()) {
+    // Get the first partitioned dimension
+    auto firstDim = factorMap.begin()->first;
+    cyclicMode = cyclicMap[firstDim] ? 1 : 0;
+  }
+
+  // Create a new mem_entry with updated banks
+  rewriter.setInsertionPoint(targetEntry);
+  rewriter.create<aps::MemEntryOp>(
+    targetEntry.getLoc(),
+    targetEntry.getNameAttr(),
+    rewriter.getArrayAttr(newBankSymbols),
+    targetEntry.getBaseAddressAttr(),
+    targetEntry.getBankSizeAttr(),
+    rewriter.getUI32IntegerAttr(numBanks),
+    rewriter.getUI32IntegerAttr(cyclicMode)
+  );
+
+  // Erase the old entry
+  rewriter.eraseOp(targetEntry);
+}
+
 void globalPartitionFunc(Operation *op, SmallVector<bool> partition,
                          MemRefType memref, DenseMap<int, int> factorMap,
                          DenseMap<int, bool> cyclicMap,
@@ -656,6 +727,10 @@ void globalPartitionFunc(Operation *op, SmallVector<bool> partition,
     changeMemrefAndOperands(getGlobalOp, memref, factorMap, cyclicMap, rewriter,
                             partition, newGlobalArray);
   }
+
+  // Update the memory map entry for this global
+  updateMemoryMapEntry(op, newArray, factorMap, cyclicMap, rewriter);
+
   for (auto AI : newArray) {
     AI.getDefiningOp()->erase();
   }
