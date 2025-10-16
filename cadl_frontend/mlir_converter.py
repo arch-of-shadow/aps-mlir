@@ -244,6 +244,11 @@ class CADLMLIRConverter:
             return self._expr_uses_memory(stmt.expr)
         elif isinstance(stmt, ReturnStmt):
             return any(self._expr_uses_memory(expr) for expr in stmt.exprs)
+        elif isinstance(stmt, DoWhileStmt):
+            if self._stmt_list_uses_memory(stmt.body):
+                return True
+            if self._expr_uses_memory(stmt.condition):
+                return True
         # Add other statement types as needed
         return False
 
