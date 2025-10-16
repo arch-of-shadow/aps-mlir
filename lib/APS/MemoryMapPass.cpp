@@ -151,7 +151,7 @@ private:
       currentAddress += bankSize * actualNumBanks;
 
       // Align to next 4-byte boundary
-      currentAddress += (4 - (currentAddress % 4));
+      currentAddress += (4 - (currentAddress % 4)) % 4;
 
       LLVM_DEBUG(llvm::dbgs() << "Memory map entry: " << group.originalName
                              << " at 0x" << llvm::utohexstr(currentAddress - bankSize * actualNumBanks)
