@@ -309,4 +309,14 @@ def IgnoreAliasingLICM : Pass<"ignore-aliasing-licm", "mlir::ModuleOp"> {
   let constructor = "mlir::createIgnoreAliasingLICMPass()";
 }
 
+def RaiseSCFToAffine : Pass<"raise-scf-to-affine"> {
+  let summary = "Raise SCF loops to Affine loops when possible";
+  let constructor = "mlir::createRaiseSCFToAffinePass()";
+  let dependentDialects = [
+    "affine::AffineDialect",
+    "scf::SCFDialect",
+    "arith::ArithDialect"
+  ];
+}
+
 #endif // TOR_PASSES

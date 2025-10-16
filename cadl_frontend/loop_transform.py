@@ -16,7 +16,7 @@ from .ast import (
     DoWhileStmt, BinaryExpr, BinaryOp, IdentExpr,
     LitExpr, AssignStmt, Expr
 )
-
+from .debug import dbg_print, dbg_debug, dbg_info, dbg_warning, DebugLevel
 
 @dataclass
 class ForLoopPattern:
@@ -55,6 +55,8 @@ class LoopTransformer:
 
         Raises RuntimeError if an external variable is modified.
         """
+        dbg_debug("Validating loop body assignments", module="loop_transform")
+
         # Collect loop-carried variable names (from bindings)
         loop_carried_vars = set()
         for binding in stmt.bindings:
@@ -62,6 +64,8 @@ class LoopTransformer:
             # Also allow assignment to the "next" variable if it's an identifier
             if isinstance(binding.next, IdentExpr):
                 loop_carried_vars.add(binding.next.name)
+
+        dbg_debug(f"Loop-carried variables: {loop_carried_vars}", module="loop_transform")
 
         # Collect local variables declared in the loop body (let statements)
         local_vars = set()
@@ -90,6 +94,10 @@ class LoopTransformer:
                     # Check if this is a new local declaration (appears first time in this loop)
                     # If variable exists in outer scope, this is an illegal modification
                     if self.converter.get_symbol(var_name) is not None:
+                        dbg_warning(
+                            f"Invalid assignment to '{var_name}' in loop body",
+                            module="loop_transform"
+                        )
                         raise RuntimeError(
                             f"CADL semantic error: Variable '{var_name}' cannot be reassigned inside "
                             f"'do-while' loop body. Only loop-carried variables (in 'with' bindings) "
@@ -103,6 +111,7 @@ class LoopTransformer:
         Returns ForLoopPattern if detectable, None otherwise.
         Prints minimal analysis results.
         """
+        dbg_debug("Analyzing loop for scf.for pattern detection", module="loop_transform")
 
         can_be_for = True
         reasons = []
@@ -110,6 +119,7 @@ class LoopTransformer:
         induction_step = None
 
         # Find the induction variable (one with affine increment)
+        dbg_debug(f"Checking {len(stmt.bindings)} bindings for induction variable", module="loop_transform")
         for binding in stmt.bindings:
             step = self._try_extract_step(binding, stmt.body)
             if step is not None:
@@ -122,13 +132,16 @@ class LoopTransformer:
         if induction_var is None:
             can_be_for = False
             reasons.append("No affine induction variable found")
+            dbg_debug("No induction variable found with constant step", module="loop_transform")
         else:
+            dbg_debug(f"Found induction variable: {induction_var.id} (step={induction_step})", module="loop_transform")
             # Verify all other bindings have constant inits (for iter_args)
             for binding in stmt.bindings:
                 if binding.id != induction_var.id:
                     if not self._is_constant_expr(binding.init):
                         can_be_for = False
                         reasons.append(f"Loop-carried variable '{binding.id}' has non-constant init")
+                        dbg_debug(f"Variable '{binding.id}' has non-constant init", module="loop_transform")
                         break
 
             # Check simple bound - must reference the induction variable
@@ -185,7 +198,10 @@ class LoopTransformer:
             other_vars = [b for b in stmt.bindings if b.id != induction_var.id]
             iter_args_str = f", iter_args=[{', '.join(b.id for b in other_vars)}]" if other_vars else ""
 
-            print(f"Loop -> scf.for: {induction_var.id}={init_val}..{adjusted_bound} step {induction_step}{iter_args_str}")
+            dbg_info(
+                f"Loop -> scf.for: {induction_var.id}={init_val}..{adjusted_bound} step {induction_step}{iter_args_str}",
+                module="loop_transform"
+            )
 
             # Return the pattern
             return ForLoopPattern(
@@ -197,7 +213,10 @@ class LoopTransformer:
                 other_bindings=other_vars
             )
         else:
-            print(f"Loop -> scf.while: {', '.join(reasons)}")
+            dbg_info(
+                f"Loop -> scf.while: {', '.join(reasons)}",
+                module="loop_transform"
+            )
             return None
 
     # Helper methods
@@ -308,6 +327,11 @@ class LoopTransformer:
         upper_bound = pattern.upper_bound
         step = pattern.induction_step
 
+        dbg_debug(
+            f"Emitting scf.for: {iv_binding.id}=[{lower_bound}..{upper_bound}] step {step}",
+            module="loop_transform"
+        )
+
         # Determine if this is a forward or backward loop
         is_forward = step > 0
 
@@ -417,6 +441,11 @@ class LoopTransformer:
         """
         from circt.dialects import arith, scf
         from circt import ir
+
+        dbg_debug(
+            f"Emitting scf.while with {len(stmt.bindings)} loop-carried variables",
+            module="loop_transform"
+        )
 
         # Handle with bindings (loop variables with init/next values)
         init_values = []

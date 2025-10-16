@@ -743,10 +743,22 @@ class CADLTransformer(Transformer):
         return (attr_name, None)
 
     def param_attr(self, items):
-        # items = [HASH, LBRACKET, IDENTIFIER, LPAREN, expr, RPAREN, RBRACKET]
+        # items = [HASH, LBRACKET, IDENTIFIER, LPAREN, attr_expr, RPAREN, RBRACKET]
         attr_name = items[2].value  # IDENTIFIER value
-        attr_expr = items[4]  # expr
+        attr_expr = items[4]  # attr_expr (could be expr or array_literal)
         return (attr_name, attr_expr)
+
+    def array_literal(self, items):
+        # Grammar: LBRACKET attr_expr_list RBRACKET
+        # items[0] = LBRACKET token
+        # items[1] = attr_expr_list (list of expressions)
+        # items[2] = RBRACKET token
+        expr_list = items[1] if len(items) > 1 else []
+        return ArrayLiteralExpr(expr_list if isinstance(expr_list, list) else [expr_list])
+
+    def attr_expr_list(self, items):
+        # Filter out COMMA tokens, keep only expressions
+        return [item for item in items if not (hasattr(item, 'type') and item.type == 'COMMA')]
 
     def start(self, items):
         return items[0]

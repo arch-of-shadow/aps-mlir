@@ -34,7 +34,7 @@ from .ast import (
     BasicType_String, BasicType_USize,
     DataType_Single, DataType_Array, DataType_Instance,
     CompoundType_Basic,
-    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, SelectExpr, AggregateExpr, StringLitExpr,
+    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, SelectExpr, AggregateExpr, ArrayLiteralExpr, StringLitExpr,
     AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt, DirectiveStmt, WithBinding,
     BinaryOp, UnaryOp, FlowKind
 )
@@ -390,6 +390,9 @@ class CADLMLIRConverter:
             # Create uninitialized global
             global_op = memref.GlobalOp(global_name, memref_type)
 
+        # Add var_name attribute matching the global name
+        global_op.attributes["var_name"] = ir.StringAttr.get(global_name)
+
         # Store the global op for type inference
         self.global_ops[global_name] = global_op
 
@@ -411,6 +414,7 @@ class CADLMLIRConverter:
         Handles:
         - StringLitExpr -> StringAttr
         - LitExpr with integer -> IntegerAttr
+        - ArrayLiteralExpr -> ArrayAttr with typed elements
         - None -> UnitAttr (for presence-only attributes)
         """
         if expr is None:
@@ -434,6 +438,15 @@ class CADLMLIRConverter:
                     # Float attribute
                     mlir_type = self.convert_cadl_type(literal.ty)
                     return ir.FloatAttr.get(mlir_type, value)
+
+        if isinstance(expr, ArrayLiteralExpr):
+            # Array attribute - convert each element and create ArrayAttr
+            element_attrs = []
+            for elem_expr in expr.elements:
+                elem_attr = self._convert_attribute_value(elem_expr)
+                if elem_attr is not None:
+                    element_attrs.append(elem_attr)
+            return ir.ArrayAttr.get(element_attrs)
 
         if isinstance(expr, IdentExpr):
             # Identifier - treat as string symbol
@@ -1205,8 +1218,9 @@ class CADLMLIRConverter:
         length = arith.ConstantOp(i32_type, rhs_length_val).result
 
         # Generate aps.memburstload operation
-        # Arguments: cpu_addr, memref, start, length
-        aps.MemBurstLoad(cpu_addr, buffer_memref, start_offset, length)
+        # Arguments: cpu_addr, memrefs (as list), start, length
+        # Wrap single memref in a list to support variadic memrefs
+        aps.MemBurstLoad(cpu_addr, [buffer_memref], start_offset, length)
 
     def _convert_burst_store(self, stmt: AssignStmt) -> None:
         """
@@ -1252,8 +1266,9 @@ class CADLMLIRConverter:
         length = arith.ConstantOp(i32_type, lhs_length_val).result
 
         # Generate aps.memburststore operation
-        # Arguments: memref, start, cpu_addr, length
-        aps.MemBurstStore(buffer_memref, start_offset, cpu_addr, length)
+        # Arguments: memrefs (as list), start, cpu_addr, length
+        # Wrap single memref in a list to support variadic memrefs
+        aps.MemBurstStore([buffer_memref], start_offset, cpu_addr, length)
 
     def _convert_range_slice_assignment(self, lhs: RangeSliceExpr, rhs_value: ir.Value) -> None:
         """Handle regular range slice assignments (not burst operations)"""

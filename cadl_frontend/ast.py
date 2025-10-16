@@ -177,6 +177,16 @@ class AggregateExpr(Expr):
         return f"{{{elements_str}}}"
 
 
+@dataclass
+class ArrayLiteralExpr(Expr):
+    """Array literal expression (used in annotations like #[attr([0, 1])])"""
+    elements: List[Expr]
+
+    def __str__(self) -> str:
+        elements_str = ", ".join(str(e) for e in self.elements)
+        return f"[{elements_str}]"
+
+
 # Binary operators
 class BinaryOp(Enum):
     ADD = "+"
