@@ -50,4 +50,28 @@ def MemoryMap : Pass<"memory-map", "::mlir::ModuleOp"> {
   let dependentDialects = ["aps::APSDialect", "memref::MemRefDialect"];
 }
 
+def InferAffineMemAccess : Pass<"infer-affine-mem-access"> {
+  let summary = "Infer affine maps for memref.load/store operations";
+  let description = [{
+    This pass analyzes memref.load and memref.store operations with computed
+    indices and attempts to infer affine maps of the form a*x + b, where:
+    - x is an affine.for induction variable
+    - a is a constant multiplier (can be 1)
+    - b is a constant offset (can be 0)
+
+    When such a pattern is detected, the memref operation is replaced with
+    an affine.load or affine.store operation using the inferred affine map.
+
+    Example transformation:
+      %idx = arith.index_cast %iv : index to i32
+      %mul = arith.muli %idx, %c2 : i32
+      %cast = arith.index_cast %mul : i32 to index
+      %val = memref.load %array[%cast]
+    becomes:
+      %val = affine.load %array[%iv * 2]
+  }];
+  let constructor = "mlir::createInferAffineMemAccessPass()";
+  let dependentDialects = ["affine::AffineDialect", "arith::ArithDialect", "memref::MemRefDialect"];
+}
+
 #endif // APS_PASSES

@@ -4,6 +4,7 @@ add_mlir_library(APS
   APSMemToMemRef.cpp
   AffineMemToAPSMem.cpp
   MemoryMapPass.cpp
+  InferAffineMemAccess.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/APS

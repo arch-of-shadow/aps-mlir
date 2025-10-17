@@ -147,11 +147,21 @@ private:
         builder.getUI32IntegerAttr(group.cyclicMode)
       );
 
-      // Update address for next group (align to next bank boundary)
+      // Update address for next group
       currentAddress += bankSize * actualNumBanks;
 
-      // Align to next 4-byte boundary
-      currentAddress += (4 - (currentAddress % 4));
+      // Align to next power-of-2 boundary to ensure each array occupies 2^n bytes
+      // This prevents burst accesses from crossing into other arrays
+      uint32_t totalSize = bankSize * actualNumBanks;
+      if (totalSize > 0) {
+        // Find next power of 2 >= totalSize
+        uint32_t alignedSize = 1;
+        while (alignedSize < totalSize) {
+          alignedSize <<= 1;
+        }
+        // Align currentAddress to this power-of-2 boundary
+        currentAddress = ((currentAddress + alignedSize - 1) / alignedSize) * alignedSize;
+      }
 
       LLVM_DEBUG(llvm::dbgs() << "Memory map entry: " << group.originalName
                              << " at 0x" << llvm::utohexstr(currentAddress - bankSize * actualNumBanks)
