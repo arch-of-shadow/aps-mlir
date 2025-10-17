@@ -15,6 +15,8 @@
 #include "TOR/TOR.h"
 #include "TOR/Utils.h"
 #include "TOR/TORDialect.h"
+#include "APS/APSDialect.h"
+#include "APS/APSOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -251,6 +253,11 @@ void setIntvAttr(mlir::Operation *op, std::pair<int, int> intv) {
 
 int buildTimeGraphBlock(TimeGraph &tg, std::vector<mlir::Operation *> &vec,
                         int prev, scheduling::ScheduleBase *scheduler) {
+  llvm::errs() << "buildTimeGraphBlock called with " << vec.size() << " operations\n";
+  for (auto op : vec) {
+    llvm::errs() << "  - Op: " << op->getName() << " dump: " << llvm::dyn_cast<StringAttr>(op->getAttr("dump")).getValue() << "\n";
+  }
+  
   std::set<int> timeStamp;
   std::map<int, int> ts2Node;
 
@@ -344,7 +351,7 @@ std::vector<mlir::Operation*> sortedOperationsInBlock(mlir::Block &block) {
       sortedOps.push_back(&op);
     } else {
       auto intv1 = getRefTimePair(&op);
-      // llvm::outs() << "dump id " << (&op)->getAttr("dump").dyn_cast<StringAttr>().getValue() << ": " << intv1.first << ", " << intv1.second << "\n";
+      llvm::errs() << "Sorting op with dump id " << llvm::dyn_cast<StringAttr>((&op)->getAttr("dump")).getValue() << ": " << intv1.first << ", " << intv1.second << "\n";
       unSortedOps.push_back(&op);
     }
   }
@@ -572,7 +579,8 @@ bool isMultiCycleOp(mlir::Operation* op) {
                 tor::AddFOp, tor::SubFOp, tor::MulFOp, tor::DivFOp,
                 tor::CmpFOp, arith::DivSIOp, tor::MacIOp, tor::MacFOp,
                 arith::RemSIOp, arith::DivUIOp, arith::RemUIOp,
-                arith::UIToFPOp, arith::FPToUIOp>(op)) {
+                arith::UIToFPOp, arith::FPToUIOp,
+                aps::CpuRfRead, aps::CpuRfWrite>(op)) {
       return true;
   }
   return false;
@@ -713,6 +721,18 @@ mlir::LogicalResult scheduleOps(mlir::tor::FuncOp funcOp,
     llvm::errs() << "Schedule Failed\n";
     return mlir::failure();
   }
+
+  // Debug: print scheduled times for all operations
+  llvm::outs() << "\n=== Scheduled times after runSchedule() ===\n";
+  funcOp.walk([&](Operation *op) {
+    if (op->hasAttr("dump")) {
+      auto dumpId = op->getAttr("dump");
+      auto interval = scheduler->queryOp(op);
+      llvm::outs() << "Op " << dumpId << " (" << op->getName() << "): startTime = " 
+                   << interval.first << ", endTime = " << interval.second << "\n";
+    }
+  });
+  llvm::outs() << "=========================================\n\n";
 
   bool isDataflow = false;
   if (auto flag = funcOp->getAttrOfType<IntegerAttr>("dataflow")) {

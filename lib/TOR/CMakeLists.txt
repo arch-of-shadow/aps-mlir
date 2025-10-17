@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRTOR
     TORSplitPass.cpp
     TORDump.cpp
     # ConvertStream.cpp
+    ConvertInput.cpp
     TORAttrs.cpp
     ArrayPartition.cpp
     SCEVAnalysis.cpp

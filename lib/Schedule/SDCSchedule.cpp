@@ -85,17 +85,29 @@ int SDCSchedule::get_memportMII(Loop *L) {
 
   int resMII = 1;
   for (auto kv : MemTable) {
-    auto allocOp = cast<tor::AllocOp>(kv.first.getDefiningOp());
-    if (allocOp->hasAttr("bind_storage_type")) {
-      auto type = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
-      if (type == "RAM_1P") {
-        resMII = std::max(resMII, kv.second);
-      } else if (type == "RAM_T2P") {
-        resMII = std::max(resMII, (kv.second + 1) / 2);
+    auto defOp = kv.first.getDefiningOp();
+
+    // Handle both tor::AllocOp and memref::GetGlobalOp
+    if (auto allocOp = llvm::dyn_cast<tor::AllocOp>(defOp)) {
+      if (allocOp->hasAttr("bind_storage_type")) {
+        auto type = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
+        if (type == "RAM_1P") {
+          resMII = std::max(resMII, kv.second);
+        } else if (type == "RAM_T2P") {
+          resMII = std::max(resMII, (kv.second + 1) / 2);
+        } else {
+          assert(false && "memref type not supported");
+        }
       } else {
-        assert(false && "memref type not supported");
+        resMII = std::max(resMII, (kv.second + numport - 1) / numport);
       }
+    } else if (llvm::isa<memref::GetGlobalOp>(defOp)) {
+      // For memref.get_global, treat as regfile with no storage constraints
+      // Use default port-based calculation
+      resMII = std::max(resMII, (kv.second + numport - 1) / numport);
     } else {
+      // Unknown memref source
+      llvm::errs() << "Warning: Unknown memref defining operation in get_memportMII\n";
       resMII = std::max(resMII, (kv.second + numport - 1) / numport);
     }
   }
@@ -311,6 +323,9 @@ void SDCSchedule::allocVariable(Loop *L, SDCSolver *SDC) {
     for (auto op : BB->getOperations()) {
       auto sdcOp = llvm::dyn_cast<SDCOpWrapper>(op);
       sdcOp->VarId = SDC->addVariable();
+      llvm::errs() << "Assigning Var" << sdcOp->VarId 
+                   << " to op " << sdcOp->getOp()->getName().getStringRef()
+                   << " resource=" << sdcOp->getResource() << "\n";
     }
 }
 
@@ -987,6 +1002,8 @@ void SDCSchedule::addMemConstr(int memportRId, SDCSolver *SDC) {
   // assume no overlapping execution of basic blocks
   int amount = RDB.getAmount(memportRId);
   int II = RDB.getII(memportRId);
+  llvm::errs() << "addMemConstr called for resource: " << RDB.getName(memportRId)
+               << " (ID=" << memportRId << ", amount=" << amount << ", II=" << II << ")\n";
   for (auto &&BB : BasicBlocks) {
     if (!needSchedule(BB.get()))
       continue;
@@ -998,6 +1015,7 @@ void SDCSchedule::addMemConstr(int memportRId, SDCSolver *SDC) {
                          [&](SDCOpWrapper *op) {
                              return op->getMemOp() != nullptr && op->getResource() == memportRId;
                          });
+    llvm::errs() << "  Found " << constrainedOp.size() << " operations with this resource\n";
     llvm::DenseMap<mlir::Value, std::vector<SDCOpWrapper*>> memrefOpMap;
     for (int i = 0, n = constrainedOp.size(); i < n; ++i) {
       MemOpConcrete *memop = constrainedOp[i]->getMemOp();
@@ -1005,17 +1023,20 @@ void SDCSchedule::addMemConstr(int memportRId, SDCSolver *SDC) {
     }
 
     for (auto it: memrefOpMap) {
+      llvm::errs() << "    Processing memref group with " << it.second.size() << " operations\n";
       std::vector<std::vector<int>> vars(amount);
       for (size_t i = 0; i < it.second.size(); ++i) {
         int slot = i % amount;
         it.second[i]->getOp()->setAttr("slot", IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32),
                                slot));
         int var = it.second[i]->VarId;
-        for (auto x : vars[slot]){
-          if(x > var)SDC->addInitialConstraint(Constraint::CreateGE(var,x , II));
-          else SDC->addInitialConstraint(Constraint::CreateGE(x, var, II));
+        // For each operation in the same slot, add constraint that current op starts after previous ops
+        for (auto prevVar : vars[slot]){
+          // current op must start at least II cycles after previous op in same slot
+          llvm::errs() << "      Adding constraint: Var" << var << " >= Var" << prevVar << " + " << II << "\n";
+          SDC->addInitialConstraint(Constraint::CreateGE(var, prevVar, II));
         }
-          
+
         vars[slot].push_back(var);
       }
     }
@@ -1232,9 +1253,13 @@ SDCSolver *SDCSchedule::formulateSDC() {
           }
         }
         if(u){
+          int latency = RDB.getLatency(predOp->getResource(), predOp->getWidth());
+          llvm::errs() << "Adding SDC constraint: Var" << succOp->VarId 
+                       << " >= Var" << predOp->VarId << " + " << latency
+                       << " (" << predOp->getOp()->getName().getStringRef() << " -> "
+                       << succOp->getOp()->getName().getStringRef() << ")\n";
           SDC->addInitialConstraint(Constraint::CreateGE(
-            succOp->VarId, predOp->VarId,
-            RDB.getLatency(predOp->getResource(), predOp->getWidth())));
+            succOp->VarId, predOp->VarId, latency));
         }
         
       }
@@ -1250,12 +1275,28 @@ SDCSolver *SDCSchedule::formulateSDC() {
       }
     }
 
+  // Debug: Print all memory operations and their resources
+  llvm::errs() << "=== Debug: All memory operations ===\n";
+  for (auto &&BB : BasicBlocks) {
+    for (auto op : BB->getOperations()) {
+      if (op->getMemOp() != nullptr) {
+        llvm::errs() << "  MemOp: " << op->getOp()->getName()
+                     << " resource=" << RDB.getName(op->getResource())
+                     << " (ID=" << op->getResource() << ")\n";
+      }
+    }
+  }
+  llvm::errs() << "====================================\n";
+
   // Resource constraints;
   int NumResource = RDB.getNumResource();
 
   for (int i = 0; i < NumResource; ++i) {
     if (RDB.getName(i).rfind("memport", 0) == 0) {
-      addMemConstr(i, SDC);
+      // Only add constraints for memports with hard limits (SRAM, not register files)
+      if (RDB.hasHardLimit(i)) {
+        addMemConstr(i, SDC);
+      }
     } else if (RDB.getName(i).rfind("m_axi", 0) == 0) {
       // skip
     } else if (RDB.hasHardLimit(i)) {
@@ -1265,6 +1306,41 @@ SDCSolver *SDCSchedule::formulateSDC() {
   // add m_axi constraint
   // burst maxi and normal maxi should be considered together
   addMAxiConstr(SDC);
+
+  // Add constraints for aps.readrf and aps.writerf operations
+  // readrf should be early, writerf should be at the end
+  llvm::SmallVector<SDCOpWrapper *> writeRfOps;
+  llvm::SmallVector<SDCOpWrapper *> readRfOps;
+  llvm::SmallVector<SDCOpWrapper *> otherOps;
+
+  for (auto &&BB : BasicBlocks) {
+    if (!needSchedule(BB.get()))
+      continue;
+    for (auto op : BB->getOperations()) {
+      auto sdcOp = llvm::dyn_cast<SDCOpWrapper>(op);
+      if (llvm::isa<aps::CpuRfWrite>(sdcOp->getOp())) {
+        writeRfOps.push_back(sdcOp);
+      } else if (llvm::isa<aps::CpuRfRead>(sdcOp->getOp())) {
+        readRfOps.push_back(sdcOp);
+      } else if (!llvm::isa<arith::ConstantOp, memref::GetGlobalOp, tor::ReturnOp>(sdcOp->getOp())) {
+        // Collect non-constant, non-global, non-return operations
+        otherOps.push_back(sdcOp);
+      }
+    }
+  }
+
+  // Add constraints: all other operations must complete before writerf
+  for (auto writeRfOp : writeRfOps) {
+    for (auto otherOp : otherOps) {
+      int latency = RDB.getLatency(otherOp->getResource(), otherOp->getWidth());
+      llvm::errs() << "Adding writerf ordering constraint: Var" << writeRfOp->VarId
+                   << " >= Var" << otherOp->VarId << " + " << latency
+                   << " (" << otherOp->getOp()->getName().getStringRef() << " -> "
+                   << writeRfOp->getOp()->getName().getStringRef() << ")\n";
+      SDC->addInitialConstraint(Constraint::CreateGE(
+        writeRfOp->VarId, otherOp->VarId, latency));
+    }
+  }
 
   auto getFuncOp = [&](SDCOpWrapper *op) {
     if (auto callOp = llvm::dyn_cast<tor::CallOp>(op->getOp())) {
@@ -1913,8 +1989,11 @@ LogicalResult SDCSchedule::runSchedule() {
 
   for (auto &&sdcOp : SDCOperations)
     if (sdcOp->getParentLoop() == nullptr ||
-        sdcOp->getParentLoop()->PipelineFlag == false)
+        sdcOp->getParentLoop()->PipelineFlag == false) {
       sdcOp->SDCTime = SDC->Solution[sdcOp->VarId];
+      llvm::errs() << "SDC Result: Var" << sdcOp->VarId << " = " << sdcOp->SDCTime
+                   << " (" << sdcOp->getOp()->getName().getStringRef() << ")\n";
+    }
 
   assignSlotAttrAfterSchedule();
   return success();
@@ -1957,13 +2036,23 @@ void SDCSchedule::assignSlotAttrAfterSchedule() {
         for (auto opA : BB->getOperations()) {
           if (auto memOp = opA->getMemOp()) {
             auto memref = memOp->getMemRef();
-            auto allocOp = cast<tor::AllocOp>(memref.getDefiningOp());
-            if (allocOp->hasAttr("bind_storage_type")) {
-              auto type = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
-              if (type == "RAM_1P")
+            auto defOp = memref.getDefiningOp();
+
+            // Handle both tor::AllocOp and memref::GetGlobalOp
+            if (auto allocOp = llvm::dyn_cast<tor::AllocOp>(defOp)) {
+              if (allocOp->hasAttr("bind_storage_type")) {
+                auto type = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
+                if (type == "RAM_1P")
+                  continue;
+              } else if (numport == 1) {
                 continue;
-            } else if (numport == 1) {
-              continue;
+              }
+            } else if (llvm::isa<memref::GetGlobalOp>(defOp)) {
+              // For memref.get_global, treat as multi-port regfile
+              // Skip if only single port available
+              if (numport == 1) {
+                continue;
+              }
             }
             memOpAs.push_back(opA);
             if (memrefFirstUsedTimes.find(memref) != memrefFirstUsedTimes.end()) {

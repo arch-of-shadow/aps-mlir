@@ -5,7 +5,10 @@
 
 #include "Schedule/CDFG.h"
 #include "TOR/TOR.h"
+#include "APS/APSDialect.h"
+#include "APS/APSOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
 
 #include "Schedule/DbgHelper.h"
@@ -196,7 +199,7 @@ namespace scheduling {
                 }
                 auto allocOp = llvm::dyn_cast<tor::AllocOp>(loadOp.getMemref().getDefiningOp());
                 std::string storageType = "";
-                if (allocOp->hasAttr("bind_storage_type")) {
+                if (allocOp && allocOp->hasAttr("bind_storage_type")) {
                     storageType = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
                     setPragmaStructureAttrStatusByOp(allocOp, "bind_storage");
                 }
@@ -205,6 +208,23 @@ namespace scheduling {
                                     std::vector<Value>{loadOp.getIndices().begin(),
                                                        loadOp.getIndices().end()},
                                     OpAbstract::OpType::LOAD_OP, signatures, distances, storageType);
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+
+            } else if (auto readRfOp = llvm::dyn_cast<aps::CpuRfRead>(op)) {
+                // Handle APS CPU register file read as a regular operation
+                Value result = readRfOp.getResult();
+                SmallVector<Value, 4> operands;
+                operands.push_back(readRfOp.getRs());
+                
+                // Create as a regular operation, not a memory operation
+                OpAbstract *newOpA = createOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    operands,
+                    OpAbstract::OpType::DEFINED_OP
+                );
                 ValueMap[result] = newOpA;
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
@@ -231,7 +251,7 @@ namespace scheduling {
                 }
                 auto allocOp = llvm::dyn_cast<tor::AllocOp>(storeOp.getMemref().getDefiningOp());
                 std::string storageType = "";
-                if (allocOp->hasAttr("bind_storage_type")) {
+                if (allocOp && allocOp->hasAttr("bind_storage_type")) {
                     setPragmaStructureAttrStatusByOp(allocOp, "bind_storage");
                     storageType = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
                 }
@@ -263,13 +283,29 @@ namespace scheduling {
                 }
                 auto allocOp = llvm::dyn_cast<tor::AllocOp>(storeOp.getMemref().getDefiningOp());
                 std::string storageType = "";
-                if (allocOp->hasAttr("bind_storage_type")) {
+                if (allocOp && allocOp->hasAttr("bind_storage_type")) {
                     setPragmaStructureAttrStatusByOp(allocOp, "bind_storage");
                     storageType = dyn_cast<StringAttr>(allocOp->getAttr("bind_storage_type")).getValue();
                 }
                 OpAbstract *newOpA = createMemOp(
                         &op, parentLoop, lastHead, std::vector<Value>{mem}, operands,
                         OpAbstract::OpType::STORE_OP, signatures, distances, storageType);
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+
+            } else if (auto writeRfOp = llvm::dyn_cast<aps::CpuRfWrite>(op)) {
+                // Handle APS CPU register file write as a regular operation
+                SmallVector<Value, 4> operands;
+                operands.push_back(writeRfOp.getRd());
+                operands.push_back(writeRfOp.getValue());
+                
+                // Create as a regular operation, not a memory operation
+                OpAbstract *newOpA = createOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{},  // No result for write
+                    operands,
+                    OpAbstract::OpType::DEFINED_OP
+                );
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
 
@@ -457,6 +493,140 @@ namespace scheduling {
                                                {constOp.getResult()}, SmallVector<Value>{});
                 lastHead->addOperation(newOpA);
                 ValueMap[constOp.getResult()] = newOpA;
+            } else if (auto getGlobalOp = llvm::dyn_cast<mlir::memref::GetGlobalOp>(op)) {
+                // Handle memref.get_global - get reference to global memory
+                Value result = getGlobalOp.getResult();
+                OpAbstract *newOpA = createOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    std::vector<Value>{},  // No operands
+                    OpAbstract::OpType::DEFINED_OP
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memLoadOp = llvm::dyn_cast<mlir::memref::LoadOp>(op)) {
+                // Handle memref.load
+                Value result = memLoadOp.getResult();
+                OpAbstract *newOpA = createMemOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    std::vector<Value>{memLoadOp.getIndices().begin(), memLoadOp.getIndices().end()},
+                    OpAbstract::OpType::LOAD_OP,
+                    SmallVector<int, 2>(),  // No dependence signatures
+                    SmallVector<int, 2>(),  // No dependence distances
+                    ""  // No storage type
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memStoreOp = llvm::dyn_cast<mlir::memref::StoreOp>(op)) {
+                // Handle memref.store
+                Value mem = memStoreOp.getMemref();
+                std::vector<Value> operands{memStoreOp.getIndices().begin(), memStoreOp.getIndices().end()};
+                operands.push_back(memStoreOp.getValueToStore());
+
+                OpAbstract *newOpA = createMemOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{mem},
+                    operands,
+                    OpAbstract::OpType::STORE_OP,
+                    SmallVector<int, 2>(),  // No dependence signatures
+                    SmallVector<int, 2>(),  // No dependence distances
+                    ""  // No storage type
+                );
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto apsMemLoadOp = llvm::dyn_cast<aps::MemLoad>(op)) {
+                // Handle aps.memload
+                Value result = apsMemLoadOp.getResult();
+                OpAbstract *newOpA = createMemOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    std::vector<Value>{apsMemLoadOp.getIndices().begin(), apsMemLoadOp.getIndices().end()},
+                    OpAbstract::OpType::LOAD_OP,
+                    SmallVector<int, 2>(),
+                    SmallVector<int, 2>(),
+                    ""
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto apsMemStoreOp = llvm::dyn_cast<aps::MemStore>(op)) {
+                // Handle aps.memstore
+                Value mem = apsMemStoreOp.getMemref();
+                std::vector<Value> operands{apsMemStoreOp.getIndices().begin(), apsMemStoreOp.getIndices().end()};
+                operands.push_back(apsMemStoreOp.getValue());
+
+                OpAbstract *newOpA = createMemOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{mem},
+                    operands,
+                    OpAbstract::OpType::STORE_OP,
+                    SmallVector<int, 2>(),
+                    SmallVector<int, 2>(),
+                    ""
+                );
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op)) {
+                // Handle aps.memburstload - similar to M_AXI burst operations
+                std::vector<Value> operands{
+                    memBurstLoadOp.getCpuAddr(),
+                    memBurstLoadOp.getStart(),
+                    memBurstLoadOp.getLength()
+                };
+                OpAbstract *newOpA = createMAxiBurstOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{},  // No result
+                    operands,
+                    OpAbstract::OpType::M_AXI_BURST_READ_OP
+                );
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op)) {
+                // Handle aps.memburststore - similar to M_AXI burst operations
+                std::vector<Value> operands{
+                    memBurstStoreOp.getStart(),
+                    memBurstStoreOp.getCpuAddr(),
+                    memBurstStoreOp.getLength()
+                };
+                OpAbstract *newOpA = createMAxiBurstOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{},  // No result
+                    operands,
+                    OpAbstract::OpType::M_AXI_BURST_WRITE_OP
+                );
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto memDeclareOp = llvm::dyn_cast<aps::MemDeclare>(op)) {
+                // Handle aps.memdeclare - similar to alloc, can be omitted from scheduling
+                // Just track the result value if needed
+                Value result = memDeclareOp.getResult();
+                OpAbstract *newOpA = createOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{result},
+                    std::vector<Value>{},
+                    OpAbstract::OpType::DEFINED_OP
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (llvm::isa<mlir::memref::AllocOp, mlir::memref::AllocaOp, mlir::memref::CastOp>(op)) {
+                // Handle memref.alloc, memref.alloca, memref.cast - omit from scheduling
+                // These are typically handled at compile time or don't need scheduling
+                if (op.getNumResults() > 0) {
+                    Value result = op.getResult(0);
+                    OpAbstract *newOpA = createOp(
+                        &op, parentLoop, lastHead,
+                        std::vector<Value>{result},
+                        std::vector<Value>{op.getOperands().begin(), op.getOperands().end()},
+                        OpAbstract::OpType::DEFINED_OP
+                    );
+                    ValueMap[result] = newOpA;
+                    OperationMap[&op] = newOpA;
+                    lastHead->addOperation(newOpA);
+                }
             } else {
                 OpAbstract *newOpA = createOp(
                         &op, parentLoop, lastHead,
@@ -489,8 +659,17 @@ namespace scheduling {
                         continue;
                     } // otherwise is phi in an ifop
                 }
-                for (auto v: op->getOperands())
-                    addDependency(Dependence(ValueMap[v], op, 0, Dependence::D_RAW));
+                for (auto v: op->getOperands()) {
+                    if (ValueMap.find(v) != ValueMap.end()) {
+                        llvm::errs() << "Adding RAW dependency: " 
+                                     << ValueMap[v]->getOp()->getName() << " -> " 
+                                     << op->getOp()->getName() << "\n";
+                        addDependency(Dependence(ValueMap[v], op, 0, Dependence::D_RAW));
+                    } else {
+                        llvm::errs() << "WARNING: Value not found in ValueMap for op " 
+                                     << op->getOp()->getName() << "\n";
+                    }
+                }
             }
         }
     }
@@ -709,6 +888,26 @@ namespace scheduling {
     void ScheduleBase::buildTensorDFG() {
         auto dep_analysis = tor::DependenceAnalysis();
 
+        // Helper function to check if two memrefs refer to the same global memory
+        // This is needed because memrefs in different blocks may have different SSA values
+        // (from different memref.get_global operations) but refer to the same global symbol
+        auto isSameGlobalMemref = [](Value memref1, Value memref2) -> bool {
+            // Direct SSA value comparison
+            if (memref1 == memref2)
+                return true;
+
+            // Check if both are results of memref.get_global operations
+            auto getGlobal1 = memref1.getDefiningOp<mlir::memref::GetGlobalOp>();
+            auto getGlobal2 = memref2.getDefiningOp<mlir::memref::GetGlobalOp>();
+
+            if (getGlobal1 && getGlobal2) {
+                // Compare the global symbol names
+                return getGlobal1.getNameAttr() == getGlobal2.getNameAttr();
+            }
+
+            return false;
+        };
+
         // dependence of tensors
         for (auto &&op1: Operations) {
             auto memop1 = op1->getMemOp();
@@ -721,7 +920,7 @@ namespace scheduling {
                 continue;
 
             // no dependency if not the same memref
-            if (memop1->getMemRef() != memop2->getMemRef())
+            if (!isSameGlobalMemref(memop1->getMemRef(), memop2->getMemRef()))
                 continue;
 
             if (op1->getType() == OpAbstract::OpType::LOAD_OP &&
@@ -832,6 +1031,138 @@ namespace scheduling {
                 addDependency(Dependence(memop1, memop2, Distance, Dependence::D_RAR));
             }
           }
+        }
+
+        // Dependencies between regular memory operations and burst operations
+        // Burst operations should wait for all regular operations on the same memref to complete
+        for (auto &&op1: Operations) {
+            auto memop1 = op1->getMemOp();
+            if (memop1 == nullptr)
+                continue;
+
+            for (auto &&op2 : Operations) {
+                auto maxiop2 = op2->getMAxiOp();
+                if (maxiop2 == nullptr || op1.get() == op2.get())
+                    continue;
+
+                // Only process burst operations (aps.memburstload, aps.memburststore)
+                if (op2->getType() != OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                    op2->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP)
+                    continue;
+
+                // no dependency if not the same memref
+                if (!isSameGlobalMemref(memop1->getMemRef(), maxiop2->getMemRef())) {
+                    continue;
+                }
+
+                // Debug: log when memrefs match
+                llvm::errs() << "DEBUG: Memref match found between "
+                             << op1->getOp()->getName() << " and "
+                             << op2->getOp()->getName() << "\n";
+                llvm::errs() << "  memop1 ParentBB: " << memop1->getParentBB()
+                             << ", ParentLoop: " << memop1->getParentLoop() << "\n";
+                llvm::errs() << "  maxiop2 ParentBB: " << maxiop2->getParentBB()
+                             << ", ParentLoop: " << maxiop2->getParentLoop() << "\n";
+
+                // Check if memop1 can reach maxiop2
+                int Distance = -1;
+                bool canReachDirect = canReach(memop1, maxiop2, false);
+                bool canReachLoop = canReach(memop1, maxiop2, true);
+
+                llvm::errs() << "  canReach(false): " << canReachDirect
+                             << ", canReach(true): " << canReachLoop << "\n";
+
+                // Special case: if memop1 is inside a loop and maxiop2 is outside the loop,
+                // this is a loop-exit dependency and should have Distance = 0
+                if (memop1->getParentLoop() != nullptr && maxiop2->getParentLoop() == nullptr) {
+                    // Check if maxiop2 is in a block that follows the loop
+                    if (canReachDirect || canReachLoop) {
+                        Distance = 0;
+                        llvm::errs() << "  Special case: loop-exit dependency, setting Distance = 0\n";
+                    }
+                } else if (canReachDirect) {
+                    Distance = 0;
+                } else if (canReachLoop) {
+                    Distance = 1;
+                }
+
+                if (Distance == -1) {
+                    llvm::errs() << "  Distance == -1, skipping dependency\n";
+                    continue;
+                }
+
+                llvm::errs() << "  Distance: " << Distance << ", adding dependency\n";
+
+                // Add appropriate dependencies
+                if (op1->getType() == OpAbstract::OpType::LOAD_OP &&
+                    op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP) {
+                    // LOAD -> BURST_WRITE: WAR
+                    addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_WAR));
+                } else if (op1->getType() == OpAbstract::OpType::STORE_OP &&
+                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP) {
+                    // STORE -> BURST_READ: WAR
+                    addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_WAR));
+                } else if (op1->getType() == OpAbstract::OpType::STORE_OP &&
+                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP) {
+                    // STORE -> BURST_WRITE: RAW (burst write reads from memory)
+                    addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_RAW));
+                } else if (op1->getType() == OpAbstract::OpType::LOAD_OP &&
+                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP) {
+                    // LOAD -> BURST_READ: RAR (no true dependency, but for ordering)
+                    addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_RAR));
+                }
+            }
+        }
+
+        // Dependencies from burst operations to regular memory operations
+        for (auto &&op1: Operations) {
+            auto maxiop1 = op1->getMAxiOp();
+            if (maxiop1 == nullptr)
+                continue;
+
+            // Only process burst operations
+            if (op1->getType() != OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                op1->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP)
+                continue;
+
+            for (auto &&op2 : Operations) {
+                auto memop2 = op2->getMemOp();
+                if (memop2 == nullptr || op1.get() == op2.get())
+                    continue;
+
+                // no dependency if not the same memref
+                if (!isSameGlobalMemref(maxiop1->getMemRef(), memop2->getMemRef()))
+                    continue;
+
+                // Check if maxiop1 can reach memop2
+                int Distance = -1;
+                if (canReach(maxiop1, memop2, false))
+                    Distance = 0;
+                else if (canReach(maxiop1, memop2, true))
+                    Distance = 1;
+
+                if (Distance == -1)
+                    continue;
+
+                // Add appropriate dependencies
+                if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                    op2->getType() == OpAbstract::OpType::LOAD_OP) {
+                    // BURST_READ -> LOAD: RAW (burst read writes to memory)
+                    addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_RAW));
+                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                           op2->getType() == OpAbstract::OpType::STORE_OP) {
+                    // BURST_READ -> STORE: WAW (burst read writes to memory)
+                    addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_WAW));
+                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                           op2->getType() == OpAbstract::OpType::LOAD_OP) {
+                    // BURST_WRITE -> LOAD: WAR
+                    addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_WAR));
+                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                           op2->getType() == OpAbstract::OpType::STORE_OP) {
+                    // BURST_WRITE -> STORE: RAR (no true dependency, but for ordering)
+                    addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_RAR));
+                }
+            }
         }
     }
 

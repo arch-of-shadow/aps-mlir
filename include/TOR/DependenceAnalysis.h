@@ -66,7 +66,7 @@ public:
    * @param b
    * @return RetTy
    */
-  RetTy get_distance(int len, Value a, int lenB, Value b, Operation *loop);
+  RetTy get_distance(int lenA, Value a, int lenB, Value b, Operation *loop);
 };
 
 } // namespace tor

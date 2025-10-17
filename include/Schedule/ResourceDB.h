@@ -4,15 +4,19 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Operation.h"
 #include "TOR/TOR.h"
 #include "TOR/Utils.h"
+#include "APS/APSOps.h"
 // #include "llvm/ADT/DenseMap.h"
+#include "llvm/Support/raw_ostream.h"
 #include "nlohmann/json.hpp"
 #include <cmath>
 #include <map>
 #include <string>
 #include <vector>
+#include <functional>
 
 const int BIT_WIDTH_TYPE = 7;
 
@@ -95,12 +99,19 @@ public:
   int getII(int id) { return Components[id].II; }
 
   int bitwidthIdx(int bitwidth) {
+    if (!(bitwidth == 0 || __builtin_popcount(bitwidth) == 1)) {
+      llvm::errs() << "ERROR: Invalid bitwidth " << bitwidth << " (not a power of 2)\n";
+    }
     assert((bitwidth == 0 || __builtin_popcount(bitwidth) == 1) &&
            "bitwidth should be the power of 2");
     return (__CHAR_BIT__ * sizeof(uint32_t) - __builtin_clz(bitwidth | 1) - 1);
   }
 
   float getDelay(int id, int bitwidth) {
+    // Normalize bitwidth to nearest power of 2 (round up)
+    if (bitwidth > 0 && __builtin_popcount(bitwidth) != 1) {
+      bitwidth = 1 << (32 - __builtin_clz(bitwidth - 1));
+    }
     int index = bitwidthIdx(bitwidth);
     return Components[id].delay[index];
   }
@@ -108,6 +119,15 @@ public:
   std::string getName(int id) { return Components[id].name; }
 
   int getLatency(int id, int bitwidth) {
+    // Normalize bitwidth to nearest power of 2 (round up)
+    // This handles constants with arbitrary bitwidths (e.g., 5-bit constants)
+    if (bitwidth > 0 && __builtin_popcount(bitwidth) != 1) {
+      // Round up to next power of 2
+      int normalized = 1 << (32 - __builtin_clz(bitwidth - 1));
+      // llvm::errs() << "getLatency: normalizing bitwidth " << bitwidth
+      //              << " -> " << normalized << " for resource " << Components[id].name << "\n";
+      bitwidth = normalized;
+    }
     int index = bitwidthIdx(bitwidth);
     if (Components[id].name == "addf" && index != 6) {
 //      llvm::outs() << "error\n";
@@ -169,7 +189,7 @@ public:
     addComponent(Component("call", 0, 1, 1, false, -1));
     addComponent(Component("m_axi_read", 0, 2, 2, true, 1)); // II不可参考, 操作本身不支持pipeline
     addComponent(Component("m_axi_write", 0, 3, 3, true, 1)); // II不可参考, 操作本身不支持pipeline
-    addComponent(Component("m_axi_burst", 0, 1, 1, true, 1)); // latency = 1, II不可参考, 操作本身不支持pipeline
+    addComponent(Component("m_axi_burst", 0, 15, 1, true, 1)); // latency = 15, II不可参考, 操作本身不支持pipeline
   }
 
   void addUsage(mlir::tor::FuncOp funcOp, std::vector<int> &usage) {
@@ -189,6 +209,67 @@ public:
       return false;
     }
     return true;
+  }
+
+  /// Get or create a per-memref resource ID for APS memory operations
+  /// This allows different memrefs to be scheduled independently
+  ///
+  /// All memories are now treated as 1RW (one-read-one-write) with amount=1,
+  /// meaning only one read or write operation can occur per cycle.
+  int getOrCreateMemrefResource(mlir::Value memref) {
+    // Generate a unique name for this memref resource
+    std::string memrefName = "memport_unknown";
+
+    llvm::errs() << "getOrCreateMemrefResource called for memref\n";
+    if (auto defOp = memref.getDefiningOp()) {
+      llvm::errs() << "  defOp: " << defOp->getName() << "\n";
+      if (auto getGlobalOp = llvm::dyn_cast<mlir::memref::GetGlobalOp>(defOp)) {
+        std::string globalName = getGlobalOp.getName().str();
+        llvm::errs() << "  Found GetGlobalOp, globalName=" << globalName << "\n";
+        // All memories are 1RW regardless of attributes
+        memrefName = "memport_" + globalName + "_1rw";
+      } else if (auto allocOp = llvm::dyn_cast<tor::AllocOp>(defOp)) {
+        // For tor.alloc, always treat as 1RW
+        std::string opStr;
+        llvm::raw_string_ostream os(opStr);
+        os << defOp;
+        size_t hash = std::hash<std::string>{}(os.str());
+        memrefName = "memport_alloc_1rw_" + std::to_string(hash);
+      } else if (defOp->getName().getStringRef().str() == "aps.memdeclare") {
+        // For aps.memdeclare, always treat as 1RW
+        std::string opStr;
+        llvm::raw_string_ostream os(opStr);
+        os << defOp;
+        size_t hash = std::hash<std::string>{}(os.str());
+        memrefName = "memport_aps_1rw_" + std::to_string(hash);
+      }
+    }
+
+    // Check if resource already exists
+    if (NameToID.find(memrefName) != NameToID.end()) {
+      llvm::errs() << "  Returning existing resource: " << memrefName
+                   << " (ID=" << NameToID[memrefName] << ")\n";
+      return NameToID[memrefName];
+    }
+
+    // Create a new resource with the same properties as base memport
+    int baseMemportId = NameToID["memport"];
+    const Component& baseMemport = Components[baseMemportId];
+
+    // All memories are now 1RW: single port with resource constraint
+    int amount = 1;         // 1 means single port (one read or write per cycle)
+    bool hasConstraint = true;  // All memories have resource constraints
+
+    llvm::errs() << "  Creating new resource: " << memrefName
+                 << " amount=" << amount << " hasConstraint=" << hasConstraint << "\n";
+
+    // Create a new component
+    Component newComp(memrefName, baseMemport.delay, baseMemport.latency,
+                      baseMemport.II, hasConstraint, amount);
+    addComponent(newComp);
+
+    llvm::errs() << "  New resource ID=" << NameToID[memrefName] << "\n";
+    return NameToID[memrefName];
   }
 
 private:

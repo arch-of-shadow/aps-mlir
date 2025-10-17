@@ -7,6 +7,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/Utils/Utils.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "hls-unroll"
@@ -16,18 +17,51 @@ using namespace mlir;
 using namespace affine;
 
 int64_t getSCFConstantTripCount(scf::ForOp forOp) {
+  // Try to get constants as index type first
   auto lbCstOp = forOp.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
   auto ubCstOp = forOp.getUpperBound().getDefiningOp<arith::ConstantIndexOp>();
   auto stepCstOp = forOp.getStep().getDefiningOp<arith::ConstantIndexOp>();
-  assert((lbCstOp && ubCstOp && stepCstOp) &&
-         "Some for loop can't unroll full, please check pragma info");
-  return llvm::divideCeil(ubCstOp.value() - lbCstOp.value(), stepCstOp.value());
+
+  if (lbCstOp && ubCstOp && stepCstOp) {
+    return llvm::divideCeil(ubCstOp.value() - lbCstOp.value(), stepCstOp.value());
+  }
+
+  // Try to get constants as generic arith.constant operations
+  auto lbOp = forOp.getLowerBound().getDefiningOp<arith::ConstantOp>();
+  auto ubOp = forOp.getUpperBound().getDefiningOp<arith::ConstantOp>();
+  auto stepOp = forOp.getStep().getDefiningOp<arith::ConstantOp>();
+
+  if (lbOp && ubOp && stepOp) {
+    auto lbAttr = dyn_cast<IntegerAttr>(lbOp.getValue());
+    auto ubAttr = dyn_cast<IntegerAttr>(ubOp.getValue());
+    auto stepAttr = dyn_cast<IntegerAttr>(stepOp.getValue());
+
+    if (lbAttr && ubAttr && stepAttr) {
+      int64_t lb = lbAttr.getInt();
+      int64_t ub = ubAttr.getInt();
+      int64_t step = stepAttr.getInt();
+      return llvm::divideCeil(ub - lb, step);
+    }
+  }
+
+  assert(false && "Some for loop can't unroll full, please check pragma info");
+  return 0;
 }
 
 unsigned getAttrInterger(Operation *forOp, llvm::Twine type) {
-  return dyn_cast<IntegerAttr>(forOp->getAttr(type.str()))
-      .getValue()
-      .getSExtValue();
+  auto attr = forOp->getAttr(type.str());
+  if (!attr) {
+    return 0;
+  }
+  // Handle unit attribute (boolean) - returns 0 to indicate full unroll
+  if (isa<UnitAttr>(attr)) {
+    return 0;
+  }
+  // Handle integer attribute
+  if (auto intAttr = dyn_cast<IntegerAttr>(attr)) {
+    return intAttr.getValue().getSExtValue();
+  }
+  return 0;
 }
 
 unsigned getUnrollAttrInterger(Operation *forOp) {
@@ -48,14 +82,37 @@ void unrollForFailLog(Operation *forOp) {
 }
 
 bool checkLoopTripCount(scf::ForOp forOp) {
+  // Check for index type constants
   auto lbCstOp = forOp.getLowerBound().getDefiningOp<arith::ConstantIndexOp>();
   auto ubCstOp = forOp.getUpperBound().getDefiningOp<arith::ConstantIndexOp>();
   auto stepCstOp = forOp.getStep().getDefiningOp<arith::ConstantIndexOp>();
-  if (!(lbCstOp && ubCstOp && stepCstOp)) {
+
+  if (lbCstOp && ubCstOp && stepCstOp) {
+    return true;
+  }
+
+  // Check for generic arith.constant operations (i32, i64, etc.)
+  auto lbOp = forOp.getLowerBound().getDefiningOp<arith::ConstantOp>();
+  auto ubOp = forOp.getUpperBound().getDefiningOp<arith::ConstantOp>();
+  auto stepOp = forOp.getStep().getDefiningOp<arith::ConstantOp>();
+
+  if (!(lbOp && ubOp && stepOp)) {
     unrollForFailLog(forOp);
     llvm::errs() << ", because loop range has variable\n";
     return false;
   }
+
+  // Verify they are integer constants
+  auto lbAttr = dyn_cast<IntegerAttr>(lbOp.getValue());
+  auto ubAttr = dyn_cast<IntegerAttr>(ubOp.getValue());
+  auto stepAttr = dyn_cast<IntegerAttr>(stepOp.getValue());
+
+  if (!(lbAttr && ubAttr && stepAttr)) {
+    unrollForFailLog(forOp);
+    llvm::errs() << ", because loop range constants are not integers\n";
+    return false;
+  }
+
   return true;
 }
 
@@ -183,7 +240,8 @@ struct HlsUnrollPass : HlsUnrollBase<HlsUnrollPass> {
           factor = getSCFConstantTripCount(forOp);
         }
       }
-      LogicalResult result = loopUnrollByFactor(forOp, factor);
+      auto unrollResult = loopUnrollByFactor(forOp, factor);
+      LogicalResult result = success(succeeded(unrollResult));
       checkLogicalResultAndLog(result, forOp, factor, moudle);
     }
 
