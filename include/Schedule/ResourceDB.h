@@ -189,7 +189,7 @@ public:
     addComponent(Component("call", 0, 1, 1, false, -1));
     addComponent(Component("m_axi_read", 0, 2, 2, true, 1)); // II不可参考, 操作本身不支持pipeline
     addComponent(Component("m_axi_write", 0, 3, 3, true, 1)); // II不可参考, 操作本身不支持pipeline
-    addComponent(Component("m_axi_burst", 0, 15, 1, true, 1)); // latency = 15, II不可参考, 操作本身不支持pipeline
+    addComponent(Component("m_axi_burst", 0, 15, 15, true, 1)); // latency = 15, II不可参考, 操作本身不支持pipeline
   }
 
   void addUsage(mlir::tor::FuncOp funcOp, std::vector<int> &usage) {

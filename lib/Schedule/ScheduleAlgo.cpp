@@ -1164,6 +1164,77 @@ namespace scheduling {
                 }
             }
         }
+
+        // Dependencies between burst operations themselves
+        // Burst operations must be serialized to respect resource constraints and memory ordering
+        for (auto &&op1: Operations) {
+            auto maxiop1 = op1->getMAxiOp();
+            if (maxiop1 == nullptr)
+                continue;
+
+            // Only process burst operations
+            if (op1->getType() != OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                op1->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP)
+                continue;
+
+            for (auto &&op2 : Operations) {
+                auto maxiop2 = op2->getMAxiOp();
+                if (maxiop2 == nullptr || op1.get() == op2.get())
+                    continue;
+
+                // Only process burst operations
+                if (op2->getType() != OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                    op2->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP)
+                    continue;
+
+                // Check if maxiop1 can reach maxiop2
+                int Distance = -1;
+                if (canReach(maxiop1, maxiop2, false))
+                    Distance = 0;
+                else if (canReach(maxiop1, maxiop2, true))
+                    Distance = 1;
+
+                if (Distance == -1)
+                    continue;
+
+                // Add appropriate dependencies based on operation types
+                if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                    op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP) {
+                    // BURST_READ -> BURST_READ: enforce ordering for resource sharing
+                    // If they access the same memref, enforce WAW semantics
+                    if (isSameGlobalMemref(maxiop1->getMemRef(), maxiop2->getMemRef())) {
+                        addDependency(Dependence(maxiop1, maxiop2, Distance, Dependence::D_WAW));
+                    } else {
+                        // Different memrefs, but still need to serialize for resource constraint
+                        addDependency(Dependence(maxiop1, maxiop2, Distance, Dependence::D_RAR));
+                    }
+                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP) {
+                    // BURST_READ -> BURST_WRITE
+                    if (isSameGlobalMemref(maxiop1->getMemRef(), maxiop2->getMemRef())) {
+                        addDependency(Dependence(maxiop1, maxiop2, Distance, Dependence::D_WAR));
+                    } else {
+                        addDependency(Dependence(maxiop1, maxiop2, Distance, Dependence::D_RAR));
+                    }
+                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP) {
+                    // BURST_WRITE -> BURST_READ
+                    if (isSameGlobalMemref(maxiop1->getMemRef(), maxiop2->getMemRef())) {
+                        addDependency(Dependence(maxiop1, maxiop2, Distance, Dependence::D_RAW));
+                    } else {
+                        addDependency(Dependence(maxiop1, maxiop2, Distance, Dependence::D_RAR));
+                    }
+                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP) {
+                    // BURST_WRITE -> BURST_WRITE: enforce ordering for resource sharing
+                    if (isSameGlobalMemref(maxiop1->getMemRef(), maxiop2->getMemRef())) {
+                        addDependency(Dependence(maxiop1, maxiop2, Distance, Dependence::D_RAR));
+                    } else {
+                        addDependency(Dependence(maxiop1, maxiop2, Distance, Dependence::D_RAR));
+                    }
+                }
+            }
+        }
     }
 
     void getDescendants(
