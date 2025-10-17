@@ -308,27 +308,21 @@ public:
       return times[maxTime] + 1;
     };
 
-    if (op->getNumResults() == 0) {
-      if (OperationMap.find(op) == OperationMap.end())
-        return std::make_pair(0, 0);
-      OpAbstract *opA = OperationMap[op];
-      int duration =
-          std::max(1, RDB.getLatency(opA->getResource(), opA->getWidth()));
-      if (llvm::isa<tor::CallOp>(opA->getOp())) {
-        duration = getLatency(opA);
-      }
-      int start = opA->getStartTime();
-      int end = start + duration;
-      return std::make_pair(start, end);
+    // Control flow operations (tor.while, tor.for, tor.if, tor.func) are not
+    // added to OperationMap as they are not data operations. Return default
+    // timing (0, 0) for such operations.
+    if (OperationMap.find(op) == OperationMap.end()) {
+      return std::make_pair(0, 0);
     }
-    assert(OperationMap.find(op) != OperationMap.end() && "Not find in OperationMap");
+
     OpAbstract *opA = OperationMap[op];
     int latency = std::max(1, RDB.getLatency(opA->getResource(), opA->getWidth()));
     if (llvm::isa<tor::CallOp>(opA->getOp())) {
       latency = getLatency(opA);
     }
     int start = opA->getStartTime();
-    return std::make_pair(start, start + latency);
+    int end = start + latency;
+    return std::make_pair(start, end);
   }
 
 private:
