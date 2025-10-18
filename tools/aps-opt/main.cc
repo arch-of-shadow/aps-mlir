@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
         // Create output directory if it doesn't exist
         std::filesystem::create_directories(outputPath);
 
-        // Convert to absolute path if needed
+        // Convert input to absolute path
         std::string absolutePath = inputFile;
         if (inputFile[0] != '/') {
             char currentDir[PATH_MAX];
@@ -121,8 +121,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        // Run pixi mlir command to convert CADL to MLIR
-        std::string convertCommand = "cd /home/zyy/aps-mlir/cadl-frontend && pixi run mlir " + absolutePath;
+        // Run pixi mlir command to convert CADL to MLIR (assumes pixi is in PATH)
+        std::string convertCommand = "pixi run mlir " + absolutePath;
         auto [mlirOutput, mlirErrors] = executeCommand(convertCommand);
 
         // Check if conversion succeeded by looking at stdout
