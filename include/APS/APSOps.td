@@ -53,6 +53,146 @@ def MemStore : APSOp<"memstore", [MemoryEffects<[MemWrite]>]> {
   let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices)";
 }
 
+def ItfcLoadReq : APSOp<"itfc.load_req", [MemoryEffects<[MemRead]>]> {
+  let summary = "interface load request from memory instance";
+  let description = [{
+    Sends a load request to the memory instance at the given address.
+    This is the first half of a two-cycle memory interface pattern.
+    Returns a token that must be consumed by aps.itfc.load_collect.
+
+    Pipeline semantics:
+    - Cycle N: Send request (address computation and port arbitration)
+    - Cycle N+1: Collect data (aps.itfc.load_collect)
+
+    Example:
+      %req = aps.itfc.load_req %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
+      %val = aps.itfc.load_collect %req : !aps.mem_req -> i32
+  }];
+  let arguments = (ins AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
+  let results = (outs AnyType:$request);
+  let assemblyFormat = "$memref `[` $indices `]` attr-dict `:` type($memref) `,` type($indices) `->` type($request)";
+}
+
+def ItfcLoadCollect : APSOp<"itfc.load_collect", []> {
+  let summary = "interface load collect data from memory request";
+  let description = [{
+    Collects the data from a previously issued memory load request.
+    This is the second half of a two-cycle memory interface pattern.
+    The operation is combinational (zero latency within the same cycle).
+
+    Pipeline semantics:
+    - Cycle N: aps.itfc.load_req sends request
+    - Cycle N+1: aps.itfc.load_collect reads result (combinational)
+
+    Multiple collects can occur in the same cycle since this is purely
+    combinational - it just reads the registered output from the RAM.
+
+    Example:
+      %req = aps.itfc.load_req %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
+      %val = aps.itfc.load_collect %req : !aps.mem_req -> i32
+  }];
+  let arguments = (ins AnyType:$request);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$request attr-dict `:` type($request) `->` type($result)";
+}
+
+def ItfcStoreReq : APSOp<"itfc.store_req", [MemoryEffects<[MemWrite]>]> {
+  let summary = "interface store request to memory instance";
+  let description = [{
+    Sends a store request to the memory instance at the given address.
+    This is the first half of a two-cycle memory interface pattern.
+    Returns a token that must be consumed by aps.itfc.store_collect.
+
+    Pipeline semantics:
+    - Cycle N: Send request (address+data, port arbitration)
+    - Cycle N+1: Complete write (aps.itfc.store_collect)
+
+    Example:
+      %req = aps.itfc.store_req %val, %mem[%i] : i32, memref<1024xi32>, index -> !aps.mem_req
+      aps.itfc.store_collect %req : !aps.mem_req
+  }];
+  let arguments = (ins AnyType:$value, AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
+  let results = (outs AnyType:$request);
+  let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices) `->` type($request)";
+}
+
+def ItfcStoreCollect : APSOp<"itfc.store_collect", []> {
+  let summary = "interface store collect - complete memory write";
+  let description = [{
+    Completes a previously issued memory store request.
+    This is the second half of a two-cycle memory interface pattern.
+    The operation is combinational (zero latency within the same cycle).
+
+    Pipeline semantics:
+    - Cycle N: aps.itfc.store_req sends write request
+    - Cycle N+1: aps.itfc.store_collect completes (combinational)
+
+    Example:
+      %req = aps.itfc.store_req %val, %mem[%i] : i32, memref<1024xi32>, index -> !aps.mem_req
+      aps.itfc.store_collect %req : !aps.mem_req
+  }];
+  let arguments = (ins AnyType:$request);
+  let assemblyFormat = "$request attr-dict `:` type($request)";
+}
+
+def ItfcBurstLoadReq : APSOp<"itfc.burst_load_req", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "interface burst load request";
+  let description = [{
+    Sends a burst load request to transfer data from CPU memory to APS scratchpad.
+    This is the first half of a two-cycle burst transfer pattern.
+  }];
+  let arguments = (ins
+    AnySignlessInteger:$cpu_addr,
+    Variadic<AnyMemRef>:$memrefs,
+    AnySignlessInteger:$start,
+    AnySignlessInteger:$length
+  );
+  let results = (outs AnyType:$request);
+  let assemblyFormat = [{
+    $cpu_addr `,` `(` $memrefs `)` `[` $start `]` `,` $length attr-dict
+    `:` type($cpu_addr) `,` `(` type($memrefs) `)` `,` type($start) `,` type($length) `->` type($request)
+  }];
+}
+
+def ItfcBurstLoadCollect : APSOp<"itfc.burst_load_collect", []> {
+  let summary = "interface burst load collect - complete burst transfer";
+  let description = [{
+    Completes a previously issued burst load request.
+    This is the second half of a two-cycle burst transfer pattern.
+  }];
+  let arguments = (ins AnyType:$request);
+  let assemblyFormat = "$request attr-dict `:` type($request)";
+}
+
+def ItfcBurstStoreReq : APSOp<"itfc.burst_store_req", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "interface burst store request";
+  let description = [{
+    Sends a burst store request to transfer data from APS scratchpad to CPU memory.
+    This is the first half of a two-cycle burst transfer pattern.
+  }];
+  let arguments = (ins
+    Variadic<AnyMemRef>:$memrefs,
+    AnySignlessInteger:$start,
+    AnySignlessInteger:$cpu_addr,
+    AnySignlessInteger:$length
+  );
+  let results = (outs AnyType:$request);
+  let assemblyFormat = [{
+    `(` $memrefs `)` `[` $start `]` `,` $cpu_addr `,` $length attr-dict
+    `:` `(` type($memrefs) `)` `,` type($start) `,` type($cpu_addr) `,` type($length) `->` type($request)
+  }];
+}
+
+def ItfcBurstStoreCollect : APSOp<"itfc.burst_store_collect", []> {
+  let summary = "interface burst store collect - complete burst transfer";
+  let description = [{
+    Completes a previously issued burst store request.
+    This is the second half of a two-cycle burst transfer pattern.
+  }];
+  let arguments = (ins AnyType:$request);
+  let assemblyFormat = "$request attr-dict `:` type($request)";
+}
+
 def GlobalLoad : APSOp<"globalload", [MemoryEffects<[MemRead]>]> {
   let summary = "load from scalar global variable";
   let description = [{

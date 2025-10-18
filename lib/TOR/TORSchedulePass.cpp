@@ -750,17 +750,12 @@ mlir::LogicalResult scheduleOps(mlir::tor::FuncOp funcOp,
     }
   }
 
-  bool isPipeline = funcOp->hasAttr("pipeline");
+  // Set ref_* attributes only (time graph generation moved to separate pass)
   queryAllOps(funcOp.getRegion().front(), scheduler.get(), isDataflow);
-  TimeGraph *tg = new TimeGraph();
-  buildTimeGraph(*tg, funcOp.getRegion().front(), 0, isPipeline, isDataflow, scheduler.get());
 
-  /*
-  if (failed(removeExtraEdges(funcOp, tg)))
-    return mlir::failure();
-  */
+  // Mark function as scheduled so time graph pass knows to process it
+  funcOp->setAttr("scheduled", BoolAttr::get(funcOp.getContext(), true));
 
-  tg->rewrite(funcOp.getBody(), rewriter);
   calculateFuncOpResourceUsage(funcOp, RDB);
   return mlir::success();
 }

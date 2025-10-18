@@ -5,6 +5,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Pass/Pass.h"
 #include <memory>
+#include "TOR/TOR.h"
 
 namespace mlir {
     
@@ -13,6 +14,7 @@ std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAPSMemToMemRefPass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAffineMemToAPSMemPass();
 std::unique_ptr<OperationPass<mlir::ModuleOp>> createMemoryMapPass();
 std::unique_ptr<Pass> createInferAffineMemAccessPass();
+std::unique_ptr<OperationPass<mlir::tor::DesignOp>> createAPSSplitMemoryOpsPass();
 
 #define GEN_PASS_REGISTRATION
 #include "APS/Passes.h.inc"

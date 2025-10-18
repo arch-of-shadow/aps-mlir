@@ -77,3 +77,5 @@ install/
 
 __*
 *.mlir
+
+output/

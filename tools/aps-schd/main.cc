@@ -185,8 +185,10 @@ int main(int argc, char **argv) {
     hector_argv[index++] = const_cast<char *>("--scf-to-tor");
     hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--maxi-burst-infer");
-    // hector_argv[index++] = const_cast<char *>("--canonicalize");
     hector_argv[index++] = const_cast<char *>("--schedule-tor");
+    hector_argv[index++] = const_cast<char *>("--aps-split-memory-ops");
+    hector_argv[index++] = const_cast<char *>("--tor-time-graph");
+    hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--canonicalize");
     // hector_argv[index++] = const_cast<char *>("--split-schedule");
     // dump-tor

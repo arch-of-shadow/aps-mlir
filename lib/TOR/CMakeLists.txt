@@ -8,6 +8,7 @@ add_mlir_dialect_library(MLIRTOR
     SCFToTOR.cpp
     MAxiBurstInfer.cpp
     TORSchedulePass.cpp
+    TORTimeGraphPass.cpp
     TORSplitPass.cpp
     TORDump.cpp
     # ConvertStream.cpp
