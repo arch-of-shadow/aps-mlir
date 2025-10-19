@@ -6,8 +6,14 @@ include "mlir/Dialect/Func/IR/FuncOps.td"
 include "mlir/Dialect/MemRef/IR/MemRefOps.td"
 
 def TORSchedule : Pass<"schedule-tor", "mlir::tor::DesignOp"> {
-  let summary = "Lower std+scf+affine to tor, schedule a time graph";
+  let summary = "Schedule operations and set ref_* timing attributes";
   let constructor = "mlir::createTORSchedulePass()";
+  let dependentDialects = ["mlir::tor::TORDialect"];
+}
+
+def TORTimeGraph : Pass<"tor-time-graph", "mlir::tor::DesignOp"> {
+  let summary = "Generate time graph from ref_* attributes";
+  let constructor = "mlir::createTORTimeGraphPass()";
   let dependentDialects = ["mlir::tor::TORDialect"];
 }
 

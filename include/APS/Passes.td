@@ -74,4 +74,10 @@ def InferAffineMemAccess : Pass<"infer-affine-mem-access"> {
   let dependentDialects = ["affine::AffineDialect", "arith::ArithDialect", "memref::MemRefDialect"];
 }
 
+def APSSplitMemoryOps : Pass<"aps-split-memory-ops", "mlir::tor::DesignOp"> {
+  let summary = "Split APS memory operations into request-collect pairs";
+  let constructor = "mlir::createAPSSplitMemoryOpsPass()";
+  let dependentDialects = ["mlir::tor::TORDialect", "aps::APSDialect"];
+}
+
 #endif // APS_PASSES

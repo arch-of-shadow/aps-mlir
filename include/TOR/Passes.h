@@ -12,6 +12,8 @@
 namespace mlir {
     std::unique_ptr<OperationPass<mlir::tor::DesignOp>> createTORSchedulePass();
 
+    std::unique_ptr<OperationPass<mlir::tor::DesignOp>> createTORTimeGraphPass();
+
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createTORSplitPass();
 
     std::unique_ptr<OperationPass<tor::DesignOp>> createMAxiBurstInferPass();
