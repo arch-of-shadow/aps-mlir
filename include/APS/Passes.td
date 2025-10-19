@@ -80,4 +80,21 @@ def APSSplitMemoryOps : Pass<"aps-split-memory-ops", "mlir::tor::DesignOp"> {
   let dependentDialects = ["mlir::tor::TORDialect", "aps::APSDialect"];
 }
 
+def APSMemoryPoolGen : Pass<"aps-memory-pool-gen", "::mlir::ModuleOp"> {
+  let summary = "Generate scratchpad memory pool from aps.memorymap";
+  let description = [{
+    This pass reads aps.memorymap operation and generates a CMT2-based
+    scratchpad memory pool with appropriate SRAM instances and arbitration logic.
+
+    For each aps.mem_entry:
+    - Creates SRAM instances (using Mem1r1w from ModuleLibrary)
+    - Generates one RW port for burst access (indexed by address)
+    - Generates one RW port per memory entry for application access
+    - Implements address decoding and bank selection logic
+
+    Memory address translation (base + bank selection) is deferred to a later pass.
+  }];
+  let constructor = "mlir::createAPSMemoryPoolGenPass()";
+}
+
 #endif // APS_PASSES

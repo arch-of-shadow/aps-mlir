@@ -16,6 +16,7 @@ int aps_opt_driver(int argc, char **argv) {
     registry_hector.insert<mlir::math::MathDialect>();
     registry_hector.insert<aps::APSDialect>();
     registry_hector.insert<circt::comb::CombDialect>();
+    registry_hector.insert<circt::cmt2::Cmt2Dialect>();
 
     mlir::registerTORPasses();
     mlir::registerAPSPasses();

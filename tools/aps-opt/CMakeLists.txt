@@ -9,6 +9,9 @@ target_link_libraries(aps-e2e PRIVATE
         TORSCHEDULE
         APS
         CIRCTComb
+        CIRCTECMT2
+        CIRCTCmt2
+        CIRCTFIRRTL
         
         ${LP_SOLVE_LIB}
         nlohmann_json::nlohmann_json
@@ -68,6 +71,9 @@ target_link_libraries(aps-opt PRIVATE
         TORSCHEDULE
         APS
         CIRCTComb
+        CIRCTECMT2
+        CIRCTCmt2
+        CIRCTFIRRTL
         
         ${LP_SOLVE_LIB}
         nlohmann_json::nlohmann_json

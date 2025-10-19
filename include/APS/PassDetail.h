@@ -5,6 +5,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "APS/APSOps.h"
 #include "TOR/TOR.h"
+#include "circt/Dialect/Cmt2/Cmt2Dialect.h"
+#include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"

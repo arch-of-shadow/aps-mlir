@@ -22,7 +22,7 @@ fi
 
 # Clone the CIRCT repository
 if [ ! -d "circt" ]; then
-    git clone git@github.com:circt/circt.git
+    git clone git@github.com:arch-of-shadow/circt-cmt2.git circt
 fi
 
 # cd into the CIRCT repository, pushd is better for this

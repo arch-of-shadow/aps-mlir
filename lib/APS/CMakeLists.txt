@@ -6,6 +6,7 @@ add_mlir_library(APS
   MemoryMapPass.cpp
   InferAffineMemAccess.cpp
   APSSplitMemoryOpsPass.cpp
+  APSMemoryPoolGenPass.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/APS
@@ -22,6 +23,9 @@ add_mlir_library(APS
   MLIRSCFDialect
   MLIRPass
   MLIRTransforms
+  CIRCTECMT2
+  CIRCTCmt2
+  CIRCTFIRRTL
 )
 
 add_mlir_public_c_api_library(APSCAPI

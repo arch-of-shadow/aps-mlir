@@ -6,10 +6,10 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [activation.env]
-CIRCT_COMMIT = "e2b32a42e"
-PYTHONPATH = "${PWD}/build/python_packages/circt_core:${PYTHONPATH}"
-OR_TOOLS_PATH = "${PWD}/install"
-PATH = "${PWD}/install/bin:${PATH}"
+CIRCT_COMMIT = "cmt2-edsl"
+PYTHONPATH = "${PIXI_PROJECT_ROOT}/build/python_packages/circt_core:${PYTHONPATH}"
+OR_TOOLS_PATH = "${PIXI_PROJECT_ROOT}/install"
+PATH = "${PIXI_PROJECT_ROOT}/install/bin:${PATH}:${PIXI_PROJECT_ROOT}/circt/build/bin"
 
 [tasks]
 
@@ -53,6 +53,8 @@ setuptools_scm = ">=9.2.0,<10"
 ninja = ">=1.13.1,<2"
 z3prover = ">=4.15.3,<5"
 iverilog = ">=11.0,<12"
+sbt = ">=1.10.2,<2"
+openjdk = "20.*"
 
 [pypi-dependencies]
 lark = ">=1.1.0"

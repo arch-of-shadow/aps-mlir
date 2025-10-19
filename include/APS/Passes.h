@@ -15,6 +15,7 @@ std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAffineMemToAPSMemPass()
 std::unique_ptr<OperationPass<mlir::ModuleOp>> createMemoryMapPass();
 std::unique_ptr<Pass> createInferAffineMemAccessPass();
 std::unique_ptr<OperationPass<mlir::tor::DesignOp>> createAPSSplitMemoryOpsPass();
+std::unique_ptr<Pass> createAPSMemoryPoolGenPass();
 
 #define GEN_PASS_REGISTRATION
 #include "APS/Passes.h.inc"

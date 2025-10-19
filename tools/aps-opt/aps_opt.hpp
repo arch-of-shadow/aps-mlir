@@ -14,6 +14,8 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/Cmt2/Cmt2Dialect.h"
+#include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
 
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
