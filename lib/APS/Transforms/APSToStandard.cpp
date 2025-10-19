@@ -268,35 +268,46 @@ mlir::LogicalResult mlir::aps::APSToStandardPass::simplifyFunction(
   llvm::DenseMap<Value, BlockArgument> rfReadToArg;
 
   for (auto read : rfReads) {
-    // Check if this readrf result is used in burst operations
+    // Check if this readrf result is ONLY used in burst operations
+    // If it has any non-burst uses (like bit extraction), keep it as scalar
     MemRefType arrayType;
+    bool hasOnlyBurstUses = true;
+    bool hasBurstUse = false;
+
     for (auto &use : read.getResult().getUses()) {
       Operation *user = use.getOwner();
       if (auto burstLoad = dyn_cast<aps_dialect::MemBurstLoad>(user)) {
         // Get the scratchpad memref type (e.g., memref<16xi32>)
-        if (!burstLoad.getMemrefs().empty()) {
+        if (!arrayType && !burstLoad.getMemrefs().empty()) {
           arrayType = llvm::dyn_cast<MemRefType>(burstLoad.getMemrefs()[0].getType());
         }
-        break;
+        hasBurstUse = true;
       } else if (auto burstStore = dyn_cast<aps_dialect::MemBurstStore>(user)) {
         // Get the scratchpad memref type
-        if (!burstStore.getMemrefs().empty()) {
+        if (!arrayType && !burstStore.getMemrefs().empty()) {
           arrayType = llvm::dyn_cast<MemRefType>(burstStore.getMemrefs()[0].getType());
         }
-        break;
+        hasBurstUse = true;
+      } else {
+        // Non-burst use detected (e.g., bit extraction, arithmetic)
+        hasOnlyBurstUses = false;
       }
     }
 
     Type paramType;
     NamedAttrList attrs;
 
-    if (arrayType) {
+    // Only infer array type if:
+    // 1. Has at least one burst use AND
+    // 2. Has ONLY burst uses (no other operations like bit extraction)
+    if (arrayType && hasBurstUse && hasOnlyBurstUses) {
       // This readrf represents an array pointer
       // Use the same type as the scratchpad (e.g., memref<16xi32>)
       paramType = arrayType;
       attrs.append(StringAttr::get(ctx, "aps.array_ptr"), UnitAttr::get(ctx));
     } else {
       // Scalar value, keep original type
+      // This handles: pure scalars, mixed uses, or non-burst uses
       paramType = read.getResult().getType();
     }
 
