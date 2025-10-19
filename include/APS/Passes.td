@@ -80,4 +80,23 @@ def APSSplitMemoryOps : Pass<"aps-split-memory-ops", "mlir::tor::DesignOp"> {
   let dependentDialects = ["mlir::tor::TORDialect", "aps::APSDialect"];
 }
 
+def APSToStandard : Pass<"aps-to-standard", "::mlir::ModuleOp"> {
+  let summary = "Lower APS dialect operations to standard MLIR dialects";
+  let description = [{
+    This pass converts APS dialect operations to standard MLIR operations:
+    - aps.readrf -> function parameters
+    - aps.writerf -> function return values
+    - aps.memload/memstore -> memref.load/store
+    - aps.memburst operations -> removed
+    - memref.get_global -> function parameters
+    - Global declarations -> removed
+
+    The transformation is designed for software-level instruction matching,
+    removing hardware-specific register file and scratchpad memory semantics.
+  }];
+  let constructor = "mlir::createAPSToStandardPass()";
+  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::func::FuncDialect",
+                          "::mlir::memref::MemRefDialect", "::mlir::scf::SCFDialect"];
+}
+
 #endif // APS_PASSES

@@ -30,6 +30,7 @@ aps-frontend = { cmd = "python aps-frontend" }
 parse = { cmd = "python aps-frontend parse" }
 parse-summary = { cmd = "python aps-frontend parse --summary" }
 mlir = { cmd = "python aps-frontend mlir" }
+mlir-std = { cmd = "bash scripts/mlir-std.sh" }
 
 
 [dependencies]

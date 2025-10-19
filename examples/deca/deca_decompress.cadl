@@ -1,0 +1,96 @@
+// DECA Decompression Accelerator Benchmark
+// Implements tile decompression with burst memory access
+// Input: 16x32 tile with bitmask sparse format + group-wise INT8 quantization (Q8.8)
+// Output: Dense INT16 matrix
+
+// ============================================================================
+// Memory Buffers with Burst-friendly Partitioning
+// ============================================================================
+
+// Bitmask: 64 bytes (512 bits)
+// Complete partition to avoid non-affine access warnings
+#[partition_dim_array([0])]
+#[partition_factor_array([64])]
+#[partition_cyclic_array([0])]
+static bitmask: [u8; 64];
+
+// Sparse values: up to 256 INT8 values
+// Keep cyclic partition as this is data-dependent access (unavoidable)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static values: [i8; 256];
+
+// Scale factors: 32 groups × Q8.8 format (i16)
+// Complete partition to avoid non-affine access warnings
+#[partition_dim_array([0])]
+#[partition_factor_array([32])]
+#[partition_cyclic_array([0])]
+static scales: [i16; 32];
+
+// === Buffers for DECA Decompression ===
+// Decompressed weight output: 512 INT16 elements
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static decompressed_weights: [i16; 512];
+
+
+// ============================================================================
+// Instruction 1: DECA Decompression (without global scalars)
+// ============================================================================
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0000001)]
+rtype deca_decompress(rs1: u5, rs2: u5, rd: u5) {
+    let base_addr: u32 = _irf[rs1];
+    let out_addr: u32 = _irf[rs2];
+
+    // Burst read all compressed data
+    bitmask[0 +: ] = _burst_read[base_addr +: 64];
+    values[0 +: ] = _burst_read[base_addr + 64 +: 256];
+    scales[0 +: ] = _burst_read[base_addr + 320 +: 32];
+
+    // Decompress all 512 elements with vidx as loop-carried variable
+    [[unroll(4)]]
+    with
+        idx: u32 = (0, idx + 1)
+        vidx: u32 = (0, vidx_next)
+    do {
+        // Extract bitmask bit
+        let byte_idx: u32 = idx / 8;
+        let bit_pos: u8 = idx[2:0];
+        let mask_byte: u8 = bitmask[byte_idx];
+        let bit_shifted: u8 = mask_byte >> bit_pos;
+        let is_nonzero: u1 = bit_shifted[0:0];
+
+        // Get scale factor for this group (16 elements per group)
+        let group_idx: u8 = (idx / 16)[4:0];
+        let scale: i16 = scales[group_idx];
+
+        // Read sparse value using current vidx
+        let sparse_val: i8 = values[vidx];
+
+        // Q8.8 multiplication: i8 * i16 = i32, then >> 8
+        let mul_result: i32 = sparse_val * scale;
+        let dequant: i16 = (mul_result >> 8)[15:0];
+
+        // Select result based on bitmask
+        let zero_val: i16 = 0;
+        let final_val: i16 = if is_nonzero {dequant} else {zero_val};
+        decompressed_weights[idx] = final_val;
+
+        // Update sparse index for next iteration
+        let inc_val: u32 = if is_nonzero {1} else {0};
+        let vidx_next: u32 = vidx + inc_val;
+
+    } while idx + 1 < 512;
+
+    // Burst write decompressed output
+    _burst_write[out_addr +: 512] = decompressed_weights[0 +: ];
+
+    // Return number of non-zero elements processed
+    _irf[rd] = vidx;
+}
+
+

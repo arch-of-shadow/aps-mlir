@@ -58,5 +58,5 @@ rtype vcovmat3d_vv(rs1: u5, rs2: u5, rd: u5) {
   let out_addr: u32 = _irf[rd];
   _burst_write[out_addr +: 6] = cov_out[0 +: ];
 
-  _irf[rd] = out_addr;
+  _irf[rd] = 0;
 }
