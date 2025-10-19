@@ -7,6 +7,7 @@ add_mlir_library(APS
   InferAffineMemAccess.cpp
   APSSplitMemoryOpsPass.cpp
   APSMemoryPoolGenPass.cpp
+  Transforms/APSToStandard.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/APS
