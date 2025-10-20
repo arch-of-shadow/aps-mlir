@@ -9,10 +9,12 @@ files and transforming them to MLIR (Multi-Level Intermediate Representation).
 import sys
 import os
 import argparse
+from pathlib import Path
 from typing import Optional
 from cadl_frontend import parse_proc
 from cadl_frontend.parser import CADLParseError
 from cadl_frontend.mlir_converter import convert_cadl_to_mlir
+from cadl_frontend.transpile_to_c import CTranspiler
 from cadl_frontend.debug import (
     set_debug_level, set_module_debug_level, DebugLevel,
     dbg_debug, dbg_info, dbg_warning, dbg_error, dbg_critical
@@ -136,6 +138,31 @@ def convert_to_mlir(input_file: str, output_file: Optional[str] = None, verify: 
         sys.exit(1)
 
 
+def convert_to_c(input_file: str, output_file: Optional[str] = None) -> None:
+    """Convert CADL file to high-level C code."""
+    try:
+        transpiler = CTranspiler()
+        c_code = transpiler.transpile(Path(input_file))
+
+        if output_file:
+            Path(output_file).write_text(c_code)
+            dbg_info(f"C code written to: {output_file}")
+        else:
+            print(c_code)
+
+    except CADLParseError as e:
+        dbg_critical(f"Parse Error:\n{e}")
+        sys.exit(1)
+    except FileNotFoundError:
+        dbg_critical(f"Error: File '{input_file}' not found")
+        sys.exit(1)
+    except Exception as e:
+        dbg_critical(f"Transpilation error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -148,6 +175,7 @@ Examples:
   aps-frontend mlir examples/simple.cadl            # Convert to MLIR (stdout)
   aps-frontend mlir examples/simple.cadl -o out.mlir # Convert to MLIR file
   aps-frontend mlir examples/simple.cadl --no-verify # Skip MLIR verification
+  aps-frontend cadl2c examples/simple.cadl          # Convert to high-level C
 
 Debug examples (environment variables):
   APS_DEBUG=INFO pixi run mlir file.cadl                    # Set INFO level
@@ -187,6 +215,18 @@ Debug examples (environment variables):
         '--no-verify',
         action='store_true',
         help='Skip MLIR verification step'
+    )
+
+    # C transpiler subcommand
+    cadl2c_parser = subparsers.add_parser(
+        'cadl2c',
+        help='Convert CADL file to high-level C code',
+        description='Generate pure C code with high-level semantics from a CADL file'
+    )
+    cadl2c_parser.add_argument('input', help='Input CADL file')
+    cadl2c_parser.add_argument(
+        '-o', '--output',
+        help='Output C file (default: print to stdout)'
     )
 
     # Version info
@@ -248,6 +288,11 @@ Debug examples (environment variables):
         parse_cadl(args.input, args.summary)
     elif args.command == 'mlir':
         convert_to_mlir(args.input, args.output, not args.no_verify)
+    elif args.command == 'cadl2c':
+        convert_to_c(args.input, args.output)
+    else:
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == '__main__':

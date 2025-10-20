@@ -1,0 +1,117 @@
+# High-Level CADL → C Transpiler Guide
+
+This guide explains how to run the high-level CADL-to-C transpiler, what to
+expect from the generated output, and how to validate changes locally.
+
+## 1. Overview
+
+`cadl_frontend/transpile_to_c.py` converts CADL flows into pure C functions
+without any hardware plumbing. The generated C matches the semantics you would
+get after the `APSToStandard` pass: register reads become function inputs,
+register writes become return values, burst transfers disappear, and loops are
+rewritten into idiomatic C constructs when possible.
+
+Use this tool whenever you need a Polygeist-friendly C view of CADL code, e.g.
+for instruction matching or behavioural comparisons with handwritten
+implementations.
+
+## 2. Prerequisites
+
+1. Activate the project environment (if you use `pixi`):
+   ```bash
+   pixi shell
+   ```
+2. Ensure the CADL source parses with the existing frontend parser. Syntax
+   errors are surfaced before any code generation happens.
+
+## 3. Quick Start
+
+Run the module directly and pick an output path. By default the tool emits to
+stdout if `-o/--output` is omitted.
+
+```bash
+python -m cadl_frontend.transpile_to_c examples/test_array_add.cadl -o array_add.c
+```
+
+This produces a translation unit with:
+
+- An auto-generated header comment and the minimal set of `#include`s (only
+  `stdint`, `stdbool`, `string`, or `math` depending on actual usage).
+- One C function per CADL flow, already stripped of `_irf`, `_mem`, and burst
+  operations.
+
+## 4. Reading the Output
+
+### Register handling
+
+- Each `_irf[rsX]` read turns into a value parameter named `rsX_value` (the
+  type is inferred from the consuming CADL code).
+- Every `_irf[rd] = …` write is turned into a normal C return. Multiple writes
+  create a `typedef struct …_result_t` with one field per write.
+- Register index arguments (`rs1`, `rs2`, `rd`, …) are dropped if they never
+  escape `_irf[...]` operations.
+
+### Arrays and memory
+
+- CADL statics become pointer parameters (`uint8_t *bitmask`, `int16_t *buf`,
+  etc.).
+- `_burst_read` / `_burst_write` operations are removed with explanatory
+  comments; the arrays are assumed to be directly accessible.
+- Direct `_mem[...]` accesses are elided in high-level mode, producing comments
+  instead of side-effecting code.
+
+### Control flow
+
+- `with … do … while` loops are analysed for canonical induction patterns. When
+  the loop has an affine step and guard, it is emitted as a single C `for`
+  loop; otherwise the tool falls back to a guarded `while (1)` form that
+  updates bindings at the end of each iteration.
+
+### Type normalisation
+
+- Bit-precise CADL integer types map to the nearest byte-aligned C type
+  (`u3 → uint8_t`, `u12 → uint16_t`, `i17 → int32_t`, etc.).
+- Arithmetic combines operand widths and upgrades the result type when
+  necessary (e.g. `uint16 + uint32 → uint32`).
+
+## 5. Workflow Tips
+
+1. Keep CADL statics and flows in the same file—the transpiler pulls statics
+   from the surrounding `Proc` definition.
+2. Inspect the emitted signature to confirm which register inputs were kept or
+   dropped. Missing `_irf` reads in the CADL body mean you should expect fewer
+   parameters.
+3. When comparing against Polygeist MLIR, feed the generated C directly into
+   Polygeist after transpilation:
+   ```bash
+   python -m cadl_frontend.transpile_to_c my_flow.cadl -o my_flow.c
+   polygeist-opt my_flow.c --raise-scf-to-affine -o my_flow.mlir
+   ```
+
+## 6. Validating Changes
+
+We added unit tests that exercise the most important lowering features. Run
+them before sending patches:
+
+```bash
+pytest tests/test_transpile_to_c.py
+```
+
+Consider adding a new fixture if you touch handling for loops, register writes,
+or type inference—the tests are intentionally lightweight so that extending
+them is easy.
+
+## 7. Troubleshooting
+
+- **Parser failures:** resolve syntax errors in the CADL source first; the
+  transpiler only operates on successfully parsed flows.
+- **Unexpected `while (1)` loops:** the loop pattern detector requires a single
+  affine induction variable with a constant step. Introduce an explicit `i + 1`
+  or `i - 1` update in the binding to unlock the `for` lowering.
+- **Missing return values:** ensure CADL writes to `_irf[rd]` remain in the
+  flow body. Explicit CADL `return` statements take precedence over inferred
+  register writes.
+
+The transpiler intentionally focuses on high-level semantics. If you need the
+hardware-aware translation (with `_irf` and bursts intact), use the older flow
+or the MLIR passes under `lib/APS/Transforms/` instead.
