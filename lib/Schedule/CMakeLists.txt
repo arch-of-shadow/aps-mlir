@@ -13,3 +13,11 @@ add_mlir_dialect_library(TORSCHEDULE
     LINK_LIBS PUBLIC
     MLIRIR
 )
+
+if (LP_SOLVE_INCLUDE_DIR)
+    target_include_directories(TORSCHEDULE PUBLIC ${LP_SOLVE_INCLUDE_DIR})
+endif ()
+
+if (LP_SOLVE_LIB)
+    target_link_libraries(TORSCHEDULE PUBLIC ${LP_SOLVE_LIB})
+endif ()

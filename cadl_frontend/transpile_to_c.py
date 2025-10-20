@@ -93,8 +93,11 @@ class CTranspiler:
         self.indent_level = 0
         self.output_lines: List[str] = []
         self.declared_vars: Set[str] = set()
+        self.declared_var_stack: List[Set[str]] = []
         self.proc: Optional[Proc] = None
         self.current_flow: Optional[Flow] = None
+        self.static_scalar_names: Set[str] = set()
+        self.static_array_names: Set[str] = set()
         self.flow_inputs: "OrderedDict[str, DataType]" = OrderedDict()
         self.irf_read_infos: Dict[str, RegisterReadInfo] = {}
         self.irf_write_infos: Dict[str, RegisterWriteInfo] = {}
@@ -109,6 +112,21 @@ class CTranspiler:
         self.var_types: Dict[str, str] = {}
         self.irf_index_usage: Dict[str, int] = {}
         self.required_headers: Set[str] = {"stdint.h"}
+
+    def push_decl_scope(self):
+        self.declared_var_stack.append(set())
+
+    def pop_decl_scope(self):
+        if not self.declared_var_stack:
+            return
+        scope = self.declared_var_stack.pop()
+        for name in scope:
+            self.declared_vars.discard(name)
+
+    def register_declaration(self, name: str):
+        self.declared_vars.add(name)
+        if self.declared_var_stack:
+            self.declared_var_stack[-1].add(name)
 
     def _note_type(self, type_name: Optional[str]):
         if type_name == "bool":
@@ -134,6 +152,14 @@ class CTranspiler:
         # Parse CADL
         proc = parse_proc(source, str(cadl_file))
         self.proc = proc
+        self.static_scalar_names = set()
+        self.static_array_names = set()
+        for name, static in proc.statics.items():
+            ty = getattr(static, "ty", None)
+            if isinstance(ty, DataType_Single):
+                self.static_scalar_names.add(name)
+            else:
+                self.static_array_names.add(name)
 
         analyses: Dict[str, FlowAnalysisData] = {}
         self.required_headers = {"stdint.h"}
@@ -240,11 +266,17 @@ class CTranspiler:
             lhs_name = None
             if isinstance(stmt.lhs, IdentExpr):
                 lhs_name = stmt.lhs.name
+                if not stmt.is_let and self.proc and lhs_name in self.static_scalar_names:
+                    static_obj = self.proc.statics.get(lhs_name)
+                    if static_obj:
+                        inferred = self.map_static_array_type(static_obj)
+                        self.var_types[lhs_name] = inferred
+                        expected_type = inferred
                 if stmt.is_let or lhs_name not in self.var_types:
                     if stmt.type_annotation:
                         inferred = self.map_type(stmt.type_annotation)
                     else:
-                        inferred = None
+                        inferred = self.var_types.get(lhs_name)
                     if inferred:
                         self.var_types[lhs_name] = inferred
                     expected_type = inferred
@@ -252,8 +284,11 @@ class CTranspiler:
                     expected_type = self.var_types.get(lhs_name)
             elif isinstance(stmt.lhs, IndexExpr):
                 base = stmt.lhs.expr
-                if isinstance(base, IdentExpr) and base.name == "_mem":
-                    self.needs_mem_pointer = True
+                if isinstance(base, IdentExpr):
+                    if base.name == "_mem":
+                        self.needs_mem_pointer = True
+                    elif self.proc and base.name in self.proc.statics:
+                        self.used_statics.add(base.name)
             elif isinstance(stmt.lhs, (SliceExpr, RangeSliceExpr)):
                 base = stmt.lhs.expr
                 if isinstance(base, IdentExpr):
@@ -514,14 +549,16 @@ class CTranspiler:
 
         for decl_type, var_name in declarations:
             self.emit(f"{decl_type} {var_name};")
-            self.declared_vars.add(var_name)
+            self.register_declaration(var_name)
 
         init_clause = ", ".join(init_parts)
         update_clause = ", ".join(update_parts)
         self.emit(f"for ({init_clause}; {condition}; {update_clause}) {{")
         self.indent_level += 1
+        self.push_decl_scope()
         for body_stmt in stmt.body:
             self.generate_stmt(body_stmt)
+        self.pop_decl_scope()
         self.indent_level -= 1
         self.emit("}")
         return True
@@ -612,6 +649,7 @@ class CTranspiler:
         - Burst operations eliminated
         """
         self.declared_vars = set()
+        self.declared_var_stack = []
         self.flow_inputs = analysis.flow_inputs
         self.irf_read_infos = analysis.irf_read_infos
         self.irf_write_infos = analysis.irf_write_infos
@@ -627,6 +665,8 @@ class CTranspiler:
         params: List[str] = []
         used_param_names: Set[str] = set()
 
+        self.push_decl_scope()
+
         for static_name in sorted(self.used_statics):
             static_obj = proc.statics.get(static_name)
             if not static_obj:
@@ -634,18 +674,18 @@ class CTranspiler:
             c_type = self.map_static_array_type(static_obj)
             params.append(f"{c_type} *{static_name}")
             used_param_names.add(static_name)
-            self.declared_vars.add(static_name)
+            self.register_declaration(static_name)
 
         for name, dtype in self.flow_inputs.items():
             c_type = self.map_type(dtype)
             params.append(f"{c_type} {name}")
             used_param_names.add(name)
-            self.declared_vars.add(name)
+            self.register_declaration(name)
 
         if self.needs_mem_pointer:
             params.append("uint32_t *_mem")
             used_param_names.add("_mem")
-            self.declared_vars.add("_mem")
+            self.register_declaration("_mem")
 
         for key in sorted(self.irf_read_infos.keys()):
             info = self.irf_read_infos[key]
@@ -657,7 +697,7 @@ class CTranspiler:
             self.irf_read_params[key] = param_name
             params.append(f"{c_type} {param_name}")
             used_param_names.add(param_name)
-            self.declared_vars.add(param_name)
+            self.register_declaration(param_name)
 
         params_str = ", ".join(params)
         return_type = self.return_spec.type_name
@@ -681,11 +721,13 @@ class CTranspiler:
                 local_name = self.result_local_name(key)
                 self.result_locals[key] = local_name
                 self.emit(f"{self.return_spec.type_name} {local_name} = 0;")
+                self.register_declaration(local_name)
             else:
                 for idx, key in enumerate(self.irf_write_infos.keys()):
                     field_name, field_type = self.return_spec.fields[idx]
                     self.result_locals[key] = field_name
                     self.emit(f"{field_type} {field_name} = 0;")
+                    self.register_declaration(field_name)
 
         if flow.body:
             for stmt in flow.body:
@@ -707,6 +749,7 @@ class CTranspiler:
 
         self.indent_level -= 1
         self.emit("}")
+        self.pop_decl_scope()
 
     def map_static_array_type(self, static_obj) -> str:
         """Map CADL static array to C element type"""
@@ -893,7 +936,7 @@ class CTranspiler:
         # In CADL, 'let x = ...' becomes AssignStmt(IdentExpr('x'), ...)
         if isinstance(stmt.lhs, IdentExpr) and stmt.lhs.name not in self.declared_vars:
             # First assignment to this variable - declare it
-            self.declared_vars.add(stmt.lhs.name)
+            self.register_declaration(stmt.lhs.name)
 
             # Use explicit type annotation if available, otherwise infer from RHS
             if stmt.type_annotation:
@@ -945,10 +988,11 @@ class CTranspiler:
                 self.emit(f"{var_name} = {init_val};")
             else:
                 self.emit(f"{c_type} {var_name} = {init_val};")
-                self.declared_vars.add(var_name)
+                self.register_declaration(var_name)
 
         self.emit("while (1) {")
         self.indent_level += 1
+        self.push_decl_scope()
         for body_stmt in stmt.body:
             self.generate_stmt(body_stmt)
         for binding in stmt.bindings:
@@ -957,6 +1001,7 @@ class CTranspiler:
                 self.emit(f"{binding.id} = {next_expr};")
         cond_str = self.generate_expr(stmt.condition)
         self.emit(f"if (!({cond_str})) break;")
+        self.pop_decl_scope()
         self.indent_level -= 1
         self.emit("}")
 
@@ -965,7 +1010,10 @@ class CTranspiler:
         if isinstance(expr, LitExpr):
             return self.generate_literal(expr)
         elif isinstance(expr, IdentExpr):
-            return expr.name
+            name = expr.name
+            if name in self.static_scalar_names:
+                return f"(*{name})"
+            return name
         elif isinstance(expr, BinaryExpr):
             return self.generate_binop(expr)
         elif isinstance(expr, UnaryExpr):

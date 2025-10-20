@@ -17,6 +17,7 @@ add_mlir_library(APS
   DEPENDS
   MLIRAPSIncGen
   MLIRAPSPassIncGen
+  MLIRTORIncGen
 
   LINK_LIBS PUBLIC
   MLIRAffineDialect

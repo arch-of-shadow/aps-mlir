@@ -67,3 +67,11 @@ add_mlir_dialect_library(MLIRTOR
     LINK_LIBS PUBLIC
     MLIRIR
 )
+
+if (LP_SOLVE_INCLUDE_DIR)
+    target_include_directories(MLIRTOR PUBLIC ${LP_SOLVE_INCLUDE_DIR})
+endif ()
+
+if (LP_SOLVE_LIB)
+    target_link_libraries(MLIRTOR PUBLIC ${LP_SOLVE_LIB})
+endif ()
