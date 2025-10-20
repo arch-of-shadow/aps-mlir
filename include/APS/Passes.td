@@ -81,10 +81,11 @@ def APSSplitMemoryOps : Pass<"aps-split-memory-ops", "mlir::tor::DesignOp"> {
 }
 
 def APSMemoryPoolGen : Pass<"aps-memory-pool-gen", "::mlir::ModuleOp"> {
-  let summary = "Generate scratchpad memory pool from aps.memorymap";
+  let summary = "Generate scratchpad memory pool and CMT2 rules from aps.memorymap";
   let description = [{
     This pass reads aps.memorymap operation and generates a CMT2-based
-    scratchpad memory pool with appropriate SRAM instances and arbitration logic.
+    scratchpad memory pool with appropriate SRAM instances and arbitration logic,
+    along with rule-based main modules for TOR functions.
 
     For each aps.mem_entry:
     - Creates SRAM instances (using Mem1r1w from ModuleLibrary)
@@ -92,10 +93,16 @@ def APSMemoryPoolGen : Pass<"aps-memory-pool-gen", "::mlir::ModuleOp"> {
     - Generates one RW port per memory entry for application access
     - Implements address decoding and bank selection logic
 
-    Memory address translation (base + bank selection) is deferred to a later pass.
+    For each TOR function:
+    - Creates CMT2 rules based on timegraph scheduling
+    - Generates burst read/write methods for memory access
+    - Provides unified interface to memory pool
+
+    This unified pass replaces the separate APSMemoryPoolGenPass and APSRuleGenPass.
   }];
   let constructor = "mlir::createAPSMemoryPoolGenPass()";
-  
+}
+
 def APSToStandard : Pass<"aps-to-standard", "::mlir::ModuleOp"> {
   let summary = "Lower APS dialect operations to standard MLIR dialects";
   let description = [{

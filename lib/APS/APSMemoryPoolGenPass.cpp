@@ -28,6 +28,7 @@
 
 #include "APS/Passes.h"
 #include "APS/APSOps.h"
+#include "TOR/TOR.h"
 #include "circt/Dialect/Cmt2/ECMT2/Circuit.h"
 #include "circt/Dialect/Cmt2/ECMT2/FunctionLike.h"
 #include "circt/Dialect/Cmt2/ECMT2/Instance.h"
@@ -36,11 +37,14 @@
 #include "circt/Dialect/Cmt2/Cmt2Dialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
+#include "mlir-c/Support.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/STLExtras.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
@@ -53,8 +57,26 @@
 
 namespace mlir {
 
+using namespace mlir;
+using namespace mlir::tor;
 using namespace circt::cmt2::ecmt2;
 using namespace circt::firrtl;
+
+// Data structures for TOR to CMT2 conversion (from rulegenpass.cpp)
+struct SlotInfo {
+  SmallVector<Operation *, 4> ops;
+};
+
+struct CrossUseInfo {
+  mlir::Value producerValue;
+  int64_t producerSlot = 0;
+  Operation *consumerOp = nullptr;
+  unsigned operandIndex = 0;
+  int64_t consumerSlot = 0;
+  std::string instanceName;
+  mlir::Type firType;
+  Instance *wireInstance = nullptr;
+};
 
 struct APSMemoryPoolGenPass : public PassWrapper<APSMemoryPoolGenPass, OperationPass<mlir::ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(APSMemoryPoolGenPass)
@@ -116,9 +138,13 @@ struct APSMemoryPoolGenPass : public PassWrapper<APSMemoryPoolGenPass, Operation
 
 private:
   /// Get memref.global by symbol name
-  memref::GlobalOp getGlobalMemRef(ModuleOp moduleOp, StringRef symbolName) {
-    auto globalOp = moduleOp.lookupSymbol<memref::GlobalOp>(symbolName);
-    return globalOp;
+  memref::GlobalOp getGlobalMemRef(mlir::Operation *scope, StringRef symbolName) {
+    if (!scope)
+      return nullptr;
+    auto symRef = mlir::FlatSymbolRefAttr::get(scope->getContext(), symbolName);
+    if (auto *symbol = mlir::SymbolTable::lookupNearestSymbolFrom(scope, symRef))
+      return mlir::dyn_cast<memref::GlobalOp>(symbol);
+    return nullptr;
   }
 
   /// Extract data width and address width from a memref type
@@ -186,16 +212,19 @@ private:
     // Create base wire instance from library
     llvm::StringMap<int64_t> wireParams;
     wireParams["width"] = width;
-
+    
+    auto hasRegistered = circuit.hasExternalModule("Wire", wireParams);
     auto *baseWire = circuit.addExternalModule("Wire", wireParams);
     if (!baseWire) {
       llvm::errs() << "ERROR: Failed to create Wire external module!\n";
       return nullptr;
     }
 
-    // Bind base wire methods according to manifest
-    baseWire->bindMethod("write", "write_enable", "", {"write_data"}, {});
-    baseWire->bindValue("read", "", {"read_data"});
+    if (!hasRegistered.succeeded()) {
+      // Bind base wire methods according to manifest
+      baseWire->bindMethod("write", "write_enable", "write_ready", {"write_data"}, {});
+      baseWire->bindValue("read", "read_ready", {"read_data"});
+    }
 
     // Add base wire instance
     auto *innerWire = wireMod->addInstance("inner", baseWire, {});
@@ -277,12 +306,26 @@ private:
     // Save insertion point before creating wire modules
     auto savedIPForWires = wrapper->getBuilder().saveInsertionPoint();
 
-    auto *wireEnableMod = generateWireDefaultModule(circuit, 1, 0,
-                                                     "WireDefault_enable_" + std::to_string(bankIdx));
-    auto *wireDataMod = generateWireDefaultModule(circuit, entryInfo.dataWidth, 0,
-                                                   "WireDefault_data_" + std::to_string(bankIdx));
-    auto *wireAddrMod = generateWireDefaultModule(circuit, entryInfo.addrWidth, 0,
-                                                   "WireDefault_addr_" + std::to_string(bankIdx));
+    auto wireEnableName = "WireDefault_enable";
+    auto *wireEnableMod = circuit.getModule(wireEnableName).value_or(nullptr);
+    if (wireEnableMod == nullptr) {
+      wireEnableMod = generateWireDefaultModule(circuit, 1, 0,
+                                               wireEnableName);
+    }
+
+    auto wireDataName = "WireDefault_data_" + std::to_string(entryInfo.dataWidth);
+    auto *wireDataMod = circuit.getModule(wireDataName).value_or(nullptr);
+    if (wireDataMod == nullptr) {
+      wireDataMod = generateWireDefaultModule(circuit, entryInfo.dataWidth, 0,
+                                               wireDataName);
+    }
+
+    auto wireAddrName = "WireDefault_addr_" + std::to_string(entryInfo.addrWidth);
+    auto *wireAddrMod = circuit.getModule(wireAddrName).value_or(nullptr);
+    if (wireAddrMod == nullptr) {
+      wireAddrMod = generateWireDefaultModule(circuit, entryInfo.addrWidth, 0,
+                                               wireAddrName);
+    }
 
     // Restore insertion point back to wrapper
     wrapper->getBuilder().restoreInsertionPoint(savedIPForWires);
@@ -496,6 +539,56 @@ private:
 
     burstWrite->finalize();
 
+    // Direct bank-level read method (no burst translation), exposes native port
+    auto bankAddrType = UIntType::get(builder.getContext(), entryInfo.addrWidth);
+    auto bankDataType = UIntType::get(builder.getContext(), entryInfo.dataWidth);
+
+    auto *directReadMethod = wrapper->addMethod(
+      "bank_read",
+      {{"addr", bankAddrType}},
+      {bankDataType}
+    );
+
+    directReadMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
+      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
+      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+    });
+
+    directReadMethod->body([&, bankInst](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto addr = args[0];
+
+      // Directly drive the memory bank read ports.
+      bankInst->callMethod("rd0", {addr}, bodyBuilder);
+      auto readValues = bankInst->callValue("rd1", bodyBuilder);
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc, readValues[0]);
+    });
+
+    directReadMethod->finalize();
+
+    auto *directWriteMethod = wrapper->addMethod(
+      "bank_write",
+      {{"addr", bankAddrType}, {"data", bankDataType}},
+      {}
+    );
+
+    directWriteMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
+      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
+      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+    });
+
+    directWriteMethod->body([&, bankInst](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto addr = args[0];
+      auto data = args[1];
+
+      // Directly drive the memory bank write ports.
+      bankInst->callMethod("write", {data, addr}, bodyBuilder);
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    directWriteMethod->finalize();
+
     // Create a rule that reads from wires and conditionally writes to bank
     // NOTE: This currently crashes because callValue on regular CMT2 Module instances
     // returns empty results. This is a bug in ECMT2 Instance.cpp that needs to be fixed.
@@ -524,6 +617,12 @@ private:
 
     writeRule->finalize();
 
+    // Ensure burst accesses get scheduled ahead of direct bank accesses.
+    wrapper->setPrecedence({
+      {"burst_read", "bank_read"},
+      {"burst_write", "bank_write"}
+    });
+
     return wrapper;
   }
 
@@ -532,8 +631,6 @@ private:
                                     Circuit &circuit,
                                     Clock clk, Reset rst,
                                     const llvm::SmallVector<std::string, 4> &bankNames) {
-    llvm::outs() << "  Creating submodule for entry: " << entryInfo.name << "\n";
-
     // Validate configuration to avoid bank conflicts in burst access
     // Constraint: num_banks * data_width >= 64
     // If < 64, multiple elements in a 64-bit burst map to the same bank (conflict!)
@@ -551,9 +648,6 @@ private:
                      << " (CONFLICT!)\n";
         llvm::errs() << "    Requirement: num_banks × data_width >= 64\n";
         llvm::errs() << "    Valid examples: 8×8, 4×16, 2×32, 1×64, 4×32, 8×16, etc.\n";
-      } else if (totalBankWidth > 64) {
-        llvm::outs() << "    Note: Each 64-bit burst writes to " << (64 / entryInfo.dataWidth)
-                     << " of " << entryInfo.numBanks << " banks (no conflict)\n";
       }
     }
 
@@ -581,23 +675,26 @@ private:
     memParams["addr_width"] = entryInfo.addrWidth;
     memParams["depth"] = entryInfo.depth;
 
+    auto memAlreadyRegistered = circuit.hasExternalModule("Mem1r1w", memParams);
     auto *memMod = circuit.addExternalModule("Mem1r1w", memParams);
 
     // Restore insertion point back to entry module
     builder.restoreInsertionPoint(savedIPForExtMod);
 
     // Bind clock and reset
-    memMod->bindClock("clk", "clock")
-          .bindReset("rst", "reset");
+    if (memAlreadyRegistered.failed()) {
+      memMod->bindClock("clk", "clock")
+            .bindReset("rst", "reset");
 
-    // Bind memory methods
-    memMod->bindMethod("rd0", "en", "", {"raddr"}, {});
-    memMod->bindValue("rd1", "rd1_valid", {"rdata"});
-    memMod->bindMethod("write", "wen", "", {"wdata", "waddr"}, {});
+      // Bind memory methods
+      memMod->bindMethod("rd0", "en", "", {"raddr"}, {});
+      memMod->bindValue("rd1", "rd1_valid", {"rdata"});
+      memMod->bindMethod("write", "wen", "", {"wdata", "waddr"}, {});
 
-    // Add conflict relationships
-    memMod->addConflict("write", "write");
-    memMod->addConflict("rd0", "rd0");
+      // Add conflict relationships
+      memMod->addConflict("write", "write");
+      memMod->addConflict("rd0", "rd0");
+    }
 
     // Save insertion point BEFORE creating wrapper modules
     // (generateBankWrapperModule will change the insertion point)
@@ -622,9 +719,6 @@ private:
       wrapperInstances.push_back(wrapperInst);
     }
 
-    llvm::outs() << "    Creating burst_read method for " << entryInfo.name << "\n";
-    llvm::outs() << "    Number of banks: " << entryInfo.numBanks << "\n";
-
     // Create burst_read method: forwards addr to all banks, ORs results
     auto *burstRead = entryModule->addMethod(
       "burst_read",
@@ -643,9 +737,6 @@ private:
     // Each wrapper returns aligned 64-bit data if address is for that bank, else 0
     burstRead->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
       auto addr = args[0];
-
-      llvm::outs() << "    DEBUG: burst_read body for " << entryInfo.name << "\n";
-      llvm::outs() << "    DEBUG: Number of wrapper instances: " << wrapperInstances.size() << "\n";
 
       // Use CallOp to call wrapper methods (Instance::callMethod doesn't work for methods with return values)
       auto calleeSymbol0 = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), wrapperInstances[0]->getName());
@@ -669,10 +760,6 @@ private:
     });
 
     burstRead->finalize();
-    llvm::outs() << "    Finalized burst_read method for " << entryInfo.name << "\n";
-
-    llvm::outs() << "    Creating burst_write method for " << entryInfo.name << "\n";
-
     // Create burst_write method: forwards data to all banks
     auto *burstWrite = entryModule->addMethod(
       "burst_write",
@@ -704,7 +791,76 @@ private:
     });
 
     burstWrite->finalize();
-    llvm::outs() << "    Finalized burst_write method for " << entryInfo.name << "\n";
+
+    // Expose per-bank direct read/write methods that bypass burst translation.
+    auto bankAddrType = UIntType::get(builder.getContext(), entryInfo.addrWidth);
+    auto bankDataType = UIntType::get(builder.getContext(), entryInfo.dataWidth);
+
+    for (size_t bankIdx = 0; bankIdx < entryInfo.numBanks; ++bankIdx) {
+      std::string bankReadName = "bank_read_" + std::to_string(bankIdx);
+      std::string bankWriteName = "bank_write_" + std::to_string(bankIdx);
+
+      auto *bankReadMethod = entryModule->addMethod(
+        bankReadName,
+        {{"addr", bankAddrType}},
+        {bankDataType}
+      );
+
+      bankReadMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
+        auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
+        auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
+        guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      });
+
+      bankReadMethod->body([&, bankIdx](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+        auto addr = args[0];
+        auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), wrapperInstances[bankIdx]->getName());
+        auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "bank_read");
+        auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
+          loc,
+          mlir::TypeRange{bankDataType},
+          mlir::ValueRange{addr},
+          calleeSymbol,
+          methodSymbol,
+          bodyBuilder.getArrayAttr({}),
+          bodyBuilder.getArrayAttr({})
+        );
+        bodyBuilder.create<circt::cmt2::ReturnOp>(loc, callOp.getResult(0));
+      });
+
+      bankReadMethod->finalize();
+
+      auto *bankWriteMethod = entryModule->addMethod(
+        bankWriteName,
+        {{"addr", bankAddrType}, {"data", bankDataType}},
+        {}
+      );
+
+      bankWriteMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
+        auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
+        auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
+        guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      });
+
+      bankWriteMethod->body([&, bankIdx](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+        auto addr = args[0];
+        auto data = args[1];
+        auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), wrapperInstances[bankIdx]->getName());
+        auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "bank_write");
+        bodyBuilder.create<circt::cmt2::CallOp>(
+          loc,
+          mlir::TypeRange{},
+          mlir::ValueRange{addr, data},
+          calleeSymbol,
+          methodSymbol,
+          bodyBuilder.getArrayAttr({}),
+          bodyBuilder.getArrayAttr({})
+        );
+        bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+      });
+
+      bankWriteMethod->finalize();
+    }
 
     return entryModule;
   }
@@ -714,8 +870,6 @@ private:
                                 const llvm::SmallVector<MemoryEntryInfo, 4> &memEntryInfos,
                                 Circuit &circuit,
                                 Clock clk, Reset rst) {
-
-    llvm::outs() << "\n=== Generating Burst Access Logic ===\n";
 
     auto &builder = poolModule->getBuilder();
     auto loc = poolModule->getLoc();
@@ -747,14 +901,11 @@ private:
       auto *entryMod = entryModules[i];
 
       std::string instanceName = "inst_" + entryInfo.name;
-      llvm::outs() << "  Creating instance '" << instanceName << "' in ScratchpadMemoryPool\n";
 
       auto *entryInst = poolModule->addInstance(instanceName, entryMod,
                                                 {clk.getValue(), rst.getValue()});
       entryInstances.push_back(entryInst);
     }
-
-    llvm::outs() << "\n  Creating top-level burst methods in pool module\n";
 
     // Create top-level burst_read method that dispatches to correct memory entry
     auto *topBurstRead = poolModule->addMethod(
@@ -801,16 +952,15 @@ private:
         auto inRange = bodyBuilder.create<AndPrimOp>(loc, geStart, ltEnd);
 
         // Call submodule's burst_read (manual CallOp needed for methods with return values)
-        llvm::outs() << "DEBUG: Calling burst_read on entry " << entryInfo.name << "\n";
         auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryInst->getName());
         auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_read");
         auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
           loc, mlir::TypeRange{u64Type}, mlir::ValueRange{relAddr},
           calleeSymbol, methodSymbol, nullptr, nullptr);
-        llvm::outs() << "DEBUG: burst_read returned " << callOp.getNumResults() << " results\n";
         if (callOp.getNumResults() == 0) {
-          llvm::errs() << "ERROR: CallOp for burst_read returned no results!\n";
-          llvm::errs() << "  Instance: " << entryInst->getName() << "\n";
+          bodyBuilder.getBlock()->getParentOp()->emitError()
+              << "CallOp for burst_read returned no results (instance '"
+              << entryInst->getName() << "')";
         }
         auto entryResult = callOp.getResult(0);
 
@@ -828,7 +978,6 @@ private:
     });
 
     topBurstRead->finalize();
-    llvm::outs() << "  Finalized top-level burst_read method\n";
 
     // Create top-level burst_write method that dispatches to correct memory entry
     auto *topBurstWrite = poolModule->addMethod(
@@ -876,9 +1025,82 @@ private:
     });
 
     topBurstWrite->finalize();
-    llvm::outs() << "  Finalized top-level burst_write method\n";
 
-    llvm::outs() << "=== Burst Access Logic Generation Complete ===\n";
+    // Expose direct per-bank read/write methods at the top level (no burst translation).
+    for (size_t entryIdx = 0; entryIdx < memEntryInfos.size(); ++entryIdx) {
+      const auto &entryInfo = memEntryInfos[entryIdx];
+      auto bankAddrType = UIntType::get(builder.getContext(), entryInfo.addrWidth);
+      auto bankDataType = UIntType::get(builder.getContext(), entryInfo.dataWidth);
+
+      for (size_t bankIdx = 0; bankIdx < entryInfo.numBanks; ++bankIdx) {
+        std::string topReadName = entryInfo.name + "_bank" + std::to_string(bankIdx) + "_read";
+        std::string topWriteName = entryInfo.name + "_bank" + std::to_string(bankIdx) + "_write";
+        std::string entryReadName = "bank_read_" + std::to_string(bankIdx);
+        std::string entryWriteName = "bank_write_" + std::to_string(bankIdx);
+
+        auto *topBankRead = poolModule->addMethod(
+          topReadName,
+          {{"addr", bankAddrType}},
+          {bankDataType}
+        );
+
+        topBankRead->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
+          auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
+          auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
+          guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+        });
+
+        topBankRead->body([&, entryIdx, bankIdx, entryReadName](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+          auto addr = args[0];
+          auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryInstances[entryIdx]->getName());
+          auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryReadName);
+          auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
+            loc,
+            mlir::TypeRange{bankDataType},
+            mlir::ValueRange{addr},
+            calleeSymbol,
+            methodSymbol,
+            bodyBuilder.getArrayAttr({}),
+            bodyBuilder.getArrayAttr({})
+          );
+          bodyBuilder.create<circt::cmt2::ReturnOp>(loc, callOp.getResult(0));
+        });
+
+        topBankRead->finalize();
+
+        auto *topBankWrite = poolModule->addMethod(
+          topWriteName,
+          {{"addr", bankAddrType}, {"data", bankDataType}},
+          {}
+        );
+
+        topBankWrite->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
+          auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
+          auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
+          guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+        });
+
+        topBankWrite->body([&, entryIdx, entryWriteName](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+          auto addr = args[0];
+          auto data = args[1];
+          auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryInstances[entryIdx]->getName());
+          auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryWriteName);
+          bodyBuilder.create<circt::cmt2::CallOp>(
+            loc,
+            mlir::TypeRange{},
+            mlir::ValueRange{addr, data},
+            calleeSymbol,
+            methodSymbol,
+            bodyBuilder.getArrayAttr({}),
+            bodyBuilder.getArrayAttr({})
+          );
+          bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+        });
+
+        topBankWrite->finalize();
+      }
+    }
+
   }
 
   /// Generate the CMT2 memory pool module
@@ -917,12 +1139,6 @@ private:
       uint32_t bankSize = memEntry.getBankSize();
       uint32_t cyclic = memEntry.getCyclic();
 
-      llvm::errs() << "Generating memory entry: " << memEntry.getName()
-                   << " with " << numBanks << " banks\n";
-      llvm::errs() << "  Base address: 0x" << llvm::format("%x", baseAddress) << "\n";
-      llvm::errs() << "  Bank size: " << bankSize << " bytes\n";
-      llvm::errs() << "  Partition mode: " << (cyclic ? "cyclic" : "block") << "\n";
-
       // Get parameters from the first bank (all banks should have same type)
       if (bankSymbols.empty()) {
         llvm::errs() << "Error: Memory entry " << memEntry.getName()
@@ -937,7 +1153,7 @@ private:
       }
 
       // Look up the memref.global for this bank
-      auto globalOp = getGlobalMemRef(moduleOp, firstBankSymAttr.getValue());
+      auto globalOp = getGlobalMemRef(memEntry.getOperation(), firstBankSymAttr.getValue());
       if (!globalOp) {
         llvm::errs() << "Error: Could not find memref.global for bank "
                      << firstBankSymAttr.getValue() << "\n";
@@ -952,10 +1168,6 @@ private:
       if (!extractMemoryParameters(globalOp, dataWidth, addrWidth, depth)) {
         llvm::errs() << "Error: Could not extract memory parameters from "
                      << firstBankSymAttr.getValue() << ", using defaults\n";
-      } else {
-        llvm::errs() << "  Data width: " << dataWidth << " bits\n";
-        llvm::errs() << "  Address width: " << addrWidth << " bits\n";
-        llvm::errs() << "  Depth: " << depth << " entries\n";
       }
 
       // Create MemoryEntryInfo for this entry
@@ -978,18 +1190,499 @@ private:
     // This will create memory entry submodules with bank instances
     generateBurstAccessLogic(poolModule, memEntryInfos, circuit, clk, rst);
 
+    // Generate rule-based main module for TOR functions
+    generateRuleBasedMainModule(moduleOp, circuit, poolModule, clk, rst);
+
     // Emit the generated CMT2 MLIR
     builder.setInsertionPointToEnd(moduleOp.getBody());
 
-    std::string mlirStr = circuit.emitMLIRString();
-    llvm::errs() << "\n=== Generated Memory Pool (CMT2) ===\n";
-    llvm::outs() << mlirStr << "\n";
+    auto generatedModule = circuit.generateMLIR();
+    if (!generatedModule) {
+      moduleOp.emitError() << "failed to materialize CMT2 memory pool";
+      return;
+    }
 
-    // TODO: Parse and insert the generated MLIR into the module
-    // For now, just print it for inspection
+    auto &targetBlock = moduleOp.getBodyRegion().front();
+    auto &generatedOps = generatedModule->getBodyRegion().front().getOperations();
+
+    for (auto &op : llvm::make_early_inc_range(generatedOps)) {
+      if (op.hasTrait<mlir::OpTrait::IsTerminator>())
+        continue;
+      targetBlock.push_back(op.clone());
+    }
+  }
+
+  /// Convert MLIR type to FIRRTL type
+  mlir::Type toFirrtlType(Type type, MLIRContext *ctx) {
+    if (auto intType = dyn_cast<mlir::IntegerType>(type)) {
+      if (intType.isUnsigned())
+        return circt::firrtl::UIntType::get(ctx, intType.getWidth());
+      if (intType.isSigned())
+        return circt::firrtl::SIntType::get(ctx, intType.getWidth());
+      return circt::firrtl::UIntType::get(ctx, intType.getWidth());
+    }
+    return {};
+  }
+
+  /// Create wire instance for cross-slot communication
+  Instance *createWireInstance(int64_t width, Circuit &circuit, Module *topModule,
+                              ModuleLibrary &library,
+                              llvm::DenseMap<int64_t, ExternalModule *> &cache,
+                              const std::string &instanceName, Location loc) {
+    auto it = cache.find(width);
+    if (it != cache.end())
+      return topModule->addInstance(instanceName, it->second, {});
+
+    llvm::StringMap<int64_t> params;
+    params["width"] = width;
+    auto *wireMod = circuit.addExternalModule("Wire", params);
+    cache[width] = wireMod;
+    return topModule->addInstance(instanceName, wireMod, {});
+  }
+
+  /// Generate rule-based main module for TOR functions
+  void generateRuleBasedMainModule(ModuleOp moduleOp, Circuit &circuit,
+                                   Module *poolModule, Clock clk, Reset rst) {
+    MLIRContext *context = moduleOp.getContext();
+    (void)context;  // Suppress unused variable warning
+
+    // Find all TOR functions that need rule generation
+    llvm::SmallVector<tor::FuncOp, 4> torFuncs;
+    moduleOp.walk([&](tor::FuncOp funcOp) {
+      if (funcOp.getName() == "main") {  // Focus on main function for now
+        torFuncs.push_back(funcOp);
+      }
+    });
+
+    if (torFuncs.empty()) {
+      return;  // No TOR functions to process
+    }
+
+    // Create main module in the same circuit
+    auto *mainModule = circuit.addModule("main");
+
+    // Add clock and reset arguments
+    auto mainClk = mainModule->addClockArgument("clk");
+    auto mainRst = mainModule->addResetArgument("rst");
+    (void)mainClk;
+    (void)mainRst;
+
+    // Add scratchpad pool instance - use the pool module we created earlier
+    auto *poolInstance = mainModule->addInstance("scratchpad_pool",
+                                                 poolModule, {mainClk.getValue(), mainRst.getValue()});
+
+    // For each TOR function, generate rules
+    for (auto funcOp : torFuncs) {
+      generateRulesForFunction(mainModule, funcOp, poolInstance, circuit);
+    }
+  }
+
+  /// Add burst read/write methods to main module
+  void addBurstMethodsToMainModule(Module *mainModule, Instance *poolInstance) {
+    auto &builder = mainModule->getBuilder();
+    auto *context = builder.getContext();
+
+    // Add burst read method
+    auto *burstReadMethod = mainModule->addMethod("burst_read",
+        {{"addr", circt::firrtl::UIntType::get(context, 64)}},
+        {circt::firrtl::UIntType::get(context, 64)});
+
+    burstReadMethod->guard([](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto loc = b.getUnknownLoc();
+      auto one = b.create<circt::firrtl::ConstantOp>(
+          loc, circt::firrtl::UIntType::get(b.getContext(), 1),
+          llvm::APInt(1, 1));
+      b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{one});
+    });
+
+    burstReadMethod->body([](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto loc = b.getUnknownLoc();
+      auto addrArg = args[0];
+
+      // Call the scratchpad pool burst_read method
+      auto result = b.create<circt::cmt2::CallOp>(
+          loc, circt::firrtl::UIntType::get(b.getContext(), 64),
+          mlir::ValueRange{addrArg},
+          mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
+          mlir::SymbolRefAttr::get(b.getContext(), "burst_read"),
+          mlir::ArrayAttr(), mlir::ArrayAttr());
+
+      b.create<circt::cmt2::ReturnOp>(loc, result.getResult(0));
+    });
+    burstReadMethod->finalize();
+
+    // Add burst write method
+    auto *burstWriteMethod = mainModule->addMethod("burst_write",
+        {{"addr", circt::firrtl::UIntType::get(context, 64)},
+         {"data", circt::firrtl::UIntType::get(context, 64)}},
+        {});
+
+    burstWriteMethod->guard([](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto loc = b.getUnknownLoc();
+      auto one = b.create<circt::firrtl::ConstantOp>(
+          loc, circt::firrtl::UIntType::get(b.getContext(), 1),
+          llvm::APInt(1, 1));
+      b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{one});
+    });
+
+    burstWriteMethod->body([](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto loc = b.getUnknownLoc();
+      auto addrArg = args[0];
+      auto dataArg = args[1];
+
+      // Call the scratchpad pool burst_write method
+      b.create<circt::cmt2::CallOp>(
+          loc, mlir::TypeRange{},
+          mlir::ValueRange{addrArg, dataArg},
+          mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
+          mlir::SymbolRefAttr::get(b.getContext(), "burst_write"),
+          mlir::ArrayAttr(), mlir::ArrayAttr());
+
+      b.create<circt::cmt2::ReturnOp>(loc);
+    });
+    burstWriteMethod->finalize();
+  }
+
+  /// Generate rules for a specific TOR function - proper implementation from rulegenpass.cpp
+  void generateRulesForFunction(Module *mainModule, tor::FuncOp funcOp,
+                               Instance *poolInstance, Circuit &circuit) {
+    MLIRContext *ctx = mainModule->getBuilder().getContext();
+    Location loc = funcOp.getLoc();
+
+    // Collect operations per time slot.
+    llvm::DenseMap<int64_t, SlotInfo> slotMap;
+    SmallVector<int64_t, 8> slotOrder;
+
+    auto insertOpIntoSlot = [&](Operation *op, int64_t slot) {
+      auto &info = slotMap[slot];
+      info.ops.push_back(op);
+    };
+
+    for (Operation &op : funcOp.getBody().getOps()) {
+      if (isa<tor::TimeGraphOp>(op) || isa<tor::ReturnOp>(op))
+        continue;
+
+      if (auto startAttr = op.getAttrOfType<IntegerAttr>("starttime")) {
+        int64_t slot = startAttr.getInt();
+        insertOpIntoSlot(&op, slot);
+        continue;
+      }
+
+      if (isa<arith::ConstantOp>(op))
+        continue;
+
+      op.emitError("missing required 'starttime' attribute for rule generation");
+      return;
+    }
+
+    // Populate sorted slot order and validate supported ops.
+    for (auto &kv : slotMap)
+      slotOrder.push_back(kv.first);
+    llvm::sort(slotOrder);
+
+    for (int64_t slot : slotOrder) {
+      for (Operation *op : slotMap[slot].ops) {
+        if (isa<arith::ConstantOp, memref::GetGlobalOp>(op))
+          continue;
+        if (isa<tor::AddIOp, tor::SubIOp, tor::MulIOp, aps::MemLoad>(op))
+          continue;
+        op->emitError("unsupported operation for Target A rule generation");
+        return;
+      }
+    }
+
+    // Analyze cross-slot value uses.
+    llvm::DenseMap<mlir::Value, SmallVector<CrossUseInfo *>> producerEdges;
+    llvm::DenseMap<Operation *, SmallVector<CrossUseInfo *>> consumerEdges;
+    llvm::DenseMap<std::pair<int64_t, int64_t>, unsigned> edgeCounts;
+    SmallVector<std::unique_ptr<CrossUseInfo>, 8> crossUseStorage;
+
+    // TOR function arguments are currently unsupported; ensure they are unused
+    for (auto arg : funcOp.getArguments()) {
+      if (!arg.use_empty()) {
+        funcOp.emitError(
+            "TOR function arguments are not supported in Target A lowering");
+        return;
+      }
+    }
+
+    auto getSlotForOp = [&](Operation *op) -> std::optional<int64_t> {
+      if (auto attr = op->getAttrOfType<IntegerAttr>("starttime"))
+        return attr.getInt();
+      return {};
+    };
+
+    for (int64_t slot : slotOrder) {
+      for (Operation *op : slotMap[slot].ops) {
+        if (isa<arith::ConstantOp>(op))
+          continue;
+        for (mlir::Value res : op->getResults()) {
+          if (!isa<mlir::IntegerType>(res.getType()))
+            continue;
+
+          for (OpOperand &use : res.getUses()) {
+            Operation *user = use.getOwner();
+            auto maybeConsumerSlot = getSlotForOp(user);
+            if (!maybeConsumerSlot)
+              continue;
+            int64_t consumerSlot = *maybeConsumerSlot;
+            if (consumerSlot <= slot)
+              continue;
+
+            auto firType = toFirrtlType(res.getType(), ctx);
+            if (!firType) {
+              op->emitError("type is unsupported for rule lowering");
+              return;
+            }
+
+            auto key = std::make_pair(slot, consumerSlot);
+            unsigned count = edgeCounts[key]++;
+
+            auto info = std::make_unique<CrossUseInfo>();
+            info->producerValue = res;
+            info->producerSlot = slot;
+            info->consumerOp = user;
+            info->operandIndex = use.getOperandNumber();
+            info->consumerSlot = consumerSlot;
+            info->firType = firType;
+            info->instanceName = "fifo_s" + std::to_string(slot) + "_s" +
+                                 std::to_string(consumerSlot);
+            if (count > 0)
+              info->instanceName += "_" + std::to_string(count);
+
+            producerEdges[res].push_back(info.get());
+            consumerEdges[user].push_back(info.get());
+            crossUseStorage.push_back(std::move(info));
+          }
+        }
+      }
+    }
+
+    // Prepare CMT2 DSL objects.
+    ModuleLibrary &library = ModuleLibrary::getInstance();
+
+    // Instantiate wire modules for cross-slot edges.
+    llvm::DenseMap<int64_t, ExternalModule *> wireCache;
+    for (auto &infoPtr : crossUseStorage) {
+      auto *info = infoPtr.get();
+      int64_t width = cast<circt::firrtl::UIntType>(info->firType).getWidthOrSentinel();
+      if (width < 0)
+        width = 1;
+      info->wireInstance =
+          createWireInstance(width, circuit, mainModule, library, wireCache,
+                             info->instanceName, loc);
+    }
+
+    // Helper functions for value manipulation
+    auto makeConstant = [&](mlir::OpBuilder &builder, Location opLoc,
+                            uint64_t value, unsigned width) -> mlir::Value {
+      auto type = circt::firrtl::UIntType::get(ctx, width);
+      auto constOp = builder.create<circt::firrtl::ConstantOp>(
+          opLoc, type, llvm::APInt(width, value));
+      return constOp.getResult();
+    };
+
+    auto ensureUIntWidth = [&](mlir::OpBuilder &builder, Location valueLoc,
+                               mlir::Value value, unsigned targetWidth,
+                               Operation *sourceOp) -> FailureOr<mlir::Value> {
+      if (targetWidth == 0)
+        targetWidth = 1;
+
+      auto type = cast<circt::firrtl::UIntType>(value.getType());
+      if (!type) {
+        sourceOp->emitError("expected FIRRTL UInt type");
+        return failure();
+      }
+
+      int64_t currentWidth = type.getWidthOrSentinel();
+      if (currentWidth < 0) {
+        sourceOp->emitError("requires statically known bitwidth");
+        return failure();
+      }
+
+      if (static_cast<unsigned>(currentWidth) == targetWidth)
+        return value;
+
+      if (static_cast<unsigned>(currentWidth) < targetWidth) {
+        auto padded = builder.create<circt::firrtl::PadPrimOp>(
+            valueLoc, value, targetWidth);
+        return padded.getResult();
+      }
+
+      auto truncatedType = circt::firrtl::UIntType::get(ctx, targetWidth);
+      auto truncated = builder.create<circt::firrtl::BitsPrimOp>(
+          valueLoc, truncatedType, value, targetWidth - 1, 0);
+      return truncated.getResult();
+    };
+
+    // Helper to materialise values inside a rule.
+    auto getValueInRule = [&](mlir::Value v, Operation *currentOp,
+                              unsigned operandIndex,
+                              mlir::OpBuilder &builder,
+                              DenseMap<mlir::Value, mlir::Value> &localMap,
+                              Location opLoc) -> FailureOr<mlir::Value> {
+      if (auto it = localMap.find(v); it != localMap.end())
+        return it->second;
+
+      if (auto constOp = v.getDefiningOp<arith::ConstantOp>()) {
+        auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
+        unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
+        auto constant = makeConstant(builder, opLoc, intAttr.getValue().getZExtValue(), width);
+        localMap[v] = constant;
+        return constant;
+      }
+
+      if (auto globalOp = v.getDefiningOp<memref::GetGlobalOp>()) {
+        // Global symbols are handled separately via symbol resolution.
+        return mlir::Value{};
+      }
+
+      // Check if this is a cross-slot use.
+      auto it = producerEdges.find(v);
+      if (it != producerEdges.end()) {
+        for (CrossUseInfo *info : it->second) {
+          if (info->consumerOp == currentOp && info->operandIndex == operandIndex) {
+            auto result = info->wireInstance->callValue("read", builder);
+            assert(result.size() == 1);
+            localMap[v] = result[0];
+            return result[0];
+          }
+        }
+      }
+
+      currentOp->emitError("value is not available in this rule");
+      return failure();
+    };
+
+    // Generate rules for each time slot.
+    llvm::DenseMap<mlir::Value, mlir::Value> localMap;
+    llvm::SmallVector<std::pair<std::string, std::string>, 4> precedencePairs;
+
+    for (int64_t slot : slotOrder) {
+      auto *rule = mainModule->addRule("rule_s" + std::to_string(slot));
+
+      // Guard: always ready (constant 1)
+      rule->guard([](mlir::OpBuilder &b) {
+        auto loc = b.getUnknownLoc();
+        auto one = b.create<circt::firrtl::ConstantOp>(
+            loc, circt::firrtl::UIntType::get(b.getContext(), 1),
+            llvm::APInt(1, 1));
+        b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{one});
+      });
+
+      // Body: implement the operations for this time slot
+      rule->body([&](mlir::OpBuilder &b) {
+        auto loc = b.getUnknownLoc();
+        localMap.clear();
+
+        for (Operation *op : slotMap[slot].ops) {
+          if (auto addOp = dyn_cast<tor::AddIOp>(op)) {
+            auto lhs = getValueInRule(addOp.getLhs(), op, 0, b, localMap, loc);
+            auto rhs = getValueInRule(addOp.getRhs(), op, 1, b, localMap, loc);
+            if (failed(lhs) || failed(rhs))
+              return;
+
+            auto lhsWidth = cast<circt::firrtl::UIntType>((*lhs).getType()).getWidthOrSentinel();
+            auto rhsWidth = cast<circt::firrtl::UIntType>((*rhs).getType()).getWidthOrSentinel();
+            auto resultWidth = std::max(lhsWidth, rhsWidth);
+
+            auto lhsExtended = ensureUIntWidth(b, loc, *lhs, resultWidth, op);
+            auto rhsExtended = ensureUIntWidth(b, loc, *rhs, resultWidth, op);
+            if (failed(lhsExtended) || failed(rhsExtended))
+              return;
+
+            auto sum = b.create<circt::firrtl::AddPrimOp>(loc, *lhsExtended, *rhsExtended);
+            localMap[addOp.getResult()] = sum.getResult();
+          }
+          else if (auto subOp = dyn_cast<tor::SubIOp>(op)) {
+            auto lhs = getValueInRule(subOp.getLhs(), op, 0, b, localMap, loc);
+            auto rhs = getValueInRule(subOp.getRhs(), op, 1, b, localMap, loc);
+            if (failed(lhs) || failed(rhs))
+              return;
+
+            auto lhsWidth = cast<circt::firrtl::UIntType>((*lhs).getType()).getWidthOrSentinel();
+            auto rhsWidth = cast<circt::firrtl::UIntType>((*rhs).getType()).getWidthOrSentinel();
+            auto resultWidth = std::max(lhsWidth, rhsWidth);
+
+            auto lhsExtended = ensureUIntWidth(b, loc, *lhs, resultWidth, op);
+            auto rhsExtended = ensureUIntWidth(b, loc, *rhs, resultWidth, op);
+            if (failed(lhsExtended) || failed(rhsExtended))
+              return;
+
+            auto diff = b.create<circt::firrtl::SubPrimOp>(loc, *lhsExtended, *rhsExtended);
+            localMap[subOp.getResult()] = diff.getResult();
+          }
+          else if (auto mulOp = dyn_cast<tor::MulIOp>(op)) {
+            auto lhs = getValueInRule(mulOp.getLhs(), op, 0, b, localMap, loc);
+            auto rhs = getValueInRule(mulOp.getRhs(), op, 1, b, localMap, loc);
+            if (failed(lhs) || failed(rhs))
+              return;
+
+            auto lhsWidth = cast<circt::firrtl::UIntType>((*lhs).getType()).getWidthOrSentinel();
+            auto rhsWidth = cast<circt::firrtl::UIntType>((*rhs).getType()).getWidthOrSentinel();
+            auto resultWidth = lhsWidth + rhsWidth;
+
+            auto lhsExtended = ensureUIntWidth(b, loc, *lhs, resultWidth, op);
+            auto rhsExtended = ensureUIntWidth(b, loc, *rhs, resultWidth, op);
+            if (failed(lhsExtended) || failed(rhsExtended))
+              return;
+
+            auto prod = b.create<circt::firrtl::MulPrimOp>(loc, *lhsExtended, *rhsExtended);
+            localMap[mulOp.getResult()] = prod.getResult();
+          }
+          else if (auto memLoad = dyn_cast<aps::MemLoad>(op)) {
+            // Handle memory load operations
+            auto addr = getValueInRule(memLoad.getIndices()[0], op, 0, b, localMap, loc);
+            if (failed(addr))
+              return;
+
+
+            // Call the scratchpad pool bank read method
+            auto callResult = b.create<circt::cmt2::CallOp>(
+                loc, circt::firrtl::UIntType::get(b.getContext(), 64),
+                mlir::ValueRange{*addr},
+                mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
+                mlir::SymbolRefAttr::get(b.getContext(), "scratch_bank0_read"),
+                mlir::ArrayAttr(), mlir::ArrayAttr());
+
+            localMap[memLoad.getResult()] = callResult.getResult(0);
+          }
+          else if (auto consumerEdgeIt = consumerEdges.find(op);
+                     consumerEdgeIt != consumerEdges.end()) {
+            // Handle cross-slot value writes
+            for (CrossUseInfo *info : consumerEdgeIt->second) {
+              auto value = getValueInRule(info->producerValue, op, info->operandIndex, b, localMap, loc);
+              if (failed(value))
+                return;
+              info->wireInstance->callMethod("write", {*value}, b);
+            }
+          }
+        }
+
+        b.create<circt::cmt2::ReturnOp>(loc);
+      });
+
+      rule->finalize();
+
+      // Add precedence constraints - find previous slot in order
+      if (!slotOrder.empty() && slot != slotOrder[0]) {
+        auto it = std::find(slotOrder.begin(), slotOrder.end(), slot);
+        if (it != slotOrder.begin()) {
+          int64_t prevSlot = *(it - 1);
+          std::string from = "@rule_s" + std::to_string(prevSlot);
+          std::string to = "@rule_s" + std::to_string(slot);
+          precedencePairs.emplace_back(from, to);
+        }
+      }
+    }
+
+    if (!precedencePairs.empty())
+      mainModule->setPrecedence(precedencePairs);
+
+    // Add burst read/write methods to expose memory pool functionality
+    addBurstMethodsToMainModule(mainModule, poolInstance);
   }
 };
-
 } // namespace mlir
 
 std::unique_ptr<mlir::Pass> mlir::createAPSMemoryPoolGenPass() {
