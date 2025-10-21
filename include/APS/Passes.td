@@ -98,9 +98,9 @@ def APSMemoryPoolGen : Pass<"aps-memory-pool-gen", "::mlir::ModuleOp"> {
     - Generates burst read/write methods for memory access
     - Provides unified interface to memory pool
 
-    This unified pass replaces the separate APSMemoryPoolGenPass and APSRuleGenPass.
+    This unified pass replaces the separate APSToCMT2GenPass and APSRuleGenPass.
   }];
-  let constructor = "mlir::createAPSMemoryPoolGenPass()";
+  let constructor = "mlir::createAPSToCMT2GenPass()";
 }
 
 def APSToStandard : Pass<"aps-to-standard", "::mlir::ModuleOp"> {

@@ -1,4 +1,4 @@
-//===- APSMemoryPoolGenPass.cpp - Generate scratchpad memory pool --------===//
+//===- APSToCMT2GenPass.cpp - Generate CMT2 hardware from APS TOR --------===//
 //
 // This pass generates a hierarchical CMT2-based scratchpad memory pool from
 // aps.memorymap with burst access support.
@@ -34,7 +34,10 @@
 #include "circt/Dialect/Cmt2/ECMT2/Instance.h"
 #include "circt/Dialect/Cmt2/ECMT2/Module.h"
 #include "circt/Dialect/Cmt2/ECMT2/ModuleLibrary.h"
+#include "circt/Dialect/Cmt2/ECMT2/STLLibrary.h"
+#include "circt/Dialect/Cmt2/ECMT2/Signal.h"
 #include "circt/Dialect/Cmt2/Cmt2Dialect.h"
+#include "circt/Dialect/Cmt2/ECMT2/Signal.h"
 #include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
 #include "mlir-c/Support.h"
@@ -45,6 +48,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
@@ -60,6 +64,7 @@ namespace mlir {
 using namespace mlir;
 using namespace mlir::tor;
 using namespace circt::cmt2::ecmt2;
+using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
 
 // Data structures for TOR to CMT2 conversion (from rulegenpass.cpp)
@@ -78,8 +83,8 @@ struct CrossUseInfo {
   Instance *wireInstance = nullptr;
 };
 
-struct APSMemoryPoolGenPass : public PassWrapper<APSMemoryPoolGenPass, OperationPass<mlir::ModuleOp>> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(APSMemoryPoolGenPass)
+struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mlir::ModuleOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(APSToCMT2GenPass)
 
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<aps::APSDialect>();
@@ -89,6 +94,7 @@ struct APSMemoryPoolGenPass : public PassWrapper<APSMemoryPoolGenPass, Operation
 
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
+    llvm::outs() << "DEBUG: APSToCMT2GenPass::runOnOperation() started\n";
 
     // Find the aps.memorymap operation
     aps::MemoryMapOp memoryMapOp;
@@ -97,13 +103,9 @@ struct APSMemoryPoolGenPass : public PassWrapper<APSMemoryPoolGenPass, Operation
       return WalkResult::interrupt();
     });
 
-    if (!memoryMapOp) {
-      // No memory map found, nothing to do
-      return;
-    }
-
     // Initialize CMT2 module library
     auto &library = ModuleLibrary::getInstance();
+    llvm::outs() << "DEBUG: Initializing CMT2 module library\n";
 
     // Try to find the module library manifest
     // First try: relative to build directory
@@ -112,28 +114,61 @@ struct APSMemoryPoolGenPass : public PassWrapper<APSMemoryPoolGenPass, Operation
 
     // Set library base path (parent of manifest)
     if (llvm::sys::fs::exists(manifestPath)) {
+      llvm::outs() << "DEBUG: Found manifest at " << manifestPath << "\n";
       llvm::SmallString<256> libraryPath = llvm::sys::path::parent_path(manifestPath);
       library.setLibraryPath(libraryPath);
 
       // Load the manifest
       if (mlir::failed(library.loadManifest(manifestPath))) {
+        llvm::outs() << "DEBUG: Failed to load module library manifest\n";
         moduleOp.emitWarning() << "Failed to load module library manifest from "
                                << manifestPath;
         return;
       }
+      llvm::outs() << "DEBUG: Successfully loaded module library manifest\n";
     } else {
+      llvm::outs() << "DEBUG: Module library manifest not found at " << manifestPath << "\n";
       moduleOp.emitWarning() << "Module library manifest not found. "
                              << "External FIRRTL modules may not work correctly.";
       return;
     }
 
+    // Create CMT2 circuit (always needed for both memory and rules)
+    llvm::outs() << "DEBUG: Creating CMT2 circuit\n";
+    MLIRContext *context = moduleOp.getContext();
+    Circuit circuit("MemoryPool", *context);
+
     // Generate the memory pool
-    generateMemoryPool(moduleOp, memoryMapOp);
+    llvm::outs() << "DEBUG: About to call generateMemoryPool\n";
+
+    Module *poolModule = generateMemoryPool(circuit, moduleOp, memoryMapOp);
+
+    // Generate rule-based main module for TOR functions
+    auto [mainModule, poolInstance] = generateRuleBasedMainModule(moduleOp, circuit, poolModule);
+
+    // Add burst read/write methods to expose memory pool functionality
+    addBurstMethodsToMainModule(mainModule, poolInstance);
+    
+    auto generatedModule = circuit.generateMLIR();
+    if (!generatedModule) {
+      moduleOp.emitError() << "failed to materialize MLIR";
+      return;
+    }
+
+    // Preserve all original Ops
+    auto &targetBlock = moduleOp.getBodyRegion().front();
+    auto &generatedOps = generatedModule->getBodyRegion().front().getOperations();
+
+    for (auto &op : llvm::make_early_inc_range(generatedOps)) {
+      if (op.hasTrait<mlir::OpTrait::IsTerminator>())
+        continue;
+      targetBlock.push_back(op.clone());
+    }
   }
 
-  StringRef getArgument() const final { return "aps-memory-pool-gen"; }
+  StringRef getArgument() const final { return "aps-to-cmt2-gen"; }
   StringRef getDescription() const final {
-    return "Generate scratchpad memory pool from aps.memorymap";
+    return "Generate CMT2 hardware from APS TOR operations";
   }
 
 private:
@@ -196,85 +231,11 @@ private:
     llvm::SmallVector<Instance*, 4> bankInstances;
   };
 
-
-  /// Generate a wire_default module that wraps a wire with default value
-  /// This is similar to the Rust implementation in impl_backend.rs
-  Module* generateWireDefaultModule(Circuit &circuit,
-                                     uint32_t width,
-                                     uint64_t defaultValue,
-                                     const std::string &name) {
-    auto *wireMod = circuit.addModule(name);
-    auto &builder = wireMod->getBuilder();
-    auto loc = wireMod->getLoc();
-
-    auto wireType = UIntType::get(builder.getContext(), width);
-
-    // Create base wire instance from library
-    llvm::StringMap<int64_t> wireParams;
-    wireParams["width"] = width;
-    
-    auto hasRegistered = circuit.hasExternalModule("Wire", wireParams);
-    auto *baseWire = circuit.addExternalModule("Wire", wireParams);
-    if (!baseWire) {
-      llvm::errs() << "ERROR: Failed to create Wire external module!\n";
-      return nullptr;
-    }
-
-    if (!hasRegistered.succeeded()) {
-      // Bind base wire methods according to manifest
-      baseWire->bindMethod("write", "write_enable", "write_ready", {"write_data"}, {});
-      baseWire->bindValue("read", "read_ready", {"read_data"});
-    }
-
-    // Add base wire instance
-    auto *innerWire = wireMod->addInstance("inner", baseWire, {});
-
-    // Add read value that delegates to inner wire
-    auto *readVal = wireMod->addValue("read", {wireType});
-    readVal->guard([&](mlir::OpBuilder &b) {
-      auto u1Type = UIntType::get(b.getContext(), 1);
-      auto trueConst = b.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      b.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
-    });
-    readVal->body([&, innerWire](mlir::OpBuilder &b) {
-      auto vals = innerWire->callValue("read", b);
-      b.create<circt::cmt2::ReturnOp>(b.getUnknownLoc(), mlir::ValueRange{vals[0]});
-    });
-    readVal->finalize();
-
-    // Add write method that delegates to inner wire
-    auto *writeMethod = wireMod->addMethod("write", {{"in_", wireType}}, {});
-    writeMethod->guard([&](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto u1Type = UIntType::get(b.getContext(), 1);
-      auto trueConst = b.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      b.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
-    });
-    writeMethod->body([&](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto inVal = args[0];
-      innerWire->callMethod("write", {inVal}, b);
-      b.create<circt::cmt2::ReturnOp>(loc);
-    });
-    writeMethod->finalize();
-
-    // Add default rule that writes default value
-    auto *defaultRule = wireMod->addRule("default");
-    defaultRule->guard([&](mlir::OpBuilder &b) {
-      auto u1Type = UIntType::get(b.getContext(), 1);
-      auto trueConst = b.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      b.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
-    });
-    defaultRule->body([&](mlir::OpBuilder &b) {
-      auto defConst = b.create<ConstantOp>(loc, wireType, llvm::APInt(width, defaultValue));
-      innerWire->callMethod("write", {defConst.getResult()}, b);
-      b.create<circt::cmt2::ReturnOp>(loc);
-    });
-    defaultRule->finalize();
-
-    // Set scheduling: write, default, read
-    wireMod->setPrecedence({{"write", "default"}, {"default", "read"}});
-
-    return wireMod;
-  }
+  // ============================================================================
+  //
+  //                                BANK WRAPPER
+  //
+  // ============================================================================
 
   /// Generate a bank wrapper module that encapsulates bank selection and data alignment
   Module* generateBankWrapperModule(const MemoryEntryInfo &entryInfo,
@@ -304,31 +265,14 @@ private:
 
     // Create wire_default modules for enable, data, and addr
     // Save insertion point before creating wire modules
-    auto savedIPForWires = wrapper->getBuilder().saveInsertionPoint();
+    auto savedIPForWires = builder.saveInsertionPoint();
 
-    auto wireEnableName = "WireDefault_enable";
-    auto *wireEnableMod = circuit.getModule(wireEnableName).value_or(nullptr);
-    if (wireEnableMod == nullptr) {
-      wireEnableMod = generateWireDefaultModule(circuit, 1, 0,
-                                               wireEnableName);
-    }
-
-    auto wireDataName = "WireDefault_data_" + std::to_string(entryInfo.dataWidth);
-    auto *wireDataMod = circuit.getModule(wireDataName).value_or(nullptr);
-    if (wireDataMod == nullptr) {
-      wireDataMod = generateWireDefaultModule(circuit, entryInfo.dataWidth, 0,
-                                               wireDataName);
-    }
-
-    auto wireAddrName = "WireDefault_addr_" + std::to_string(entryInfo.addrWidth);
-    auto *wireAddrMod = circuit.getModule(wireAddrName).value_or(nullptr);
-    if (wireAddrMod == nullptr) {
-      wireAddrMod = generateWireDefaultModule(circuit, entryInfo.addrWidth, 0,
-                                               wireAddrName);
-    }
+    auto wireEnableMod = STLLibrary::createWireDefaultModule(1, 0, circuit);
+    auto wireDataMod = STLLibrary::createWireModule(entryInfo.dataWidth, circuit);
+    auto wireAddrMod = STLLibrary::createWireModule(entryInfo.addrWidth, circuit);
 
     // Restore insertion point back to wrapper
-    wrapper->getBuilder().restoreInsertionPoint(savedIPForWires);
+    builder.restoreInsertionPoint(savedIPForWires);
 
     // Create wire_default instances in the wrapper
     auto *writeEnableWire = wrapper->addInstance("write_enable_wire", wireEnableMod, {});
@@ -339,54 +283,40 @@ private:
     auto *burstRead = wrapper->addMethod("burst_read", {{"addr", u64Type}}, {u64Type});
 
     burstRead->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      auto trueVal = UInt::constant(1, 1, guardBuilder, wrapper->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
     });
 
     burstRead->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto addr = args[0];
+      auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
 
-      // Helper: Create constants
-      auto burstSizeConst = bodyBuilder.create<ConstantOp>(loc, u64Type, llvm::APInt(64, 8));  // 64-bit burst = 8 bytes
-      auto numBanksConst = bodyBuilder.create<ConstantOp>(loc, u64Type, llvm::APInt(64, entryInfo.numBanks));
-      auto myBankConst = bodyBuilder.create<ConstantOp>(loc, u64Type, llvm::APInt(64, bankIdx));
-      auto elementsPerBurstConst = bodyBuilder.create<ConstantOp>(loc, u64Type, llvm::APInt(64, elementsPerBurst));
+      auto burstSizeConst = UInt::constant(8, 64, bodyBuilder, wrapper->getLoc()); // 64-bit burst = 8 bytes
+      auto numBanksConst = UInt::constant(entryInfo.numBanks, 64, bodyBuilder, wrapper->getLoc());
+      auto myBankConst = UInt::constant(bankIdx, 64, bodyBuilder, wrapper->getLoc());
+      auto elementsPerBurstConst = UInt::constant(64, 64, bodyBuilder, wrapper->getLoc());
+      
+      // burst_idx = addr / 8
+      auto burstIdx = addr / burstSizeConst;
+      // burst_pattern = burst_idx % num_banks
+      auto burstPattern = burstIdx / numBanksConst;
 
-      // Helper 1: burst_idx = addr / 8
-      auto burstIdx = bodyBuilder.create<DivPrimOp>(loc, addr, burstSizeConst.getResult());
-
-      // Helper 2: burst_pattern = burst_idx % num_banks
-      auto burstPattern = bodyBuilder.create<RemPrimOp>(loc, burstIdx, numBanksConst.getResult());
-
-      // Helper 3: Check if this bank participates: isMine = (burst_pattern <= my_bank) && (my_bank < burst_pattern + elements_per_burst)
+      // Check if this bank participates: isMine = (burst_pattern <= my_bank) && (my_bank < burst_pattern + elements_per_burst)
       // Simplified for cyclic: position = (my_bank - burst_pattern + num_banks) % num_banks
-      auto posTemp = bodyBuilder.create<SubPrimOp>(loc, myBankConst.getResult(), burstPattern);
-      auto positionInSeq = bodyBuilder.create<AddPrimOp>(loc, posTemp, numBanksConst.getResult());
-      auto position = bodyBuilder.create<RemPrimOp>(loc, positionInSeq, numBanksConst.getResult());
-      auto isMine = bodyBuilder.create<LTPrimOp>(loc, position, elementsPerBurstConst.getResult());
+      auto position = (myBankConst - burstPattern + numBanksConst) % numBanksConst;
+      auto isMine = position < elementsPerBurstConst;
 
-      // Helper 4: Calculate local offset
+      // Calculate local offset
       // For banks in pattern: offset = (burst_idx - pattern_offset) / num_banks
       // pattern_offset = my_bank - burst_pattern (when my_bank >= burst_pattern) or my_bank + num_banks - burst_pattern (wrapped)
       // Simplified: offset = burst_idx / num_banks (for pattern 0), adjust for other patterns
-      auto patternOffset = bodyBuilder.create<SubPrimOp>(loc, myBankConst.getResult(), burstPattern);
-      auto patternOffsetAdjusted = bodyBuilder.create<AddPrimOp>(loc, patternOffset, numBanksConst.getResult());
-      auto patternOffsetMod = bodyBuilder.create<RemPrimOp>(loc, patternOffsetAdjusted, numBanksConst.getResult());
+      auto patternOffsetMod = (myBankConst - burstPattern + numBanksConst) % numBanksConst;
 
       // adjusted_burst_idx = burst_idx - pattern_offset_mod
-      auto adjustedBurstIdx = bodyBuilder.create<SubPrimOp>(loc, burstIdx, patternOffsetMod);
-      auto localOffset = bodyBuilder.create<DivPrimOp>(loc, adjustedBurstIdx, numBanksConst.getResult());
+      auto localOffset = (burstIdx - patternOffsetMod) / numBanksConst;
+      auto localAddrTrunc = localOffset.bits(entryInfo.addrWidth - 1, 0);
 
-      // Truncate to address width
-      auto bankAddrType = UIntType::get(bodyBuilder.getContext(), entryInfo.addrWidth);
-      auto localAddrTrunc = bodyBuilder.create<BitsPrimOp>(
-        loc, bankAddrType, localOffset, entryInfo.addrWidth - 1, 0);
-
-      // Read from bank
-      bankInst->callMethod("rd0", {localAddrTrunc}, bodyBuilder);
-      auto bankDataValues = bankInst->callValue("rd1", bodyBuilder);
-      auto rawData = bankDataValues[0];
+      auto bankDataValues = bankInst->callMethod("read", {localAddrTrunc.getValue()}, bodyBuilder);
+      auto rawData = Signal(bankDataValues[0], &bodyBuilder, loc);
 
       // Helper 5: Calculate bit position: position * data_width
       auto elementOffsetInBurst = position;
@@ -396,7 +326,7 @@ private:
 
       if (entryInfo.dataWidth == 64) {
         // Full 64-bit, no padding needed
-        alignedData = rawData;
+        alignedData = rawData.getValue();
       } else {
         // Generate padded data for each possible bit position and mux
         llvm::SmallVector<mlir::Value, 4> positionedDataValues;
@@ -405,45 +335,33 @@ private:
           uint32_t bitShift = elemOffset * entryInfo.dataWidth;
           uint32_t leftPadWidth = 64 - bitShift - entryInfo.dataWidth;
           uint32_t rightPadWidth = bitShift;
-
-          mlir::Value padded = rawData;
-
+          auto padded = rawData;
           if (leftPadWidth > 0) {
-            auto zeroLeftType = UIntType::get(bodyBuilder.getContext(), leftPadWidth);
-            auto zeroLeft = bodyBuilder.create<ConstantOp>(loc, zeroLeftType, llvm::APInt(leftPadWidth, 0));
-            padded = bodyBuilder.create<CatPrimOp>(
-              loc, mlir::ValueRange{zeroLeft.getResult(), padded});
+            auto zeroLeft = UInt::constant(0, leftPadWidth, bodyBuilder, loc);
+            padded = zeroLeft.cat(padded);
           }
-
           if (rightPadWidth > 0) {
-            auto zeroRightType = UIntType::get(bodyBuilder.getContext(), rightPadWidth);
-            auto zeroRight = bodyBuilder.create<ConstantOp>(loc, zeroRightType, llvm::APInt(rightPadWidth, 0));
-            padded = bodyBuilder.create<CatPrimOp>(
-              loc, mlir::ValueRange{padded, zeroRight.getResult()});
+            auto zeroRight = UInt::constant(0, rightPadWidth, bodyBuilder, loc);
+            padded = padded.cat(zeroRight);
           }
-
-          positionedDataValues.push_back(padded);
+          positionedDataValues.push_back(padded.getValue());
         }
 
         // Mux to select correct positioned data
         alignedData = positionedDataValues[0];
         for (uint32_t i = 1; i < elementsPerBurst; ++i) {
-          auto offsetConst = bodyBuilder.create<ConstantOp>(
-            loc, u64Type, llvm::APInt(64, i));
-          auto isThisOffset = bodyBuilder.create<EQPrimOp>(
-            loc, elementOffsetInBurst, offsetConst.getResult());
-          alignedData = bodyBuilder.create<MuxPrimOp>(
-            loc, isThisOffset, positionedDataValues[i], alignedData);
+          auto offsetConst = UInt::constant(i,  64, bodyBuilder, loc);
+          auto isThisOffset = elementOffsetInBurst == offsetConst;
+          alignedData = isThisOffset.mux(Signal(positionedDataValues[i], &bodyBuilder, loc),
+            Signal(alignedData, &bodyBuilder, loc)).getValue();
         }
       }
 
       // Return aligned data if mine, else 0
-      auto zeroData = bodyBuilder.create<ConstantOp>(
-        loc, u64Type, llvm::APInt(64, 0));
-      auto resultOp = bodyBuilder.create<MuxPrimOp>(
-        loc, isMine, alignedData, zeroData.getResult());
+      auto zeroData = UInt::constant(0, 64, bodyBuilder, wrapper->getLoc());
+      auto resultOp = isMine.mux(Signal(alignedData, &bodyBuilder, wrapper->getLoc()), zeroData);
 
-      bodyBuilder.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{resultOp.getResult()});
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{resultOp.getValue()});
     });
 
     burstRead->finalize();
@@ -462,77 +380,62 @@ private:
     });
 
     burstWrite->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto addr = args[0];
-      auto data = args[1];
+      auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
+      auto data = Signal(args[1], &bodyBuilder, wrapper->getLoc());
 
-      // Helper: Create constants
-      auto burstSizeConst = bodyBuilder.create<ConstantOp>(loc, u64Type, llvm::APInt(64, 8));  // 64-bit burst = 8 bytes
-      auto numBanksConst = bodyBuilder.create<ConstantOp>(loc, u64Type, llvm::APInt(64, entryInfo.numBanks));
-      auto myBankConst = bodyBuilder.create<ConstantOp>(loc, u64Type, llvm::APInt(64, bankIdx));
-      auto elementsPerBurstConst = bodyBuilder.create<ConstantOp>(loc, u64Type, llvm::APInt(64, elementsPerBurst));
+      // Helper: Create constants using Signal
+      auto burstSizeConst = UInt::constant(8, 64, bodyBuilder, wrapper->getLoc());  // 64-bit burst = 8 bytes
+      auto numBanksConst = UInt::constant(entryInfo.numBanks, 64, bodyBuilder, wrapper->getLoc());
+      auto myBankConst = UInt::constant(bankIdx, 64, bodyBuilder, wrapper->getLoc());
+      auto elementsPerBurstConst = UInt::constant(elementsPerBurst, 64, bodyBuilder, wrapper->getLoc());
 
       // Helper 1: burst_idx = addr / 8
-      auto burstIdx = bodyBuilder.create<DivPrimOp>(loc, addr, burstSizeConst.getResult());
+      auto burstIdx = addr / burstSizeConst;
 
       // Helper 2: burst_pattern = burst_idx % num_banks
-      auto burstPattern = bodyBuilder.create<RemPrimOp>(loc, burstIdx, numBanksConst.getResult());
+      auto burstPattern = burstIdx % numBanksConst;
 
       // Helper 3: Calculate position and check participation
-      auto posTemp = bodyBuilder.create<SubPrimOp>(loc, myBankConst.getResult(), burstPattern);
-      auto positionInSeq = bodyBuilder.create<AddPrimOp>(loc, posTemp, numBanksConst.getResult());
-      auto position = bodyBuilder.create<RemPrimOp>(loc, positionInSeq, numBanksConst.getResult());
-      auto isMine = bodyBuilder.create<LTPrimOp>(loc, position, elementsPerBurstConst.getResult());
+      auto position = ((myBankConst - burstPattern + numBanksConst) % numBanksConst);
+      auto isMine = position < elementsPerBurstConst;
 
       // Helper 4: Calculate local offset (same as read)
-      auto patternOffset = bodyBuilder.create<SubPrimOp>(loc, myBankConst.getResult(), burstPattern);
-      auto patternOffsetAdjusted = bodyBuilder.create<AddPrimOp>(loc, patternOffset, numBanksConst.getResult());
-      auto patternOffsetMod = bodyBuilder.create<RemPrimOp>(loc, patternOffsetAdjusted, numBanksConst.getResult());
-      auto adjustedBurstIdx = bodyBuilder.create<SubPrimOp>(loc, burstIdx, patternOffsetMod);
-      auto localOffset = bodyBuilder.create<DivPrimOp>(loc, adjustedBurstIdx, numBanksConst.getResult());
-
-      // Truncate to address width
-      auto bankAddrType = UIntType::get(bodyBuilder.getContext(), entryInfo.addrWidth);
-      auto localAddrTrunc = bodyBuilder.create<BitsPrimOp>(
-        loc, bankAddrType, localOffset, entryInfo.addrWidth - 1, 0);
+      auto patternOffsetMod = (myBankConst - burstPattern + numBanksConst) % numBanksConst;
+      auto localOffset = (burstIdx - patternOffsetMod) / numBanksConst;
+      auto localAddrTrunc = localOffset.bits(entryInfo.addrWidth - 1, 0);
 
       // Helper 5: Calculate data slice position
       auto elementOffsetInBurst = position;
 
-      // Extract all possible data slices and mux
-      auto bankDataType = UIntType::get(bodyBuilder.getContext(), entryInfo.dataWidth);
-      llvm::SmallVector<mlir::Value, 4> dataSlices;
+      // Extract all possible data slices and mux using Signal
+      llvm::SmallVector<Signal, 4> dataSlices;
 
       for (uint32_t elemOffset = 0; elemOffset < elementsPerBurst; ++elemOffset) {
         uint32_t bitStart = elemOffset * entryInfo.dataWidth;
         uint32_t bitEnd = bitStart + entryInfo.dataWidth - 1;
-        auto slice = bodyBuilder.create<BitsPrimOp>(
-          loc, bankDataType, data, bitEnd, bitStart);
+        auto slice = data.bits(bitEnd, bitStart);
         dataSlices.push_back(slice);
       }
 
-      mlir::Value myData = dataSlices[0];
+      auto myData = dataSlices[0];
       for (uint32_t i = 1; i < elementsPerBurst; ++i) {
-        auto offsetConst = bodyBuilder.create<ConstantOp>(
-          loc, u64Type, llvm::APInt(64, i));
-        auto isThisOffset = bodyBuilder.create<EQPrimOp>(
-          loc, elementOffsetInBurst, offsetConst.getResult());
-        myData = bodyBuilder.create<MuxPrimOp>(
-          loc, isThisOffset, dataSlices[i], myData);
+        auto offsetConst = UInt::constant(i, 64, bodyBuilder, wrapper->getLoc());
+        auto isThisOffset = (elementOffsetInBurst == offsetConst);
+        myData = isThisOffset.mux(dataSlices[i], myData);
       }
 
       // Write to wire instances using callMethod
       // The wires will be written conditionally based on isMine
-      auto u1Type = UIntType::get(bodyBuilder.getContext(), 1);
-      auto trueConst = bodyBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      auto falseConst = bodyBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 0));
+      auto trueConst = UInt::constant(1, 1, bodyBuilder, wrapper->getLoc());
+      auto falseConst = UInt::constant(0, 1, bodyBuilder, wrapper->getLoc());
 
       // Mux to select enable value based on isMine
-      auto enableValue = bodyBuilder.create<MuxPrimOp>(loc, isMine, trueConst.getResult(), falseConst.getResult());
+      auto enableValue = isMine.mux(trueConst, falseConst);
 
       // Call write methods on wire instances
-      writeEnableWire->callMethod("write", {enableValue}, bodyBuilder);
-      writeDataWire->callMethod("write", {myData}, bodyBuilder);
-      writeAddrWire->callMethod("write", {localAddrTrunc}, bodyBuilder);
+      writeEnableWire->callMethod("write", {enableValue.getValue()}, bodyBuilder);
+      writeDataWire->callMethod("write", {myData.getValue()}, bodyBuilder);
+      writeAddrWire->callMethod("write", {localAddrTrunc.getValue()}, bodyBuilder);
 
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
     });
@@ -550,17 +453,15 @@ private:
     );
 
     directReadMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      auto trueConst = UInt::constant(1, 1, guardBuilder, wrapper->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
 
     directReadMethod->body([&, bankInst](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto addr = args[0];
+      auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
 
       // Directly drive the memory bank read ports.
-      bankInst->callMethod("rd0", {addr}, bodyBuilder);
-      auto readValues = bankInst->callValue("rd1", bodyBuilder);
+      auto readValues = bankInst->callMethod("read", {addr.getValue()}, bodyBuilder);
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc, readValues[0]);
     });
 
@@ -573,17 +474,16 @@ private:
     );
 
     directWriteMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      auto trueConst = UInt::constant(1, 1, guardBuilder, wrapper->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
 
     directWriteMethod->body([&, bankInst](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto addr = args[0];
-      auto data = args[1];
+      auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
+      auto data = Signal(args[1], &bodyBuilder, wrapper->getLoc());
 
       // Directly drive the memory bank write ports.
-      bankInst->callMethod("write", {data, addr}, bodyBuilder);
+      bankInst->callMethod("write", {data.getValue(), addr.getValue()}, bodyBuilder);
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
     });
 
@@ -595,14 +495,10 @@ private:
     auto *writeRule = wrapper->addRule("do_bank_write");
 
     writeRule->guard([&](mlir::OpBuilder &guardBuilder) {
-      // Guard: check if enable wire is 1 (compare wire value with 1)
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      auto oneConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-
-      // BUG: writeEnableWire->callValue returns empty vector for regular Module instances
-      auto enableValues = writeEnableWire->callValue("read", guardBuilder);
-      auto isEnabled = guardBuilder.create<EQPrimOp>(loc, enableValues[0], oneConst.getResult());
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, isEnabled.getResult());
+      auto trueConst = UInt::constant(1, 1, guardBuilder, wrapper->getLoc());
+      auto enableValues = Signal(writeEnableWire->callValue("read", guardBuilder)[0], &guardBuilder, loc);
+      auto isEnabled = enableValues == trueConst;
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, isEnabled.getValue());
     });
 
     writeRule->body([&, bankInst](mlir::OpBuilder &bodyBuilder) {
@@ -625,6 +521,12 @@ private:
 
     return wrapper;
   }
+
+  // ============================================================================
+  //
+  //                   MEMORY ENTRY (CONTAIN BANKWRAPPER)
+  //
+  // ============================================================================
 
   /// Generate memory entry submodule for a single memory entry
   Module *generateMemoryEntryModule(const MemoryEntryInfo &entryInfo,
@@ -656,8 +558,6 @@ private:
     auto *entryModule = circuit.addModule(moduleName);
 
     // Add clock and reset arguments
-    (void)clk;  // Will be used when creating instances
-    (void)rst;
     Clock subClk = entryModule->addClockArgument("clk");
     Reset subRst = entryModule->addResetArgument("rst");
 
@@ -668,37 +568,17 @@ private:
 
     // Create external module declaration at circuit level (BEFORE creating instances)
     // Save insertion point first
-    auto savedIPForExtMod = builder.saveInsertionPoint();
+    auto savedIP = builder.saveInsertionPoint();
 
     llvm::StringMap<int64_t> memParams;
     memParams["data_width"] = entryInfo.dataWidth;
     memParams["addr_width"] = entryInfo.addrWidth;
     memParams["depth"] = entryInfo.depth;
 
-    auto memAlreadyRegistered = circuit.hasExternalModule("Mem1r1w", memParams);
-    auto *memMod = circuit.addExternalModule("Mem1r1w", memParams);
+    auto memMod = STLLibrary::createMem1r1w0cModule(entryInfo.dataWidth, entryInfo.addrWidth, entryInfo.depth, circuit);
 
     // Restore insertion point back to entry module
-    builder.restoreInsertionPoint(savedIPForExtMod);
-
-    // Bind clock and reset
-    if (memAlreadyRegistered.failed()) {
-      memMod->bindClock("clk", "clock")
-            .bindReset("rst", "reset");
-
-      // Bind memory methods
-      memMod->bindMethod("rd0", "en", "", {"raddr"}, {});
-      memMod->bindValue("rd1", "rd1_valid", {"rdata"});
-      memMod->bindMethod("write", "wen", "", {"wdata", "waddr"}, {});
-
-      // Add conflict relationships
-      memMod->addConflict("write", "write");
-      memMod->addConflict("rd0", "rd0");
-    }
-
-    // Save insertion point BEFORE creating wrapper modules
-    // (generateBankWrapperModule will change the insertion point)
-    auto savedIP = builder.saveInsertionPoint();
+    builder.restoreInsertionPoint(savedIP);
 
     // Create bank wrapper modules (this changes insertion point to each wrapper)
     llvm::SmallVector<Module*, 4> wrapperModules;
@@ -728,35 +608,34 @@ private:
 
     // Guard: always ready (address range checked at parent level)
     burstRead->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      auto trueConst = UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
 
     // Body: Simple OR aggregation of all bank wrapper outputs
     // Each wrapper returns aligned 64-bit data if address is for that bank, else 0
     burstRead->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto addr = args[0];
+      auto addr = Signal(args[0], &bodyBuilder, entryModule->getLoc());
 
       // Use CallOp to call wrapper methods (Instance::callMethod doesn't work for methods with return values)
       auto calleeSymbol0 = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), wrapperInstances[0]->getName());
       auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_read");
       auto callOp0 = bodyBuilder.create<circt::cmt2::CallOp>(
-        loc, mlir::TypeRange{u64Type}, mlir::ValueRange{addr},
+        loc, mlir::TypeRange{u64Type}, mlir::ValueRange{addr.getValue()},
         calleeSymbol0, methodSymbol, nullptr, nullptr);
-      mlir::Value result = callOp0.getResult(0);
+      auto result = Signal(callOp0.getResult(0), &bodyBuilder, entryModule->getLoc());
 
       // OR together all other wrapper outputs
       for (size_t i = 1; i < entryInfo.numBanks; ++i) {
         auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), wrapperInstances[i]->getName());
         auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
-          loc, mlir::TypeRange{u64Type}, mlir::ValueRange{addr},
+          loc, mlir::TypeRange{u64Type}, mlir::ValueRange{addr.getValue()},
           calleeSymbol, methodSymbol, nullptr, nullptr);
-        auto data = callOp.getResult(0);
-        result = bodyBuilder.create<OrPrimOp>(loc, result, data);
+        auto data = Signal(callOp.getResult(0), &bodyBuilder, entryModule->getLoc());
+        result = result | data;
       }
 
-      bodyBuilder.create<circt::cmt2::ReturnOp>(loc, result);
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc, result.getValue());
     });
 
     burstRead->finalize();
@@ -768,14 +647,13 @@ private:
     );
 
     burstWrite->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      auto trueConst = UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
 
     burstWrite->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto addr = args[0];
-      auto data = args[1];
+      auto addr = Signal(args[0], &bodyBuilder, entryModule->getLoc());
+      auto data = Signal(args[1], &bodyBuilder, entryModule->getLoc());
 
       // Simple broadcast to all bank wrappers using CallOp
       // Each wrapper decides if it should write based on address
@@ -783,7 +661,7 @@ private:
       for (size_t i = 0; i < entryInfo.numBanks; ++i) {
         auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), wrapperInstances[i]->getName());
         bodyBuilder.create<circt::cmt2::CallOp>(
-          loc, mlir::TypeRange{}, mlir::ValueRange{addr, data},
+          loc, mlir::TypeRange{}, mlir::ValueRange{addr.getValue(), data.getValue()},
           calleeSymbol, methodSymbol, nullptr, nullptr);
       }
 
@@ -807,19 +685,18 @@ private:
       );
 
       bankReadMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
-        auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-        auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-        guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+        auto trueConst = UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
+        guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
       });
 
       bankReadMethod->body([&, bankIdx](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-        auto addr = args[0];
+        auto addr = Signal(args[0], &bodyBuilder, entryModule->getLoc());
         auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), wrapperInstances[bankIdx]->getName());
         auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "bank_read");
         auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
           loc,
           mlir::TypeRange{bankDataType},
-          mlir::ValueRange{addr},
+          mlir::ValueRange{addr.getValue()},
           calleeSymbol,
           methodSymbol,
           bodyBuilder.getArrayAttr({}),
@@ -837,20 +714,19 @@ private:
       );
 
       bankWriteMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
-        auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-        auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-        guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+        auto trueConst = UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
+        guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
       });
 
       bankWriteMethod->body([&, bankIdx](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-        auto addr = args[0];
-        auto data = args[1];
+        auto addr = Signal(args[0], &bodyBuilder, entryModule->getLoc());
+        auto data = Signal(args[1], &bodyBuilder, entryModule->getLoc());
         auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), wrapperInstances[bankIdx]->getName());
         auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "bank_write");
         bodyBuilder.create<circt::cmt2::CallOp>(
           loc,
           mlir::TypeRange{},
-          mlir::ValueRange{addr, data},
+          mlir::ValueRange{addr.getValue(), data.getValue()},
           calleeSymbol,
           methodSymbol,
           bodyBuilder.getArrayAttr({}),
@@ -865,9 +741,15 @@ private:
     return entryModule;
   }
 
+  // ============================================================================
+  //
+  //                    MEMORY POOL (CONTAIN MEMORY ENTRY)
+  //
+  // ============================================================================
+
   /// Generate burst access logic (address decoding and bank selection)
   void generateBurstAccessLogic(Module *poolModule,
-                                const llvm::SmallVector<MemoryEntryInfo, 4> &memEntryInfos,
+                                const llvm::SmallVector<MemoryEntryInfo> &memEntryInfos,
                                 Circuit &circuit,
                                 Clock clk, Reset rst) {
 
@@ -875,6 +757,7 @@ private:
     auto loc = poolModule->getLoc();
     auto u64Type = UIntType::get(builder.getContext(), 64);
 
+    // TODO: refactor ----------------------------------------------------------------------------------------------------------------------------------
     // Step 1: Create all memory entry submodules
     // Save the insertion point first, since circuit.addModule() will change it
     auto savedIP = builder.saveInsertionPoint();
@@ -915,18 +798,14 @@ private:
     );
 
     topBurstRead->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      auto trueConst = UInt::constant(1, 1, guardBuilder, poolModule->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
 
     topBurstRead->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto addr = args[0];
-
-      // Accumulate results from all memory entries (OR them together)
-      auto resultInit = bodyBuilder.create<ConstantOp>(
-        loc, u64Type, llvm::APInt(64, 0));
-      mlir::Value result = resultInit.getResult();
+      auto addr = Signal(args[0], &bodyBuilder, loc);
+      auto resultInit = UInt::constant(0, 64, bodyBuilder, loc);
+      mlir::Value result = resultInit.getValue();
 
       for (size_t i = 0; i < memEntryInfos.size(); ++i) {
         const auto &entryInfo = memEntryInfos[i];
@@ -936,42 +815,30 @@ private:
         uint32_t entryEnd = entryStart + entryInfo.bankSize;
 
         // Calculate relative address for this entry
-        auto startConst = bodyBuilder.create<ConstantOp>(
-          loc, u64Type, llvm::APInt(64, entryStart));
-        auto relAddrWide = bodyBuilder.create<SubPrimOp>(loc, addr, startConst.getResult());
+        auto startConst = UInt::constant(entryStart, 64, bodyBuilder, loc);
+        auto endConst = UInt::constant(entryEnd, 64, bodyBuilder, loc);
 
-        // SubPrimOp produces uint<65>, truncate back to uint<64>
-        auto relAddr = bodyBuilder.create<BitsPrimOp>(loc, u64Type, relAddrWide, 63, 0);
-
-        // Check if address is in this entry's range
-        auto endConst = bodyBuilder.create<ConstantOp>(
-          loc, u64Type, llvm::APInt(64, entryEnd));
-
-        auto geStart = bodyBuilder.create<GEQPrimOp>(loc, addr, startConst.getResult());
-        auto ltEnd = bodyBuilder.create<LTPrimOp>(loc, addr, endConst.getResult());
-        auto inRange = bodyBuilder.create<AndPrimOp>(loc, geStart, ltEnd);
+        auto relAddr = (addr - startConst).bits(63, 0);
+        auto inRange = (addr >= startConst) & (addr < endConst);
 
         // Call submodule's burst_read (manual CallOp needed for methods with return values)
         auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryInst->getName());
         auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_read");
         auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
-          loc, mlir::TypeRange{u64Type}, mlir::ValueRange{relAddr},
+          loc, mlir::TypeRange{u64Type}, mlir::ValueRange{relAddr.getValue()},
           calleeSymbol, methodSymbol, nullptr, nullptr);
         if (callOp.getNumResults() == 0) {
           bodyBuilder.getBlock()->getParentOp()->emitError()
               << "CallOp for burst_read returned no results (instance '"
               << entryInst->getName() << "')";
         }
-        auto entryResult = callOp.getResult(0);
+        auto entryResult = Signal(callOp.getResult(0), &bodyBuilder, loc);
 
         // Use mux to conditionally include this result
-        auto zeroData = bodyBuilder.create<ConstantOp>(
-          loc, u64Type, llvm::APInt(64, 0));
-        auto selectedData = bodyBuilder.create<MuxPrimOp>(
-          loc, inRange, entryResult, zeroData.getResult());
+        auto zeroData = UInt::constant(0, 64, bodyBuilder, loc);
+        auto selectedData = inRange.mux(entryResult, zeroData);
 
-        // OR into final result
-        result = bodyBuilder.create<OrPrimOp>(loc, result, selectedData);
+        result = (Signal(result, &bodyBuilder, loc) | selectedData).getValue();
       }
 
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc, result);
@@ -987,14 +854,13 @@ private:
     );
 
     topBurstWrite->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      auto trueConst = UInt::constant(1, 1, guardBuilder, poolModule->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
 
     topBurstWrite->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto addr = args[0];
-      auto data = args[1];
+      auto addr = Signal(args[0], &bodyBuilder, poolModule->getLoc());
+      auto data = Signal(args[1], &bodyBuilder, poolModule->getLoc());
 
       // Dispatch to all memory entries based on address range
       for (size_t i = 0; i < memEntryInfos.size(); ++i) {
@@ -1004,12 +870,8 @@ private:
         uint32_t entryStart = entryInfo.baseAddress;
 
         // Calculate relative address for this entry
-        auto startConst = bodyBuilder.create<ConstantOp>(
-          loc, u64Type, llvm::APInt(64, entryStart));
-        auto relAddrWide = bodyBuilder.create<SubPrimOp>(loc, addr, startConst.getResult());
-
-        // SubPrimOp produces uint<65>, truncate back to uint<64>
-        auto relAddr = bodyBuilder.create<BitsPrimOp>(loc, u64Type, relAddrWide, 63, 0);
+        auto startConst = UInt::constant(entryStart, 64, bodyBuilder, poolModule->getLoc());
+        auto relAddr = (addr - startConst).bits(63, 0);
 
         // Call submodule's burst_write
         // Note: We call all submodules, but only the one with matching address range will write
@@ -1017,7 +879,7 @@ private:
         auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryInst->getName());
         auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_write");
         bodyBuilder.create<circt::cmt2::CallOp>(
-          loc, mlir::TypeRange{}, mlir::ValueRange{relAddr, data},
+          loc, mlir::TypeRange{}, mlir::ValueRange{relAddr.getValue(), data.getValue()},
           calleeSymbol, methodSymbol, nullptr, nullptr);
       }
 
@@ -1045,19 +907,18 @@ private:
         );
 
         topBankRead->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
-          auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-          auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-          guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+          auto trueConst = UInt::constant(1, 1, guardBuilder, poolModule->getLoc());
+          guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
         });
 
-        topBankRead->body([&, entryIdx, bankIdx, entryReadName](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-          auto addr = args[0];
+        topBankRead->body([&, entryIdx, entryReadName](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+          auto addr = Signal(args[0], &bodyBuilder, poolModule->getLoc());
           auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryInstances[entryIdx]->getName());
           auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryReadName);
           auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
             loc,
             mlir::TypeRange{bankDataType},
-            mlir::ValueRange{addr},
+            mlir::ValueRange{addr.getValue()},
             calleeSymbol,
             methodSymbol,
             bodyBuilder.getArrayAttr({}),
@@ -1075,20 +936,19 @@ private:
         );
 
         topBankWrite->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
-          auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-          auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-          guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+          auto trueConst = UInt::constant(1, 1, guardBuilder, poolModule->getLoc());
+          guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
         });
 
         topBankWrite->body([&, entryIdx, entryWriteName](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-          auto addr = args[0];
-          auto data = args[1];
+          auto addr = Signal(args[0], &bodyBuilder, poolModule->getLoc());
+          auto data = Signal(args[1], &bodyBuilder, poolModule->getLoc());
           auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryInstances[entryIdx]->getName());
           auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryWriteName);
           bodyBuilder.create<circt::cmt2::CallOp>(
             loc,
             mlir::TypeRange{},
-            mlir::ValueRange{addr, data},
+            mlir::ValueRange{addr.getValue(), data.getValue()},
             calleeSymbol,
             methodSymbol,
             bodyBuilder.getArrayAttr({}),
@@ -1104,34 +964,48 @@ private:
   }
 
   /// Generate the CMT2 memory pool module
-  void generateMemoryPool(ModuleOp moduleOp, aps::MemoryMapOp memoryMapOp) {
+  Module *generateMemoryPool(Circuit &circuit, ModuleOp moduleOp, aps::MemoryMapOp memoryMapOp) {
+    llvm::outs() << "DEBUG: generateMemoryPool() started\n";
     MLIRContext *context = moduleOp.getContext();
     OpBuilder builder(context);
 
     // Collect all memory entries
-    llvm::SmallVector<aps::MemEntryOp, 4> memEntries;
-    memoryMapOp.getRegion().walk([&](aps::MemEntryOp entry) {
-      memEntries.push_back(entry);
-    });
+    llvm::SmallVector<aps::MemEntryOp> memEntries;
+    llvm::outs() << "DEBUG: About to collect memory entries\n";
 
-    if (memEntries.empty()) {
-      return;
+    if (memoryMapOp) {
+      llvm::outs() << "DEBUG: Memory map region has " << memoryMapOp.getRegion().getBlocks().size() << " blocks\n";
+
+      // Safely iterate through operations
+      for (auto &block : memoryMapOp.getRegion()) {
+        for (auto &op : block) {
+          if (auto entry = dyn_cast<aps::MemEntryOp>(op)) {
+            memEntries.push_back(entry);
+            llvm::outs() << "DEBUG: Found memory entry: " << entry.getName() << "\n";
+          }
+        }
+      }
+
+      llvm::outs() << "DEBUG: Collected " << memEntries.size() << " memory entries\n";
     }
 
-    // Create CMT2 circuit
-    Circuit circuit("MemoryPool", *context);
+    if (memEntries.empty()) {
+      llvm::outs() << "DEBUG: No memory entries found, will generate rules without memory\n";
+    }
 
     // Generate memory pool module
+    llvm::outs() << "DEBUG: Creating ScratchpadMemoryPool module\n";
     auto *poolModule = circuit.addModule("ScratchpadMemoryPool");
 
     // Add clock and reset
+    llvm::outs() << "DEBUG: Adding clock and reset arguments\n";
     Clock clk = poolModule->addClockArgument("clk");
     Reset rst = poolModule->addResetArgument("rst");
 
     // Store instances for each memory entry (for address decoding)
-    llvm::SmallVector<MemoryEntryInfo, 4> memEntryInfos;
+    llvm::SmallVector<MemoryEntryInfo> memEntryInfos;
 
-    // For each memory entry, create SRAM banks
+    // For each memory entry, create SRAM banks (only if entries exist)
     for (auto memEntry : memEntries) {
       auto bankSymbols = memEntry.getBankSymbols();
       uint32_t numBanks = memEntry.getNumBanks();
@@ -1190,26 +1064,7 @@ private:
     // This will create memory entry submodules with bank instances
     generateBurstAccessLogic(poolModule, memEntryInfos, circuit, clk, rst);
 
-    // Generate rule-based main module for TOR functions
-    generateRuleBasedMainModule(moduleOp, circuit, poolModule, clk, rst);
-
-    // Emit the generated CMT2 MLIR
-    builder.setInsertionPointToEnd(moduleOp.getBody());
-
-    auto generatedModule = circuit.generateMLIR();
-    if (!generatedModule) {
-      moduleOp.emitError() << "failed to materialize CMT2 memory pool";
-      return;
-    }
-
-    auto &targetBlock = moduleOp.getBodyRegion().front();
-    auto &generatedOps = generatedModule->getBodyRegion().front().getOperations();
-
-    for (auto &op : llvm::make_early_inc_range(generatedOps)) {
-      if (op.hasTrait<mlir::OpTrait::IsTerminator>())
-        continue;
-      targetBlock.push_back(op.clone());
-    }
+    return poolModule;
   }
 
   /// Convert MLIR type to FIRRTL type
@@ -1224,27 +1079,17 @@ private:
     return {};
   }
 
-  /// Create wire instance for cross-slot communication
-  Instance *createWireInstance(int64_t width, Circuit &circuit, Module *topModule,
-                              ModuleLibrary &library,
-                              llvm::DenseMap<int64_t, ExternalModule *> &cache,
-                              const std::string &instanceName, Location loc) {
-    auto it = cache.find(width);
-    if (it != cache.end())
-      return topModule->addInstance(instanceName, it->second, {});
-
-    llvm::StringMap<int64_t> params;
-    params["width"] = width;
-    auto *wireMod = circuit.addExternalModule("Wire", params);
-    cache[width] = wireMod;
-    return topModule->addInstance(instanceName, wireMod, {});
-  }
+  // ============================================================================
+  //
+  //                            MAIN LOGIC GENERATION
+  //
+  // ============================================================================
 
   /// Generate rule-based main module for TOR functions
-  void generateRuleBasedMainModule(ModuleOp moduleOp, Circuit &circuit,
-                                   Module *poolModule, Clock clk, Reset rst) {
-    MLIRContext *context = moduleOp.getContext();
-    (void)context;  // Suppress unused variable warning
+  std::pair<Module*, Instance*> generateRuleBasedMainModule(ModuleOp moduleOp, Circuit &circuit,
+                                   Module *poolModule) {
+    // Create main module in the same circuit
+    auto *mainModule = circuit.addModule("main");
 
     // Find all TOR functions that need rule generation
     llvm::SmallVector<tor::FuncOp, 4> torFuncs;
@@ -1254,18 +1099,9 @@ private:
       }
     });
 
-    if (torFuncs.empty()) {
-      return;  // No TOR functions to process
-    }
-
-    // Create main module in the same circuit
-    auto *mainModule = circuit.addModule("main");
-
     // Add clock and reset arguments
     auto mainClk = mainModule->addClockArgument("clk");
     auto mainRst = mainModule->addResetArgument("rst");
-    (void)mainClk;
-    (void)mainRst;
 
     // Add scratchpad pool instance - use the pool module we created earlier
     auto *poolInstance = mainModule->addInstance("scratchpad_pool",
@@ -1275,6 +1111,8 @@ private:
     for (auto funcOp : torFuncs) {
       generateRulesForFunction(mainModule, funcOp, poolInstance, circuit);
     }
+
+    return {mainModule, poolInstance};
   }
 
   /// Add burst read/write methods to main module
@@ -1341,13 +1179,13 @@ private:
       b.create<circt::cmt2::ReturnOp>(loc);
     });
     burstWriteMethod->finalize();
+
   }
 
   /// Generate rules for a specific TOR function - proper implementation from rulegenpass.cpp
   void generateRulesForFunction(Module *mainModule, tor::FuncOp funcOp,
                                Instance *poolInstance, Circuit &circuit) {
     MLIRContext *ctx = mainModule->getBuilder().getContext();
-    Location loc = funcOp.getLoc();
 
     // Collect operations per time slot.
     llvm::DenseMap<int64_t, SlotInfo> slotMap;
@@ -1458,28 +1296,21 @@ private:
       }
     }
 
-    // Prepare CMT2 DSL objects.
-    ModuleLibrary &library = ModuleLibrary::getInstance();
-
     // Instantiate wire modules for cross-slot edges.
-    llvm::DenseMap<int64_t, ExternalModule *> wireCache;
     for (auto &infoPtr : crossUseStorage) {
       auto *info = infoPtr.get();
       int64_t width = cast<circt::firrtl::UIntType>(info->firType).getWidthOrSentinel();
       if (width < 0)
         width = 1;
-      info->wireInstance =
-          createWireInstance(width, circuit, mainModule, library, wireCache,
-                             info->instanceName, loc);
+      auto *wireMod = STLLibrary::createWireModule(width, circuit);;
+      info->wireInstance = mainModule->addInstance(info->instanceName, wireMod, {});
     }
 
-    // Helper functions for value manipulation
+    // Helper functions for value manipulation using Signal abstraction
     auto makeConstant = [&](mlir::OpBuilder &builder, Location opLoc,
                             uint64_t value, unsigned width) -> mlir::Value {
-      auto type = circt::firrtl::UIntType::get(ctx, width);
-      auto constOp = builder.create<circt::firrtl::ConstantOp>(
-          opLoc, type, llvm::APInt(width, value));
-      return constOp.getResult();
+      auto constant = UInt::constant(value, width, builder, opLoc);
+      return constant.getValue();
     };
 
     auto ensureUIntWidth = [&](mlir::OpBuilder &builder, Location valueLoc,
@@ -1503,16 +1334,17 @@ private:
       if (static_cast<unsigned>(currentWidth) == targetWidth)
         return value;
 
+      // Use Signal abstraction for width manipulation
+      auto signal = Signal(value, &builder, valueLoc);
       if (static_cast<unsigned>(currentWidth) < targetWidth) {
-        auto padded = builder.create<circt::firrtl::PadPrimOp>(
-            valueLoc, value, targetWidth);
-        return padded.getResult();
+        // Pad to target width
+        auto paddedSignal = signal.pad(targetWidth);
+        return paddedSignal.getValue();
+      } else {
+        // Truncate to target width
+        auto truncatedSignal = signal.bits(targetWidth - 1, 0);
+        return truncatedSignal.getValue();
       }
-
-      auto truncatedType = circt::firrtl::UIntType::get(ctx, targetWidth);
-      auto truncated = builder.create<circt::firrtl::BitsPrimOp>(
-          valueLoc, truncatedType, value, targetWidth - 1, 0);
-      return truncated.getResult();
     };
 
     // Helper to materialise values inside a rule.
@@ -1564,10 +1396,8 @@ private:
       // Guard: always ready (constant 1)
       rule->guard([](mlir::OpBuilder &b) {
         auto loc = b.getUnknownLoc();
-        auto one = b.create<circt::firrtl::ConstantOp>(
-            loc, circt::firrtl::UIntType::get(b.getContext(), 1),
-            llvm::APInt(1, 1));
-        b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{one});
+        auto one = UInt::constant(1, 1, b, loc);
+        b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{one.getValue()});
       });
 
       // Body: implement the operations for this time slot
@@ -1582,6 +1412,11 @@ private:
             if (failed(lhs) || failed(rhs))
               return;
 
+            // Use Signal for arithmetic operations
+            auto lhsSignal = Signal(*lhs, &b, loc);
+            auto rhsSignal = Signal(*rhs, &b, loc);
+
+            // Determine result width and extend if needed
             auto lhsWidth = cast<circt::firrtl::UIntType>((*lhs).getType()).getWidthOrSentinel();
             auto rhsWidth = cast<circt::firrtl::UIntType>((*rhs).getType()).getWidthOrSentinel();
             auto resultWidth = std::max(lhsWidth, rhsWidth);
@@ -1591,8 +1426,8 @@ private:
             if (failed(lhsExtended) || failed(rhsExtended))
               return;
 
-            auto sum = b.create<circt::firrtl::AddPrimOp>(loc, *lhsExtended, *rhsExtended);
-            localMap[addOp.getResult()] = sum.getResult();
+            auto sumSignal = Signal(*lhsExtended, &b, loc) + Signal(*rhsExtended, &b, loc);
+            localMap[addOp.getResult()] = sumSignal.getValue();
           }
           else if (auto subOp = dyn_cast<tor::SubIOp>(op)) {
             auto lhs = getValueInRule(subOp.getLhs(), op, 0, b, localMap, loc);
@@ -1600,6 +1435,7 @@ private:
             if (failed(lhs) || failed(rhs))
               return;
 
+            // Use Signal for arithmetic operations
             auto lhsWidth = cast<circt::firrtl::UIntType>((*lhs).getType()).getWidthOrSentinel();
             auto rhsWidth = cast<circt::firrtl::UIntType>((*rhs).getType()).getWidthOrSentinel();
             auto resultWidth = std::max(lhsWidth, rhsWidth);
@@ -1609,8 +1445,8 @@ private:
             if (failed(lhsExtended) || failed(rhsExtended))
               return;
 
-            auto diff = b.create<circt::firrtl::SubPrimOp>(loc, *lhsExtended, *rhsExtended);
-            localMap[subOp.getResult()] = diff.getResult();
+            auto diffSignal = Signal(*lhsExtended, &b, loc) - Signal(*rhsExtended, &b, loc);
+            localMap[subOp.getResult()] = diffSignal.getValue();
           }
           else if (auto mulOp = dyn_cast<tor::MulIOp>(op)) {
             auto lhs = getValueInRule(mulOp.getLhs(), op, 0, b, localMap, loc);
@@ -1618,6 +1454,7 @@ private:
             if (failed(lhs) || failed(rhs))
               return;
 
+            // Use Signal for arithmetic operations
             auto lhsWidth = cast<circt::firrtl::UIntType>((*lhs).getType()).getWidthOrSentinel();
             auto rhsWidth = cast<circt::firrtl::UIntType>((*rhs).getType()).getWidthOrSentinel();
             auto resultWidth = lhsWidth + rhsWidth;
@@ -1627,8 +1464,8 @@ private:
             if (failed(lhsExtended) || failed(rhsExtended))
               return;
 
-            auto prod = b.create<circt::firrtl::MulPrimOp>(loc, *lhsExtended, *rhsExtended);
-            localMap[mulOp.getResult()] = prod.getResult();
+            auto prodSignal = Signal(*lhsExtended, &b, loc) * Signal(*rhsExtended, &b, loc);
+            localMap[mulOp.getResult()] = prodSignal.getValue();
           }
           else if (auto memLoad = dyn_cast<aps::MemLoad>(op)) {
             // Handle memory load operations
@@ -1678,13 +1515,10 @@ private:
 
     if (!precedencePairs.empty())
       mainModule->setPrecedence(precedencePairs);
-
-    // Add burst read/write methods to expose memory pool functionality
-    addBurstMethodsToMainModule(mainModule, poolInstance);
   }
 };
 } // namespace mlir
 
-std::unique_ptr<mlir::Pass> mlir::createAPSMemoryPoolGenPass() {
-  return std::make_unique<mlir::APSMemoryPoolGenPass>();
+std::unique_ptr<mlir::Pass> mlir::createAPSToCMT2GenPass() {
+  return std::make_unique<mlir::APSToCMT2GenPass>();
 }
