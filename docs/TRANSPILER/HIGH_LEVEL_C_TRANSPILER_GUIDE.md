@@ -37,8 +37,9 @@ This produces a translation unit with:
 
 - An auto-generated header comment and the minimal set of `#include`s (only
   `stdint`, `stdbool`, `string`, or `math` depending on actual usage).
-- One C function per CADL flow, already stripped of `_irf`, `_mem`, and burst
-  operations.
+- One C function per CADL flow, where `_irf` accesses are rewritten into value
+  parameters and the `_mem` pointer is retained only if the flow performs
+  memory reads. Burst operations are always removed.
 
 ## 4. Reading the Output
 
@@ -49,7 +50,8 @@ This produces a translation unit with:
 - Every `_irf[rd] = …` write is turned into a normal C return. Multiple writes
   create a `typedef struct …_result_t` with one field per write.
 - Register index arguments (`rs1`, `rs2`, `rd`, …) are dropped if they never
-  escape `_irf[...]` operations.
+  escape `_irf[...]` operations, and shorthand aliases (`r1`, `r2`, …) are
+  rewritten to use the same inferred value parameters.
 
 ### Arrays and memory
 
@@ -57,8 +59,9 @@ This produces a translation unit with:
   etc.).
 - `_burst_read` / `_burst_write` operations are removed with explanatory
   comments; the arrays are assumed to be directly accessible.
-- Direct `_mem[...]` accesses are elided in high-level mode, producing comments
-  instead of side-effecting code.
+- `_mem[...]` writes are elided in high-level mode, producing comments instead
+  of side-effecting code. Reads remain as pointer accesses, so the generated
+  signature keeps an `_mem` pointer when required.
 
 ### Control flow
 
@@ -73,6 +76,14 @@ This produces a translation unit with:
   (`u3 → uint8_t`, `u12 → uint16_t`, `i17 → int32_t`, etc.).
 - Arithmetic combines operand widths and upgrades the result type when
   necessary (e.g. `uint16 + uint32 → uint32`).
+
+### Expressions
+
+- `sel { … }` constructs lower to chained ternary expressions, preserving the
+  order of CADL select arms and default values.
+- Tuple literals currently evaluate each element in order and yield the final
+  value via a comma expression (`/* tuple */(a, b, c)`), matching the high-level
+  semantics used by Polygeist.
 
 ## 5. Workflow Tips
 

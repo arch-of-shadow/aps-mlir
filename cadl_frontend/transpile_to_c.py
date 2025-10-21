@@ -45,7 +45,7 @@ def _sanitize_identifier(name: str) -> str:
 @dataclass
 class RegisterReadInfo:
     key: str
-    index_expr: Expr
+    index_expr: Optional[Expr]
     name_hint: str
     type_hints: Set[str] = field(default_factory=set)
     used_outside_index: bool = False
@@ -83,7 +83,7 @@ class CTranspiler:
     """Transpile CADL AST to C code (High-Level Mode Only)
 
     Generates clean C code with pure computational semantics:
-    - No cpu_mem or _irf parameters
+    - Drops cpu_mem and _irf base pointers; keeps _mem pointer only when reads remain
     - Converts _irf[rsX] reads to direct value parameters
     - Eliminates burst operations (arrays passed directly)
     - Compatible with Polygeist and instruction matching
@@ -127,6 +127,12 @@ class CTranspiler:
         self.declared_vars.add(name)
         if self.declared_var_stack:
             self.declared_var_stack[-1].add(name)
+
+    def register_alias_key(self, name: str) -> Optional[str]:
+        """Return alias key for implicit register value references like r1, r2."""
+        if name.startswith("r") and name[1:].isdigit():
+            return f"alias:{name}"
+        return None
 
     def _note_type(self, type_name: Optional[str]):
         if type_name == "bool":
@@ -365,6 +371,23 @@ class CTranspiler:
                 info = self.irf_read_infos.get(f"ident:{name}")
                 if info:
                     info.used_outside_index = True
+                return
+            if name in self.var_types:
+                return
+            alias_key = self.register_alias_key(name)
+            if alias_key:
+                info = self.irf_read_infos.setdefault(
+                    alias_key,
+                    RegisterReadInfo(
+                        key=alias_key,
+                        index_expr=None,
+                        name_hint=name,
+                    ),
+                )
+                if expected_type:
+                    info.type_hints.add(expected_type)
+                info.used_outside_index = True
+                return
             return
 
         if isinstance(expr, UnaryExpr):
@@ -433,9 +456,10 @@ class CTranspiler:
             return
 
         if isinstance(expr, SelectExpr):
-            self.collect_expr(expr.condition)
-            self.collect_expr(expr.true_value, expected_type=expected_type)
-            self.collect_expr(expr.false_value, expected_type=expected_type)
+            for condition, value in expr.arms:
+                self.collect_expr(condition)
+                self.collect_expr(value, expected_type=expected_type)
+            self.collect_expr(expr.default, expected_type=expected_type)
             return
 
         if isinstance(expr, IfExpr):
@@ -468,6 +492,25 @@ class CTranspiler:
             if isinstance(literal, LiteralInner_Float):
                 return f"literal:{literal.value}", f"irf_{literal.value}"
         return f"expr:{_sanitize_identifier(str(index_expr))}", _sanitize_identifier(str(index_expr))
+
+    def _merge_numeric_types(self, left: Optional[str], right: Optional[str]) -> str:
+        if not left:
+            return right or "uint32_t"
+        if not right:
+            return left
+        if left == right:
+            return left
+        if left.startswith("uint") and right.startswith("uint"):
+            return left if self._type_width(left) >= self._type_width(right) else right
+        if left.startswith("int") and right.startswith("int"):
+            return left if self._type_width(left) >= self._type_width(right) else right
+        if "double" in (left, right):
+            return "double"
+        if "float" in (left, right):
+            return "float"
+        if left.startswith("int") or right.startswith("int"):
+            return "int32_t"
+        return "uint32_t"
 
     def compute_return_spec(self) -> ReturnSpec:
         if self.explicit_return_types:
@@ -645,7 +688,7 @@ class CTranspiler:
         High-level mode only:
         - Static arrays become parameters
         - _irf[rsX] reads → rsX_value parameters
-        - No cpu_mem or _irf parameters
+        - No cpu_mem or _irf base pointers (retain _mem pointer when reads exist)
         - Burst operations eliminated
         """
         self.declared_vars = set()
@@ -812,7 +855,13 @@ class CTranspiler:
                 return "uint64_t"
 
         if isinstance(expr, IdentExpr):
-            return self.var_types.get(expr.name, "uint32_t")
+            name = expr.name
+            alias_key = self.register_alias_key(name)
+            if alias_key:
+                info = self.irf_read_infos.get(alias_key)
+                if info and info.type_hints:
+                    return self.choose_type_hint(info.type_hints)
+            return self.var_types.get(name, "uint32_t")
 
         if isinstance(expr, IndexExpr):
             if isinstance(expr.expr, IdentExpr) and expr.expr.name == "_irf" and expr.indices:
@@ -834,19 +883,7 @@ class CTranspiler:
         if isinstance(expr, BinaryExpr):
             left = self.infer_c_type_from_expr(expr.left)
             right = self.infer_c_type_from_expr(expr.right)
-            if left == right:
-                return left
-            if left.startswith("uint") and right.startswith("uint"):
-                return left if self._type_width(left) >= self._type_width(right) else right
-            if left.startswith("int") and right.startswith("int"):
-                return left if self._type_width(left) >= self._type_width(right) else right
-            if "double" in (left, right):
-                return "double"
-            if "float" in (left, right):
-                return "float"
-            if left.startswith("int") or right.startswith("int"):
-                return "int32_t"
-            return "uint32_t"
+            return self._merge_numeric_types(left, right)
 
         if isinstance(expr, UnaryExpr):
             return self.infer_c_type_from_expr(expr.operand)
@@ -859,7 +896,15 @@ class CTranspiler:
             return self.infer_c_type_from_expr(expr.then_branch)
 
         if isinstance(expr, SelectExpr):
-            return self.infer_c_type_from_expr(expr.true_value)
+            result_type: Optional[str] = None
+            for _, value in expr.arms:
+                result_type = self._merge_numeric_types(
+                    result_type, self.infer_c_type_from_expr(value)
+                )
+            result_type = self._merge_numeric_types(
+                result_type, self.infer_c_type_from_expr(expr.default)
+            )
+            return result_type or "uint32_t"
 
         if isinstance(expr, CallExpr):
             if expr.name in {"sqrt", "exp", "log", "pow", "ceil", "floor"}:
@@ -1013,6 +1058,11 @@ class CTranspiler:
             name = expr.name
             if name in self.static_scalar_names:
                 return f"(*{name})"
+            if name in self.declared_vars:
+                return name
+            alias_key = self.register_alias_key(name)
+            if alias_key and alias_key in self.irf_read_params:
+                return self.irf_read_params[alias_key]
             return name
         elif isinstance(expr, BinaryExpr):
             return self.generate_binop(expr)
@@ -1183,24 +1233,27 @@ class CTranspiler:
         return f"{c_func}({args_str})"
 
     def generate_select(self, expr: SelectExpr) -> str:
-        """Generate select expression (similar to ternary)
-
-        In CADL, select might have different syntax but similar semantics.
-        Map to C ternary operator.
-        """
-        cond = self.generate_expr(expr.condition)
-        true_val = self.generate_expr(expr.true_value)
-        false_val = self.generate_expr(expr.false_value)
-        return f"({cond} ? {true_val} : {false_val})"
+        """Generate chained ternary expression for CADL select."""
+        result = self.generate_expr(expr.default)
+        for condition, value in reversed(expr.arms):
+            cond_str = self.generate_expr(condition)
+            value_str = self.generate_expr(value)
+            result = f"({cond_str} ? {value_str} : {result})"
+        return result
 
     def generate_tuple(self, expr: TupleExpr) -> str:
         """Generate tuple expression
 
-        C doesn't have tuples, so this is typically used in special contexts.
-        For now, generate as brace-enclosed list (for struct initialization).
+        When multiple elements are present, fall back to a comma-expression that
+        evaluates all elements and yields the last one.
         """
-        elements_str = ", ".join(self.generate_expr(e) for e in expr.elements)
-        return f"{{{elements_str}}}"
+        elements = [self.generate_expr(e) for e in expr.elements]
+        if not elements:
+            return "0"
+        if len(elements) == 1:
+            return elements[0]
+        combined = ", ".join(elements)
+        return f"/* tuple */({combined})"
 
     def map_type(self, dtype: DataType) -> str:
         """Map CADL type to C type (byte-aligned)"""
@@ -1253,7 +1306,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 High-level C code generation:
-  - No cpu_mem or _irf parameters
+  - No cpu_mem or _irf base pointers (retain _mem pointer when loads remain)
   - _irf[rsX] → rsX_value (direct value parameters)
   - Burst operations eliminated
   - Clean function signatures for instruction matching
