@@ -36,13 +36,14 @@
 #include "circt/Dialect/Cmt2/ECMT2/ModuleLibrary.h"
 #include "circt/Dialect/Cmt2/ECMT2/STLLibrary.h"
 #include "circt/Dialect/Cmt2/ECMT2/Signal.h"
+#include "circt/Dialect/Cmt2/ECMT2/SignalHelpers.h"
 #include "circt/Dialect/Cmt2/Cmt2Dialect.h"
-#include "circt/Dialect/Cmt2/ECMT2/Signal.h"
 #include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
 #include "mlir-c/Support.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -145,6 +146,14 @@ struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mli
 
     // Generate rule-based main module for TOR functions
     auto [mainModule, poolInstance] = generateRuleBasedMainModule(moduleOp, circuit, poolModule);
+
+    // // Generate memory translator module
+    // auto *memoryTranslator = generateMemoryTranslator(circuit);
+
+    // // Generate RoCC adapter module
+    // // TODO: Extract opcodes from the TOR functions or pass as parameter
+    // llvm::SmallVector<uint32_t, 4> opcodes = {0b0001011, 0b0101011}; // Example opcodes
+    // auto *roccAdapter = generateRoCCAdapter(circuit, opcodes);
 
     // Add burst read/write methods to expose memory pool functionality
     addBurstMethodsToMainModule(mainModule, poolInstance);
@@ -290,30 +299,25 @@ private:
     burstRead->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
       auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
 
-      auto burstSizeConst = UInt::constant(8, 64, bodyBuilder, wrapper->getLoc()); // 64-bit burst = 8 bytes
+      auto elementSizeConst = UInt::constant(entryInfo.dataWidth / 8, 64, bodyBuilder, wrapper->getLoc());  // Element size in bytes
       auto numBanksConst = UInt::constant(entryInfo.numBanks, 64, bodyBuilder, wrapper->getLoc());
       auto myBankConst = UInt::constant(bankIdx, 64, bodyBuilder, wrapper->getLoc());
-      auto elementsPerBurstConst = UInt::constant(64, 64, bodyBuilder, wrapper->getLoc());
-      
-      // burst_idx = addr / 8
-      auto burstIdx = addr / burstSizeConst;
-      // burst_pattern = burst_idx % num_banks
-      auto burstPattern = burstIdx / numBanksConst;
+      auto elementsPerBurstConst = UInt::constant(elementsPerBurst, 64, bodyBuilder, wrapper->getLoc());
 
-      // Check if this bank participates: isMine = (burst_pattern <= my_bank) && (my_bank < burst_pattern + elements_per_burst)
-      // Simplified for cyclic: position = (my_bank - burst_pattern + num_banks) % num_banks
-      auto position = (myBankConst - burstPattern + numBanksConst) % numBanksConst;
+      // element_idx = addr / element_size
+      auto elementIdx = addr / elementSizeConst;
+      // start_bank_idx = element_idx % num_banks
+      auto startBankIdx = elementIdx % numBanksConst;
+
+      // Check if this bank participates: isMine = (position < elements_per_burst)
+      // position = (my_bank - start_bank_idx + num_banks) % num_banks
+      auto position = (myBankConst - startBankIdx + numBanksConst) % numBanksConst;
       auto isMine = position < elementsPerBurstConst;
 
-      // Calculate local offset
-      // For banks in pattern: offset = (burst_idx - pattern_offset) / num_banks
-      // pattern_offset = my_bank - burst_pattern (when my_bank >= burst_pattern) or my_bank + num_banks - burst_pattern (wrapped)
-      // Simplified: offset = burst_idx / num_banks (for pattern 0), adjust for other patterns
-      auto patternOffsetMod = (myBankConst - burstPattern + numBanksConst) % numBanksConst;
-
-      // adjusted_burst_idx = burst_idx - pattern_offset_mod
-      auto localOffset = (burstIdx - patternOffsetMod) / numBanksConst;
-      auto localAddrTrunc = localOffset.bits(entryInfo.addrWidth - 1, 0);
+      // Calculate local address: my_element_idx = element_idx + position; local_addr = my_element_idx / num_banks
+      auto myElementIdx = elementIdx + position;
+      auto localAddr = myElementIdx / numBanksConst;
+      auto localAddrTrunc = localAddr.bits(entryInfo.addrWidth - 1, 0);
 
       auto bankDataValues = bankInst->callMethod("read", {localAddrTrunc.getValue()}, bodyBuilder);
       auto rawData = Signal(bankDataValues[0], &bodyBuilder, loc);
@@ -384,25 +388,25 @@ private:
       auto data = Signal(args[1], &bodyBuilder, wrapper->getLoc());
 
       // Helper: Create constants using Signal
-      auto burstSizeConst = UInt::constant(8, 64, bodyBuilder, wrapper->getLoc());  // 64-bit burst = 8 bytes
+      auto elementSizeConst = UInt::constant(entryInfo.dataWidth / 8, 64, bodyBuilder, wrapper->getLoc());  // Element size in bytes
       auto numBanksConst = UInt::constant(entryInfo.numBanks, 64, bodyBuilder, wrapper->getLoc());
       auto myBankConst = UInt::constant(bankIdx, 64, bodyBuilder, wrapper->getLoc());
       auto elementsPerBurstConst = UInt::constant(elementsPerBurst, 64, bodyBuilder, wrapper->getLoc());
 
-      // Helper 1: burst_idx = addr / 8
-      auto burstIdx = addr / burstSizeConst;
+      // Helper 1: element_idx = addr / element_size
+      auto elementIdx = addr / elementSizeConst;
 
-      // Helper 2: burst_pattern = burst_idx % num_banks
-      auto burstPattern = burstIdx % numBanksConst;
+      // Helper 2: start_bank_idx = element_idx % num_banks
+      auto startBankIdx = elementIdx % numBanksConst;
 
       // Helper 3: Calculate position and check participation
-      auto position = ((myBankConst - burstPattern + numBanksConst) % numBanksConst);
+      auto position = ((myBankConst - startBankIdx + numBanksConst) % numBanksConst);
       auto isMine = position < elementsPerBurstConst;
 
-      // Helper 4: Calculate local offset (same as read)
-      auto patternOffsetMod = (myBankConst - burstPattern + numBanksConst) % numBanksConst;
-      auto localOffset = (burstIdx - patternOffsetMod) / numBanksConst;
-      auto localAddrTrunc = localOffset.bits(entryInfo.addrWidth - 1, 0);
+      // Helper 4: Calculate local address
+      auto myElementIdx = elementIdx + position;
+      auto localAddr = myElementIdx / numBanksConst;
+      auto localAddrTrunc = localAddr.bits(entryInfo.addrWidth - 1, 0);
 
       // Helper 5: Calculate data slice position
       auto elementOffsetInBurst = position;
@@ -757,7 +761,6 @@ private:
     auto loc = poolModule->getLoc();
     auto u64Type = UIntType::get(builder.getContext(), 64);
 
-    // TODO: refactor ----------------------------------------------------------------------------------------------------------------------------------
     // Step 1: Create all memory entry submodules
     // Save the insertion point first, since circuit.addModule() will change it
     auto savedIP = builder.saveInsertionPoint();
@@ -1180,6 +1183,618 @@ private:
     });
     burstWriteMethod->finalize();
 
+  }
+
+  /// Generate Memory Translator module that bridges HellaCache interface with User Memory Protocol
+  Module *generateMemoryTranslator(Circuit &circuit) {
+    auto *translatorModule = circuit.addModule("MemoryTranslator");
+    auto &builder = translatorModule->getBuilder();
+    auto loc = translatorModule->getLoc();
+    auto *context = builder.getContext();
+
+    // Add clock and reset arguments
+    Clock clk = translatorModule->addClockArgument("clk");
+    Reset rst = translatorModule->addResetArgument("rst");
+
+    // Define types for the protocols (using inline definitions to avoid unused variables)
+
+    // Create bundle types following Rust patterns
+    // UserMemoryCmd: {addr: u32, cmd: u1, size: u2, data: u32, mask: u4, tag: u8}
+    auto userCmdBundleType = BundleBuilder(context)
+        .addUInt("addr", 32)
+        .addUInt("cmd", 1)
+        .addUInt("size", 2)
+        .addUInt("data", 32)
+        .addUInt("mask", 4)
+        .addUInt("tag", 8)
+        .build(builder, loc);
+
+    // HellaCacheCmd: {addr: u32, tag: u8, cmd: u5, size: u2, signed: u1, phys: u1, data: u32, mask: u4}
+    auto hellaCmdBundleType = BundleBuilder(context)
+        .addUInt("addr", 32)
+        .addUInt("tag", 8)
+        .addUInt("cmd", 5)
+        .addUInt("size", 2)
+        .addUInt("signed", 1)
+        .addUInt("phys", 1)
+        .addUInt("data", 32)
+        .addUInt("mask", 4)
+        .build(builder, loc);
+
+    // HellaCacheResp: {data: u32, tag: u8, cmd: u5, size: u2, signed: u1}
+    auto hellaRespBundleType = BundleBuilder(context)
+        .addUInt("data", 32)
+        .addUInt("tag", 8)
+        .addUInt("cmd", 5)
+        .addUInt("size", 2)
+        .addUInt("signed", 1)
+        .build(builder, loc);
+
+    // UserMemoryResp: {data: u32, tag: u8}
+    auto userRespBundleType = BundleBuilder(context)
+        .addUInt("data", 32)
+        .addUInt("tag", 8)
+        .build(builder, loc);
+
+    // Create external FIFO and register modules
+    auto savedIP = builder.saveInsertionPoint();
+
+    // Command queue (FIFO1Push for HellaCache commands - 82 bits total)
+    auto hellaCmdFifoMod = STLLibrary::createFIFO1PushModule(82, circuit);
+
+    // Response buffer registers (grouped by bitwidth for reuse)
+    auto reg32Mod = STLLibrary::createRegModule(32, 0, circuit);  // 32-bit registers for data and tags
+    auto reg1Mod = STLLibrary::createRegModule(1, 0, circuit);    // 1-bit registers for flags
+
+    // Wire modules for logic (grouped by bitwidth)
+    auto wire1Mod = STLLibrary::createWireModule(1, circuit);     // 1-bit wires for logic
+
+    builder.restoreInsertionPoint(savedIP);
+
+    // Create instances
+    auto *hellaCmdFifo = translatorModule->addInstance("hella_cmd_fifo", hellaCmdFifoMod,
+                                                       {clk.getValue(), rst.getValue()});
+
+    // Slot 0 instances (registers don't need clock/reset)
+    auto *slot0DataReg = translatorModule->addInstance("slot0_data_reg", reg32Mod, {});
+    auto *slot0TagReg = translatorModule->addInstance("slot0_tag_reg", reg32Mod, {});
+    auto *slot0TxdReg = translatorModule->addInstance("slot0_txd_reg", reg1Mod, {});
+    auto *slot0RxdReg = translatorModule->addInstance("slot0_rxd_reg", reg1Mod, {});
+
+    // Slot 1 instances (registers don't need clock/reset)
+    auto *slot1DataReg = translatorModule->addInstance("slot1_data_reg", reg32Mod, {});
+    auto *slot1TagReg = translatorModule->addInstance("slot1_tag_reg", reg32Mod, {});
+    auto *slot1TxdReg = translatorModule->addInstance("slot1_txd_reg", reg1Mod, {});
+    auto *slot1RxdReg = translatorModule->addInstance("slot1_rxd_reg", reg1Mod, {});
+
+    // Control flag instances (registers don't need clock/reset)
+    auto *newerSlotReg = translatorModule->addInstance("newer_slot_reg", reg1Mod, {});
+
+    // Wire instances for logic
+    auto *slot0CanCollectWire = translatorModule->addInstance("slot0_can_collect_wire", wire1Mod, {});
+    auto *slot1CanCollectWire = translatorModule->addInstance("slot1_can_collect_wire", wire1Mod, {});
+
+    // Method: cmd_from_user - receives user memory commands and translates to HellaCache format
+    std::vector<std::pair<std::string, mlir::Type>> cmdFromUserArgs = {{"user_cmd", userCmdBundleType.getBundleType()}};
+    auto *cmdFromUser = translatorModule->addMethod("cmd_from_user", cmdFromUserArgs, {});
+
+    cmdFromUser->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument>) {
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    });
+
+    cmdFromUser->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      Bundle userCmd(args[0], &bodyBuilder, loc);
+
+      // Extract user command fields
+      Signal userAddr = userCmd["addr"];
+      Signal userTag = userCmd["tag"];
+      Signal userCmdType = userCmd["cmd"];
+      Signal userSize = userCmd["size"];
+      Signal userData = userCmd["data"];
+      Signal userMask = userCmd["mask"];
+
+      // Translate to HellaCache format (following Rust logic)
+      // cmd = user_cmd (0=read, 1=write) -> same, but 5-bit wide
+      Signal hellaCmd = userCmdType.pad(5);
+      // signed = false, phys = false (following Rust)
+      Signal hellaSigned = UInt::constant(0, 1, bodyBuilder, loc);
+      Signal hellaPhys = UInt::constant(0, 1, bodyBuilder, loc);
+
+      // Create HellaCache command bundle
+      auto hellaCmdBundle = BundleBuilder(context)
+          .addUInt("addr", 32)
+          .addUInt("tag", 8)
+          .addUInt("cmd", 5)
+          .addUInt("size", 2)
+          .addUInt("signed", 1)
+          .addUInt("phys", 1)
+          .addUInt("data", 32)
+          .addUInt("mask", 4)
+          .build(bodyBuilder, loc);
+
+      // Pack the bundle fields into a 82-bit value for FIFO
+      // Layout: data(32) + mask(4) + phys(1) + signed(1) + size(2) + cmd(5) + tag(8) + addr(32) = 85 bits (with padding)
+      Signal packedHellaCmd = userData.cat(userMask).cat(hellaPhys).cat(hellaSigned)
+                              .cat(userSize).cat(hellaCmd).cat(userTag).cat(userAddr);
+
+      // Enqueue to HellaCache command FIFO
+      hellaCmdFifo->callMethod("enq", {packedHellaCmd.getValue()}, bodyBuilder);
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    cmdFromUser->finalize();
+
+    // Rule: commit_cmd - processes HellaCache commands and manages response slots
+    // This is equivalent to the Rust always! block for command processing
+    auto *commitCmdRule = translatorModule->addRule("commit_cmd");
+
+    commitCmdRule->guard([&](mlir::OpBuilder &guardBuilder) {
+      // Check if HellaCache FIFO is not empty (rule fires when there are commands to process)
+      auto emptyValues = hellaCmdFifo->callValue("empty", guardBuilder);
+      auto emptySignal = Signal(emptyValues[0], &guardBuilder, loc);
+      auto notEmpty = ~emptySignal;
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, notEmpty.getValue());
+    });
+
+    commitCmdRule->body([&](mlir::OpBuilder &bodyBuilder) {
+      // Pop from HellaCache command queue
+      auto cmdValues = hellaCmdFifo->callValue("deq", bodyBuilder);
+      auto hellaCmd = Signal(cmdValues[0], &bodyBuilder, loc);
+
+      // Extract fields from HellaCache command (assuming packed format)
+      // Layout: data(32) + mask(4) + phys(1) + signed(1) + size(2) + cmd(5) + tag(8) + addr(32)
+      Signal tagAddr = hellaCmd.bits(39, 32);     // bits 32-39: tag used as address for matching
+      Signal cmdField = hellaCmd.bits(46, 42);     // bits 42-46: cmd (5-bit)
+
+      // Check if this is a read command (cmd == 0)
+      Signal cmdIsRead = cmdField == UInt::constant(0, 5, bodyBuilder, loc);
+
+      // Read current newer_slot flag
+      auto newerSlotValues = newerSlotReg->callValue("read", bodyBuilder);
+      Signal newerSlot = Signal(newerSlotValues[0], &bodyBuilder, loc);
+
+      // Command processing logic for read commands (following Rust pattern)
+      If(cmdIsRead,
+          [&](mlir::OpBuilder &builder) -> Signal {
+            // Slot selection logic: if newer_slot == 1, use slot 0; else use slot 1
+            auto slotLogic = If(newerSlot == UInt::constant(1, 1, builder, loc),
+                [&](mlir::OpBuilder &innerBuilder) -> Signal {
+                  // next slot is 0 - use slot 0 for tracking
+                  slot0TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
+                  slot0TagReg->callMethod("write", {tagAddr.getValue()}, innerBuilder);
+                  newerSlotReg->callMethod("write", {UInt::constant(0, 1, innerBuilder, loc).getValue()}, innerBuilder);
+                  return UInt::constant(0, 1, innerBuilder, loc);
+                },
+                [&](mlir::OpBuilder &innerBuilder) -> Signal {
+                  // next slot is 1 - use slot 1 for tracking
+                  slot1TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
+                  slot1TagReg->callMethod("write", {tagAddr.getValue()}, innerBuilder);
+                  newerSlotReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
+                  return UInt::constant(0, 1, innerBuilder, loc);
+                },
+                builder, loc);
+            return slotLogic;
+          },
+          [&](mlir::OpBuilder &builder) -> Signal {
+            // For write commands or other operations, no slot management needed
+            return UInt::constant(0, 1, builder, loc);
+          },
+          bodyBuilder, loc);
+
+      // Note: In a complete implementation, we would also need to:
+      // 1. Send the command to the actual HellaCache interface (hella_slave.cmd_to_bus)
+      // 2. Handle write response processing if needed
+      // This would require connecting to external HellaCache interface modules
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    commitCmdRule->finalize();
+
+    // Rule: slot_0_can_collect_logic - computes when slot 0 can provide responses
+    auto *slot0CanCollectLogicRule = translatorModule->addRule("slot_0_can_collect_logic");
+
+    slot0CanCollectLogicRule->guard([&](mlir::OpBuilder &guardBuilder) {
+      // This rule always fires (combinational logic)
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    });
+
+    slot0CanCollectLogicRule->body([&](mlir::OpBuilder &bodyBuilder) {
+      // Read slot 0 flags
+      auto slot0TxdValues = slot0TxdReg->callValue("read", bodyBuilder);
+      auto slot0RxdValues = slot0RxdReg->callValue("read", bodyBuilder);
+      Signal slot0Txd = Signal(slot0TxdValues[0], &bodyBuilder, loc);
+      Signal slot0Rxd = Signal(slot0RxdValues[0], &bodyBuilder, loc);
+
+      // Read slot 1 flags for ordering comparison
+      auto slot1TxdValues = slot1TxdReg->callValue("read", bodyBuilder);
+      auto newerSlotValues = newerSlotReg->callValue("read", bodyBuilder);
+      Signal slot1Txd = Signal(slot1TxdValues[0], &bodyBuilder, loc);
+      Signal newerSlot = Signal(newerSlotValues[0], &bodyBuilder, loc);
+
+      // Compute slot0_ready: both transmitted and received flags set
+      Signal slot0Ready = slot0Txd & slot0Rxd;
+
+      // Compute is_earlier: slot 0 is earlier if slot 1 not transmitted OR
+      // slot 1 transmitted AND newer_slot == 1 (slot 0 is the newer one)
+      Signal slot1NotTx = slot1Txd == UInt::constant(0, 1, bodyBuilder, loc);
+      Signal slot1TxAndNewer1 = slot1Txd & (newerSlot == UInt::constant(1, 1, bodyBuilder, loc));
+      Signal isEarlier = slot1NotTx | slot1TxAndNewer1;
+
+      // Compute can_collect: slot is ready AND is earlier
+      Signal canCollect = slot0Ready & isEarlier;
+
+      // Write to the wire
+      slot0CanCollectWire->callMethod("write", {canCollect.getValue()}, bodyBuilder);
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    slot0CanCollectLogicRule->finalize();
+
+    // Rule: slot_1_can_collect_logic - computes when slot 1 can provide responses
+    auto *slot1CanCollectLogicRule = translatorModule->addRule("slot_1_can_collect_logic");
+
+    slot1CanCollectLogicRule->guard([&](mlir::OpBuilder &guardBuilder) {
+      // This rule always fires (combinational logic)
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    });
+
+    slot1CanCollectLogicRule->body([&](mlir::OpBuilder &bodyBuilder) {
+      // Read slot 1 flags
+      auto slot1TxdValues = slot1TxdReg->callValue("read", bodyBuilder);
+      auto slot1RxdValues = slot1RxdReg->callValue("read", bodyBuilder);
+      Signal slot1Txd = Signal(slot1TxdValues[0], &bodyBuilder, loc);
+      Signal slot1Rxd = Signal(slot1RxdValues[0], &bodyBuilder, loc);
+
+      // Read slot 0 flags for ordering comparison
+      auto slot0TxdValues = slot0TxdReg->callValue("read", bodyBuilder);
+      auto newerSlotValues = newerSlotReg->callValue("read", bodyBuilder);
+      Signal slot0Txd = Signal(slot0TxdValues[0], &bodyBuilder, loc);
+      Signal newerSlot = Signal(newerSlotValues[0], &bodyBuilder, loc);
+
+      // Compute slot1_ready: both transmitted and received flags set
+      Signal slot1Ready = slot1Txd & slot1Rxd;
+
+      // Compute is_earlier: slot 1 is earlier if slot 0 not transmitted OR
+      // slot 0 transmitted AND newer_slot == 0 (slot 1 is the newer one)
+      Signal slot0NotTx = slot0Txd == UInt::constant(0, 1, bodyBuilder, loc);
+      Signal slot0TxAndNewer0 = slot0Txd & (newerSlot == UInt::constant(0, 1, bodyBuilder, loc));
+      Signal isEarlier = slot0NotTx | slot0TxAndNewer0;
+
+      // Compute can_collect: slot is ready AND is earlier
+      Signal canCollect = slot1Ready & isEarlier;
+
+      // Write to the wire
+      slot1CanCollectWire->callMethod("write", {canCollect.getValue()}, bodyBuilder);
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    slot1CanCollectLogicRule->finalize();
+
+    // Method: resp_from_bus - receives responses from HellaCache and buffers them
+    std::vector<std::pair<std::string, mlir::Type>> respFromBusArgs = {{"hella_resp", hellaRespBundleType.getBundleType()}};
+    auto *respFromBus = translatorModule->addMethod("resp_from_bus", respFromBusArgs, {});
+
+    respFromBus->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument>) {
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    });
+
+    respFromBus->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      Bundle hellaResp(args[0], &bodyBuilder, loc);
+
+      // Extract response fields
+      Signal respData = hellaResp["data"];
+      Signal respTag = hellaResp["tag"];
+      Signal respCmd = hellaResp["cmd"];
+
+      // Check if this is a read response (cmd == 0)
+      Signal cmdIsRead = respCmd == UInt::constant(0, 5, bodyBuilder, loc);
+      Signal tagAddr = respTag; // Use tag as address for matching
+
+      // Read current newer_slot flag
+      auto newerSlotValues = newerSlotReg->callValue("read", bodyBuilder);
+      Signal newerSlot = Signal(newerSlotValues[0], &bodyBuilder, loc);
+
+      // Conditional logic following Rust pattern
+      auto result = If(cmdIsRead,
+          [&](mlir::OpBuilder &builder) -> Signal {
+            // Check which slot to use following Rust logic
+            auto useSlot1 = If(newerSlot == UInt::constant(1, 1, builder, loc),
+                [&](mlir::OpBuilder &innerBuilder) -> Signal {
+                  // Use slot 0 if newer_slot == 1
+                  slot0TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
+                  slot0TagReg->callMethod("write", {tagAddr.getValue()}, innerBuilder);
+                  newerSlotReg->callMethod("write", {UInt::constant(0, 1, innerBuilder, loc).getValue()}, innerBuilder);
+                  return UInt::constant(0, 1, innerBuilder, loc);
+                },
+                [&](mlir::OpBuilder &innerBuilder) -> Signal {
+                  // Use slot 1 if newer_slot == 0
+                  slot1TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
+                  slot1TagReg->callMethod("write", {tagAddr.getValue()}, innerBuilder);
+                  newerSlotReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
+                  return UInt::constant(0, 1, innerBuilder, loc);
+                },
+                builder, loc);
+            return useSlot1;
+          },
+          [&](mlir::OpBuilder &builder) -> Signal {
+            return UInt::constant(0, 1, builder, loc);
+          },
+          bodyBuilder, loc);
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    respFromBus->finalize();
+
+    // Method: resp_to_user - provides user memory responses (with ordering)
+    // This matches the Rust method exactly - returns user response bundle to output interface
+    llvm::SmallVector<std::pair<std::string, mlir::Type>, 0> respToUserArgs;
+    llvm::SmallVector<mlir::Type, 1> respToUserReturns = {userRespBundleType.getBundleType()};
+    auto *respToUser = translatorModule->addMethod("resp_to_user", respToUserArgs, respToUserReturns);
+
+    respToUser->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      // Check if any slot can collect (following Rust logic)
+      auto slot0CollectValues = slot0CanCollectWire->callValue("read", guardBuilder);
+      auto slot1CollectValues = slot1CanCollectWire->callValue("read", guardBuilder);
+      Signal slot0CanCollect = Signal(slot0CollectValues[0], &guardBuilder, loc);
+      Signal slot1CanCollect = Signal(slot1CollectValues[0], &guardBuilder, loc);
+
+      auto hasResponse = slot0CanCollect | slot1CanCollect;
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, hasResponse.getValue());
+    });
+
+    respToUser->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      // Following Rust logic exactly: if_! (slot_0_can_collect.read() { ... } else { ... })
+      auto slot0CollectValues = slot0CanCollectWire->callValue("read", bodyBuilder);
+      Signal slot0CanCollect = Signal(slot0CollectValues[0], &bodyBuilder, loc);
+
+      // Read slot 0 data for immediate use if needed
+      auto data0Values = slot0DataReg->callValue("read", bodyBuilder);
+      auto tag0Values = slot0TagReg->callValue("read", bodyBuilder);
+      Signal data0 = Signal(data0Values[0], &bodyBuilder, loc);
+      Signal tag0 = Signal(tag0Values[0], &bodyBuilder, loc);
+
+      // Rust pattern: let retval = if_! (slot_0_can_collect.read() { ... } else { ... })
+      auto retval = If(slot0CanCollect,
+          [&](mlir::OpBuilder &builder) -> Signal {
+            // Clear slot 0 flags BEFORE returning (matching Rust exactly)
+            slot0TxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
+            slot0RxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
+
+            // Create UserMemoryResp bundle and pack it: data(32) + tag(8) = 40 bits total
+            Signal packedResp = tag0.pad(24).cat(data0); // tag(8) + padding(24) + data(32) = 64 bits
+            return packedResp;
+          },
+          [&](mlir::OpBuilder &builder) -> Signal {
+            // Else branch: clear slot 1 flags and check if slot 1 can collect
+            slot1TxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
+            slot1RxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
+
+            // Check if slot 1 can collect
+            auto slot1CollectValues = slot1CanCollectWire->callValue("read", builder);
+            Signal slot1CanCollect = Signal(slot1CollectValues[0], &builder, loc);
+
+            auto slot1Resp = If(slot1CanCollect,
+                [&](mlir::OpBuilder &innerBuilder) -> Signal {
+                  // Read slot 1 data
+                  auto data1Values = slot1DataReg->callValue("read", innerBuilder);
+                  auto tag1Values = slot1TagReg->callValue("read", innerBuilder);
+                  Signal data1 = Signal(data1Values[0], &innerBuilder, loc);
+                  Signal tag1 = Signal(tag1Values[0], &innerBuilder, loc);
+
+                  // Create UserMemoryResp bundle and pack it
+                  Signal packedResp = tag1.pad(24).cat(data1);
+                  return packedResp;
+                },
+                [&](mlir::OpBuilder &innerBuilder) -> Signal {
+                  // Default response if slot 1 can't collect either
+                  return UInt::constant(0, 64, innerBuilder, loc);
+                },
+                builder, loc);
+            return slot1Resp;
+          },
+          bodyBuilder, loc);
+
+      // Return the retval (matching Rust: ret!(var!(retval)))
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc, retval.getValue());
+    });
+
+    respToUser->finalize();
+
+    // Add scheduling constraints (matching Rust schedule! calls)
+    // Rust: schedule!(resp_from_bus, commit_cmd) means resp_from_bus must fire before commit_cmd
+    // Rust: schedule!(resp_from_bus, resp_to_user) means resp_from_bus must fire before resp_to_user
+    // Note: In CMT2 C++, this would be handled by the scheduling system, but we document it here
+
+    // Schedule relationships:
+    // 1. resp_from_bus → commit_cmd (resp_from_bus must execute before commit_cmd)
+    // 2. resp_from_bus → resp_to_user (resp_from_bus must execute before resp_to_user)
+
+    return translatorModule;
+  }
+
+  /// Generate RoCC Adapter module that bridges RoCC interface with accelerator execution units
+  Module *generateRoCCAdapter(Circuit &circuit, const llvm::SmallVector<uint32_t, 4> &opcodes) {
+    auto *roccAdapterModule = circuit.addModule("RoCCAdapter");
+    auto &builder = roccAdapterModule->getBuilder();
+    auto loc = roccAdapterModule->getLoc();
+    auto *context = builder.getContext();
+
+    // Add clock and reset arguments
+    Clock clk = roccAdapterModule->addClockArgument("clk");
+    Reset rst = roccAdapterModule->addResetArgument("rst");
+
+    // Create bundle types following Rust patterns
+    // RoccCmd: {funct: u7, rs1: u5, rs2: u5, rd: u5, xs1: u1, xs2: u1, xd: u1, opcode: u7, rs1data: u32, rs2data: u32}
+    auto roccCmdBundleType = BundleBuilder(context)
+        .addUInt("funct", 7)
+        .addUInt("rs1", 5)
+        .addUInt("rs2", 5)
+        .addUInt("rd", 5)
+        .addUInt("xs1", 1)
+        .addUInt("xs2", 1)
+        .addUInt("xd", 1)
+        .addUInt("opcode", 7)
+        .addUInt("rs1data", 32)
+        .addUInt("rs2data", 32)
+        .build(builder, loc);
+
+    // RoccResp: {rd: u5, rddata: u32}
+    auto roccRespBundleType = BundleBuilder(context)
+        .addUInt("rd", 5)
+        .addUInt("rddata", 32)
+        .build(builder, loc);
+
+    // Create external FIFO modules
+    auto savedIP = builder.saveInsertionPoint();
+
+    // Calculate total bits for RoCC command bundle: 7+5+5+5+1+1+1+7+32+32 = 96 bits
+    auto roccCmdFifoMod = STLLibrary::createFIFO1PushModule(96, circuit);
+
+    // Calculate total bits for RoCC response bundle: 5+32 = 37 bits (padded to appropriate width)
+    auto roccRespFifoMod = STLLibrary::createFIFO1PushModule(37, circuit);
+
+    builder.restoreInsertionPoint(savedIP);
+
+    // Create FIFO instances for each opcode
+    llvm::SmallVector<Instance*, 4> roccCmdFifos;
+    for (uint32_t opcode : opcodes) {
+      auto *fifo = roccAdapterModule->addInstance(
+          "rocc_cmd_fifo_" + std::to_string(opcode),
+          roccCmdFifoMod,
+          {clk.getValue(), rst.getValue()}
+      );
+      roccCmdFifos.push_back(fifo);
+    }
+
+    // Create response FIFO instance
+    auto *roccRespFifo = roccAdapterModule->addInstance("rocc_resp_fifo", roccRespFifoMod,
+                                                        {clk.getValue(), rst.getValue()});
+
+    // Method: cmd_from_bus - receives RoCC commands from the bus and routes to appropriate opcode queues
+    llvm::SmallVector<std::pair<std::string, mlir::Type>, 1> cmdFromBusArgs;
+    cmdFromBusArgs.push_back({"rocc_cmd_bus", roccCmdBundleType.getBundleType()});
+    auto *cmdFromBus = roccAdapterModule->addMethod("cmd_from_bus", cmdFromBusArgs, {});
+
+    cmdFromBus->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument>) {
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    });
+
+    cmdFromBus->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      Bundle roccCmd(args[0], &bodyBuilder, loc);
+
+      // Extract opcode from RoCC command
+      Signal opcode = roccCmd["opcode"];
+
+      // Route command to appropriate queue based on opcode (following Rust pattern)
+      for (size_t i = 0; i < opcodes.size(); ++i) {
+        uint32_t targetOpcode = opcodes[i];
+        auto *fifo = roccCmdFifos[i];
+
+        // Check if this command's opcode matches the target
+        auto opcodeMatch = opcode == UInt::constant(targetOpcode, 7, bodyBuilder, loc);
+
+        // Conditional enqueue (matching Rust if_! pattern)
+        If(opcodeMatch,
+            [&](mlir::OpBuilder &innerBuilder) -> Signal {
+              // Enqueue the entire command bundle to the appropriate FIFO
+              fifo->callMethod("enq", {args[0]}, innerBuilder);
+              return UInt::constant(0, 1, innerBuilder, loc);
+            },
+            [&](mlir::OpBuilder &innerBuilder) -> Signal {
+              return UInt::constant(0, 1, innerBuilder, loc);
+            },
+            bodyBuilder, loc);
+      }
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    cmdFromBus->finalize();
+
+    // Method: resp_from_user - receives responses from user execution units and enqueues for return
+    llvm::SmallVector<std::pair<std::string, mlir::Type>, 1> respFromUserArgs;
+    respFromUserArgs.push_back({"rocc_resp_user", roccRespBundleType.getBundleType()});
+    auto *respFromUser = roccAdapterModule->addMethod("resp_from_user", respFromUserArgs, {});
+
+    respFromUser->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument>) {
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    });
+
+    respFromUser->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      // Enqueue the response bundle to the response FIFO
+      roccRespFifo->callMethod("enq", {args[0]}, bodyBuilder);
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    respFromUser->finalize();
+
+    // Rule: commit - processes response queue and sends to RoCC master
+    auto *commitRule = roccAdapterModule->addRule("commit");
+
+    commitRule->guard([&](mlir::OpBuilder &guardBuilder) {
+      // Check if response FIFO is not empty
+      auto emptyValues = roccRespFifo->callValue("empty", guardBuilder);
+      auto emptySignal = Signal(emptyValues[0], &guardBuilder, loc);
+      auto notEmpty = ~emptySignal;
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, notEmpty.getValue());
+    });
+
+    commitRule->body([&](mlir::OpBuilder &bodyBuilder) {
+      // Dequeue response from FIFO
+      auto respValues = roccRespFifo->callValue("deq", bodyBuilder);
+      auto roccResp = respValues[0];
+
+      // Note: In a complete implementation, this would call the RoCC master's resp_to_bus method
+      // For now, we just consume the response from the queue
+      // rocc_master.resp_to_bus(roccResp);
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    commitRule->finalize();
+
+    // Add cmd_to_user methods for each opcode (following Rust pattern exactly)
+    for (size_t i = 0; i < opcodes.size(); ++i) {
+      uint32_t opcode = opcodes[i];
+      std::string methodName = "cmd_to_user_" + std::to_string(opcode);
+
+      llvm::SmallVector<std::pair<std::string, mlir::Type>, 0> cmdToUserArgs;
+      llvm::SmallVector<mlir::Type, 1> cmdToUserReturns = {roccCmdBundleType.getBundleType()};
+      auto *cmdToUser = roccAdapterModule->addMethod(methodName, cmdToUserArgs, cmdToUserReturns);
+
+      cmdToUser->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+        // Check if the corresponding FIFO is not empty
+        auto emptyValues = roccCmdFifos[i]->callValue("empty", guardBuilder);
+        auto emptySignal = Signal(emptyValues[0], &guardBuilder, loc);
+        auto notEmpty = ~emptySignal;
+        guardBuilder.create<circt::cmt2::ReturnOp>(loc, notEmpty.getValue());
+      });
+
+      cmdToUser->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+        // Dequeue command from the appropriate FIFO (matching Rust: ret!(rocc_cmd_queue.deq()))
+        auto cmdValues = roccCmdFifos[i]->callValue("deq", bodyBuilder);
+        auto roccCmd = cmdValues[0];
+
+        // Return the command bundle
+        bodyBuilder.create<circt::cmt2::ReturnOp>(loc, roccCmd);
+      });
+
+      cmdToUser->finalize();
+    }
+
+    return roccAdapterModule;
   }
 
   /// Generate rules for a specific TOR function - proper implementation from rulegenpass.cpp
