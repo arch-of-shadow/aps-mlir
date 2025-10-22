@@ -40,6 +40,7 @@
 #include "circt/Dialect/Cmt2/Cmt2Dialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
+#include "circt/Dialect/FIRRTL/FIRRTLTypes.h"
 #include "mlir-c/Support.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -58,6 +59,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
+#include <string>
 
 #define DEBUG_TYPE "aps-memory-pool-gen"
 
@@ -144,20 +146,21 @@ struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mli
 
     Module *poolModule = generateMemoryPool(circuit, moduleOp, memoryMapOp);
 
-    // Generate rule-based main module for TOR functions
-    auto [mainModule, poolInstance] = generateRuleBasedMainModule(moduleOp, circuit, poolModule);
+    // Generate RoCC adapter module
+    // TODO: Extract opcodes from the TOR functions or pass as parameter
+    llvm::SmallVector<uint32_t, 4> opcodes = {0b0001011, 0b0101011}; // Example opcodes
+    auto *roccAdapterModule = generateRoCCAdapter(circuit, opcodes);
 
     // // Generate memory translator module
     // auto *memoryTranslator = generateMemoryTranslator(circuit);
-
-    // // Generate RoCC adapter module
-    // // TODO: Extract opcodes from the TOR functions or pass as parameter
-    // llvm::SmallVector<uint32_t, 4> opcodes = {0b0001011, 0b0101011}; // Example opcodes
-    // auto *roccAdapter = generateRoCCAdapter(circuit, opcodes);
+    
+    // Generate rule-based main module for TOR functions
+    auto [mainModule, poolInstance] = generateRuleBasedMainModule(moduleOp, circuit, poolModule, roccAdapterModule);
 
     // Add burst read/write methods to expose memory pool functionality
-    // addBurstMethodsToMainModule(mainModule, poolInstance);
+    addBurstMethodsToMainModule(mainModule, poolInstance);
     
+
     auto generatedModule = circuit.generateMLIR();
     if (!generatedModule) {
       moduleOp.emitError() << "failed to materialize MLIR";
@@ -1095,7 +1098,7 @@ private:
 
   /// Generate rule-based main module for TOR functions
   std::pair<Module*, Instance*> generateRuleBasedMainModule(ModuleOp moduleOp, Circuit &circuit,
-                                   Module *poolModule) {
+                                   Module *poolModule, Module *roccModule) {
     // Create main module in the same circuit
     auto *mainModule = circuit.addModule("main");
 
@@ -1112,12 +1115,15 @@ private:
     auto mainRst = mainModule->addResetArgument("rst");
 
     // Add scratchpad pool instance - use the pool module we created earlier
-    auto *poolInstance = mainModule->addInstance("scratchpad_pool",
-                                                 poolModule, {mainClk.getValue(), mainRst.getValue()});
+    auto *poolInstance = mainModule->addInstance("scratchpad_pool", poolModule, {mainClk.getValue(), mainRst.getValue()});
+    auto *roccInstance = mainModule->addInstance("rocc_adapter", roccModule, {mainClk.getValue(), mainRst.getValue()});
 
     // For each TOR function, generate rules
+    // Extract opcodes from the function or use defaults
+    // For scalar.mlir, we need to determine the appropriate opcode
+    uint32_t opcode = 0b0001011; // Default opcode for scalar operations
     for (auto funcOp : torFuncs) {
-      generateRulesForFunction(mainModule, funcOp, poolInstance, circuit, mainClk, mainRst);
+      generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance, circuit, mainClk, mainRst, opcode);
     }
 
     return {mainModule, poolInstance};
@@ -1336,11 +1342,8 @@ private:
     auto *commitCmdRule = translatorModule->addRule("commit_cmd");
 
     commitCmdRule->guard([&](mlir::OpBuilder &guardBuilder) {
-      // Check if HellaCache FIFO is not empty (rule fires when there are commands to process)
-      auto emptyValues = hellaCmdFifo->callValue("empty", guardBuilder);
-      auto emptySignal = Signal(emptyValues[0], &guardBuilder, loc);
-      auto notEmpty = ~emptySignal;
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, notEmpty.getValue());
+      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
+      guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
     });
 
     commitCmdRule->body([&](mlir::OpBuilder &bodyBuilder) {
@@ -1639,24 +1642,23 @@ private:
 
     // Create bundle types following Rust patterns
     // RoccCmd: {funct: u7, rs1: u5, rs2: u5, rd: u5, xs1: u1, xs2: u1, xd: u1, opcode: u7, rs1data: u32, rs2data: u32}
-    auto roccCmdBundleType = BundleBuilder(context)
-        .addUInt("funct", 7)
-        .addUInt("rs1", 5)
-        .addUInt("rs2", 5)
-        .addUInt("rd", 5)
-        .addUInt("xs1", 1)
-        .addUInt("xs2", 1)
-        .addUInt("xd", 1)
-        .addUInt("opcode", 7)
-        .addUInt("rs1data", 32)
-        .addUInt("rs2data", 32)
-        .build(builder, loc);
+    auto roccCmdBundleType = BundleType::get(context, {
+      BundleType::BundleElement{builder.getStringAttr("funct"), false, UIntType::get(context, 7)},
+      BundleType::BundleElement{builder.getStringAttr("rs1"), false, UIntType::get(context, 5)},
+      BundleType::BundleElement{builder.getStringAttr("rs2"), false, UIntType::get(context, 5)},
+      BundleType::BundleElement{builder.getStringAttr("rd"), false, UIntType::get(context, 5)},
+      BundleType::BundleElement{builder.getStringAttr("xs1"), false, UIntType::get(context, 1)},
+      BundleType::BundleElement{builder.getStringAttr("xs2"), false, UIntType::get(context, 1)},
+      BundleType::BundleElement{builder.getStringAttr("xd"), false, UIntType::get(context, 1)},
+      BundleType::BundleElement{builder.getStringAttr("opcode"), false, UIntType::get(context, 7)},
+      BundleType::BundleElement{builder.getStringAttr("rs1data"), false, UIntType::get(context, 32)},
+      BundleType::BundleElement{builder.getStringAttr("rs2data"), false, UIntType::get(context, 32)}
+    });
 
-    // RoccResp: {rd: u5, rddata: u32}
-    auto roccRespBundleType = BundleBuilder(context)
-        .addUInt("rd", 5)
-        .addUInt("rddata", 32)
-        .build(builder, loc);
+    auto roccRespBundleType = BundleType::get(builder.getContext(), {
+      BundleType::BundleElement{builder.getStringAttr("rd"), false, UIntType::get(context, 5)},
+      BundleType::BundleElement{builder.getStringAttr("rddata"), false, UIntType::get(context, 32)}
+    });
 
     // Create external FIFO modules
     auto savedIP = builder.saveInsertionPoint();
@@ -1686,7 +1688,7 @@ private:
 
     // Method: cmd_from_bus - receives RoCC commands from the bus and routes to appropriate opcode queues
     llvm::SmallVector<std::pair<std::string, mlir::Type>, 1> cmdFromBusArgs;
-    cmdFromBusArgs.push_back({"rocc_cmd_bus", roccCmdBundleType.getBundleType()});
+    cmdFromBusArgs.push_back({"rocc_cmd_bus", roccCmdBundleType});
     auto *cmdFromBus = roccAdapterModule->addMethod("cmd_from_bus", cmdFromBusArgs, {});
 
     cmdFromBus->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument>) {
@@ -1697,8 +1699,22 @@ private:
     cmdFromBus->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
       Bundle roccCmd(args[0], &bodyBuilder, loc);
 
-      // Extract opcode from RoCC command
+      // Extract all fields from RoCC command bundle
+      Signal funct = roccCmd["funct"];
+      Signal rs1 = roccCmd["rs1"];
+      Signal rs2 = roccCmd["rs2"];
+      Signal rd = roccCmd["rd"];
+      Signal xs1 = roccCmd["xs1"];
+      Signal xs2 = roccCmd["xs2"];
+      Signal xd = roccCmd["xd"];
       Signal opcode = roccCmd["opcode"];
+      Signal rs1data = roccCmd["rs1data"];
+      Signal rs2data = roccCmd["rs2data"];
+
+      // Pack the bundle into a 96-bit concatenated value for FIFO
+      // Layout: rs2data(32) + rs1data(32) + opcode(7) + xd(1) + xs2(1) + xs1(1) + rd(5) + rs2(5) + rs1(5) + funct(7) = 96 bits
+      Signal packedCmd = rs2data.cat(rs1data).cat(opcode).cat(xd).cat(xs2).cat(xs1)
+                                .cat(rd).cat(rs2).cat(rs1).cat(funct);
 
       // Route command to appropriate queue based on opcode (following Rust pattern)
       for (size_t i = 0; i < opcodes.size(); ++i) {
@@ -1711,8 +1727,8 @@ private:
         // Conditional enqueue (matching Rust if_! pattern)
         If(opcodeMatch,
             [&](mlir::OpBuilder &innerBuilder) -> Signal {
-              // Enqueue the entire command bundle to the appropriate FIFO
-              fifo->callMethod("enq", {args[0]}, innerBuilder);
+              // Enqueue the packed 96-bit command to the appropriate FIFO
+              fifo->callMethod("enq", {packedCmd.getValue()}, innerBuilder);
               return UInt::constant(0, 1, innerBuilder, loc);
             },
             [&](mlir::OpBuilder &innerBuilder) -> Signal {
@@ -1728,7 +1744,7 @@ private:
 
     // Method: resp_from_user - receives responses from user execution units and enqueues for return
     llvm::SmallVector<std::pair<std::string, mlir::Type>, 1> respFromUserArgs;
-    respFromUserArgs.push_back({"rocc_resp_user", roccRespBundleType.getBundleType()});
+    respFromUserArgs.push_back({"rocc_resp_user", roccRespBundleType});
     auto *respFromUser = roccAdapterModule->addMethod("resp_from_user", respFromUserArgs, {});
 
     respFromUser->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument>) {
@@ -1737,8 +1753,18 @@ private:
     });
 
     respFromUser->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      // Enqueue the response bundle to the response FIFO
-      roccRespFifo->callMethod("enq", {args[0]}, bodyBuilder);
+      Bundle roccResp(args[0], &bodyBuilder, loc);
+
+      // Extract fields from RoCC response bundle
+      Signal rd = roccResp["rd"];
+      Signal rddata = roccResp["rddata"];
+
+      // Pack the bundle into a 37-bit concatenated value for FIFO
+      // Layout: rddata(32) + rd(5) = 37 bits
+      Signal packedResp = rddata.cat(rd);
+
+      // Enqueue the packed response to the response FIFO
+      roccRespFifo->callMethod("enq", {packedResp.getValue()}, bodyBuilder);
 
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
     });
@@ -1749,21 +1775,31 @@ private:
     auto *commitRule = roccAdapterModule->addRule("commit");
 
     commitRule->guard([&](mlir::OpBuilder &guardBuilder) {
-      // Check if response FIFO is not empty
-      auto emptyValues = roccRespFifo->callValue("empty", guardBuilder);
-      auto emptySignal = Signal(emptyValues[0], &guardBuilder, loc);
-      auto notEmpty = ~emptySignal;
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, notEmpty.getValue());
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
     });
 
     commitRule->body([&](mlir::OpBuilder &bodyBuilder) {
-      // Dequeue response from FIFO
+      // Dequeue response from FIFO (37-bit concatenated value)
       auto respValues = roccRespFifo->callValue("deq", bodyBuilder);
-      auto roccResp = respValues[0];
+      Signal packedResp(respValues[0], &bodyBuilder, loc);
+
+      // Unpack the 37-bit concatenated value back into bundle fields
+      // Layout: rddata(32) + rd(5) = 37 bits
+      Signal rddata = packedResp.bits(36, 5);  // bits 5-36: rddata (32 bits)
+      Signal rd = packedResp.bits(4, 0);       // bits 0-4: rd (5 bits)
+
+      // Create RoCC response bundle from unpacked fields using BundleCreateOp
+      // Order must match the bundle type definition: rd, rddata
+      llvm::SmallVector<mlir::Value> respBundleFields = {
+        rd.getValue(), rddata.getValue()
+      };
+
+      auto respBundleValue = bodyBuilder.create<BundleCreateOp>(loc, roccRespBundleType, respBundleFields);
 
       // Note: In a complete implementation, this would call the RoCC master's resp_to_bus method
       // For now, we just consume the response from the queue
-      // rocc_master.resp_to_bus(roccResp);
+      // rocc_master.resp_to_bus(respBundleValue.getResult());
 
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
     });
@@ -1776,24 +1812,44 @@ private:
       std::string methodName = "cmd_to_user_" + std::to_string(opcode);
 
       llvm::SmallVector<std::pair<std::string, mlir::Type>, 0> cmdToUserArgs;
-      llvm::SmallVector<mlir::Type, 1> cmdToUserReturns = {roccCmdBundleType.getBundleType()};
+      llvm::SmallVector<mlir::Type, 1> cmdToUserReturns = {roccCmdBundleType};
       auto *cmdToUser = roccAdapterModule->addMethod(methodName, cmdToUserArgs, cmdToUserReturns);
 
       cmdToUser->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-        // Check if the corresponding FIFO is not empty
-        auto emptyValues = roccCmdFifos[i]->callValue("empty", guardBuilder);
-        auto emptySignal = Signal(emptyValues[0], &guardBuilder, loc);
-        auto notEmpty = ~emptySignal;
-        guardBuilder.create<circt::cmt2::ReturnOp>(loc, notEmpty.getValue());
+        auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+        guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
       });
 
       cmdToUser->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-        // Dequeue command from the appropriate FIFO (matching Rust: ret!(rocc_cmd_queue.deq()))
+        // Dequeue command from the appropriate FIFO (96-bit concatenated value)
         auto cmdValues = roccCmdFifos[i]->callValue("deq", bodyBuilder);
-        auto roccCmd = cmdValues[0];
+        Signal packedCmd(cmdValues[0], &bodyBuilder, loc);
 
-        // Return the command bundle
-        bodyBuilder.create<circt::cmt2::ReturnOp>(loc, roccCmd);
+        // Unpack the 96-bit concatenated value back into bundle fields
+        // Layout: rs2data(32) + rs1data(32) + opcode(7) + xd(1) + xs2(1) + xs1(1) + rd(5) + rs2(5) + rs1(5) + funct(7) = 96 bits
+        Signal rs2data = packedCmd.bits(95, 64);   // bits 64-95: rs2data (32 bits)
+        Signal rs1data = packedCmd.bits(63, 32);   // bits 32-63: rs1data (32 bits)
+        Signal opcode = packedCmd.bits(31, 25);    // bits 25-31: opcode (7 bits)
+        Signal xd = packedCmd.bits(24, 24);        // bit 24: xd (1 bit)
+        Signal xs2 = packedCmd.bits(23, 23);       // bit 23: xs2 (1 bit)
+        Signal xs1 = packedCmd.bits(22, 22);       // bit 22: xs1 (1 bit)
+        Signal rd = packedCmd.bits(21, 17);        // bits 17-21: rd (5 bits)
+        Signal rs2 = packedCmd.bits(16, 12);       // bits 12-16: rs2 (5 bits)
+        Signal rs1 = packedCmd.bits(11, 7);        // bits 7-11: rs1 (5 bits)
+        Signal funct = packedCmd.bits(6, 0);        // bits 0-6: funct (7 bits)
+
+        // Create RoCC command bundle from unpacked fields using BundleCreateOp
+        // Order must match the bundle type definition: funct, rs1, rs2, rd, xs1, xs2, xd, opcode, rs1data, rs2data
+        llvm::SmallVector<mlir::Value> bundleFields = {
+          funct.getValue(), rs1.getValue(), rs2.getValue(), rd.getValue(),
+          xs1.getValue(), xs2.getValue(), xd.getValue(), opcode.getValue(),
+          rs1data.getValue(), rs2data.getValue()
+        };
+
+        auto bundleValue = bodyBuilder.create<BundleCreateOp>(loc, roccCmdBundleType, bundleFields);
+
+        // Return the unpacked command bundle
+        bodyBuilder.create<circt::cmt2::ReturnOp>(loc, bundleValue.getResult());
       });
 
       cmdToUser->finalize();
@@ -1804,8 +1860,8 @@ private:
 
   /// Generate rules for a specific TOR function - proper implementation from rulegenpass.cpp
   void generateRulesForFunction(Module *mainModule, tor::FuncOp funcOp,
-                               Instance *poolInstance, Circuit &circuit,
-                               Clock mainClk, Reset mainRst) {
+                               Instance *poolInstance, Instance *roccInstance, Circuit &circuit,
+                               Clock mainClk, Reset mainRst, uint32_t opcode) {
     
     auto &builder = mainModule->getBuilder();
     MLIRContext *ctx = builder.getContext();
@@ -1845,9 +1901,11 @@ private:
       for (Operation *op : slotMap[slot].ops) {
         if (isa<arith::ConstantOp, memref::GetGlobalOp>(op))
           continue;
-        if (isa<tor::AddIOp, tor::SubIOp, tor::MulIOp, aps::MemLoad>(op))
+        if (isa<tor::AddIOp, tor::SubIOp, tor::MulIOp>(op))
           continue;
-        op->emitError("unsupported operation for Target A rule generation");
+        if (isa<aps::MemLoad, aps::CpuRfRead, aps::CpuRfWrite>(op))
+          continue;
+        op->emitError("unsupported operation for rule generation");
         return;
       }
     }
@@ -1856,16 +1914,7 @@ private:
     llvm::DenseMap<mlir::Value, CrossSlotFIFO*> crossSlotFIFOs;
     llvm::DenseMap<std::pair<int64_t, int64_t>, unsigned> fifoCounts;
     SmallVector<std::unique_ptr<CrossSlotFIFO>, 8> fifoStorage;
-
-    // TOR function arguments are currently unsupported; ensure they are unused
-    for (auto arg : funcOp.getArguments()) {
-      if (!arg.use_empty()) {
-        funcOp.emitError(
-            "TOR function arguments are not supported in Target A lowering");
-        return;
-      }
-    }
-
+    
     auto getSlotForOp = [&](Operation *op) -> std::optional<int64_t> {
       if (auto attr = op->getAttrOfType<IntegerAttr>("starttime"))
         return attr.getInt();
@@ -1928,7 +1977,7 @@ private:
           // Generate FIFO name based on producer-consumer slot pair
           auto key = std::make_pair(slot, fifo->consumerSlot);
           unsigned count = fifoCounts[key]++;
-          fifo->instanceName = "fifo_s" + std::to_string(slot) + "_s" +
+          fifo->instanceName = std::to_string(opcode) + "_fifo_s" + std::to_string(slot) + "_s" +
                                std::to_string(fifo->consumerSlot);
           if (count > 0)
             fifo->instanceName += "_" + std::to_string(count);
@@ -1961,7 +2010,7 @@ private:
       // Create 1-bit FIFO for token passing to next stage
       auto *tokenFifoMod = STLLibrary::createFIFO1PushModule(1, circuit);
       builder.restoreInsertionPoint(savedIP);
-      std::string tokenFifoName = "stage_s" + std::to_string(currentSlot) + "_token_fifo";
+      std::string tokenFifoName = std::to_string(opcode) + "_token_fifo_s" + std::to_string(currentSlot);
       auto *tokenFifo = mainModule->addInstance(tokenFifoName, tokenFifoMod,
                                                 {mainClk.getValue(), mainRst.getValue()});
       stageTokenFifos[currentSlot] = tokenFifo;
@@ -2055,6 +2104,14 @@ private:
     llvm::DenseMap<mlir::Value, mlir::Value> localMap;
     llvm::SmallVector<std::pair<std::string, std::string>, 4> precedencePairs;
 
+    // Cache for RoCC command bundle (pre-read in slot 0)
+    mlir::Value cachedRoCCCmdBundle;
+
+    auto savedIPforRegRd = builder.saveInsertionPoint();
+    auto *regRdMod = STLLibrary::createRegModule(5, 0, circuit);
+    auto *regRdInstance = mainModule->addInstance("reg_rd_" + std::to_string(opcode), regRdMod, {mainClk.getValue(), mainRst.getValue()});
+    builder.restoreInsertionPoint(savedIPforRegRd);
+
     // Unified arithmetic operation helper to eliminate redundancy
     auto performArithmeticOp = [&](mlir::OpBuilder &b, Location loc, mlir::Value lhs, mlir::Value rhs,
                                     mlir::Value result, StringRef opName) -> LogicalResult {
@@ -2098,7 +2155,7 @@ private:
     // auto builder2 = mainModule->getBuilder();
     // builder2.create<ConstantOp>(mainModule->getLoc(), u64Type, llvm::APInt(64, 1949));
     for (int64_t slot : slotOrder) {
-      auto *rule = mainModule->addRule("rule_s" + std::to_string(slot));
+      auto *rule = mainModule->addRule(std::to_string(opcode) + "_rule_s" + std::to_string(slot));
 
       // Guard: always ready (constant 1)
       rule->guard([](mlir::OpBuilder &b) {
@@ -2111,6 +2168,16 @@ private:
       rule->body([&](mlir::OpBuilder &b) {
         auto loc = b.getUnknownLoc();
         localMap.clear();
+
+        // Pre-read RoCC command bundle in slot 0
+        if (slot == 0) {
+          // Call cmd_to_user once to get the RoCC command bundle
+          std::string cmdMethod = "cmd_to_user_" + std::to_string(opcode);
+          auto cmdResult = roccInstance->callMethod(cmdMethod, {}, b)[0];
+          cachedRoCCCmdBundle = cmdResult;
+          auto instruction = Bundle(cachedRoCCCmdBundle, &b, loc);
+          regRdInstance->callMethod("write", {instruction["rd"].getValue()}, b);
+        }
 
         // Read token from previous stage at the start (except for first stage)
         if (!slotOrder.empty() && slot != slotOrder[0]) {
@@ -2152,6 +2219,45 @@ private:
               return;
             if (failed(performArithmeticOp(b, loc, *lhs, *rhs, mulOp.getResult(), "mul")))
               return;
+          }
+          else if (auto readRf = dyn_cast<aps::CpuRfRead>(op)) {
+            // Handle CPU register file read operations
+            // PANIC if not in first time slot
+            if (slot != 0) {
+              op->emitError("aps.readrf operations must appear only in the first time slot (slot 0), but found in slot ") << slot;
+              llvm::report_fatal_error("readrf must be in first time slot");
+            }
+            // Get the function argument that this readrf is reading from
+            Value regArg = readRf.getRs();
+
+            // Map function arguments to rs1/rs2 based on their position in the function
+            // Need to find which argument index this corresponds to
+            int64_t argIndex = -1;
+            for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
+              if (funcOp.getArgument(i) == regArg) {
+                argIndex = i;
+                break;
+              }
+            }
+            auto instruction = Bundle(cachedRoCCCmdBundle, &b, loc);
+            Signal regValue = argIndex == 0 ? instruction["rs1data"] : instruction["rs2data"];
+            // // Store the result with a note about which argument it came from
+            // llvm::outs() << "DEBUG: readrf from arg" << argIndex << " using cached RoCC bundle\n";
+            localMap[readRf.getResult()] = regValue.getValue();
+          }
+          else if (auto writeRf = dyn_cast<aps::CpuRfWrite>(op)) {
+            auto rdvalue = getValueInRule(writeRf.getValue(), op, 1, b, localMap, loc);
+            // auto rd = UInt::constant(1, 5, b, loc);
+            auto rd = regRdInstance->callValue("read", b)[0];
+            llvm::SmallVector<mlir::Value> bundleFields = {rd, *rdvalue};
+            auto bundleType = BundleType::get(b.getContext(), {
+              BundleType::BundleElement{b.getStringAttr("rd"), false, UIntType::get(b.getContext(), 5)},
+              BundleType::BundleElement{b.getStringAttr("rddata"), false, UIntType::get(b.getContext(), 32)},
+            });
+
+            auto bundleValue = b.create<BundleCreateOp>(loc, bundleType, bundleFields);
+            roccInstance->callMethod("resp_from_user", {bundleValue}, b);
+            // writerf doesn't produce a result, just performs the write
           }
           else if (auto memLoad = dyn_cast<aps::MemLoad>(op)) {
             // Handle memory load operations
@@ -2228,8 +2334,8 @@ private:
         auto it = std::find(slotOrder.begin(), slotOrder.end(), slot);
         if (it != slotOrder.begin()) {
           int64_t prevSlot = *(it - 1);
-          std::string from = "@rule_s" + std::to_string(slot);
-          std::string to = "@rule_s" + std::to_string(prevSlot);
+          std::string from = std::to_string(opcode) + "_rule_s" + std::to_string(slot);
+          std::string to = std::to_string(opcode) + "_rule_s" + std::to_string(prevSlot);
           precedencePairs.emplace_back(from, to);
         }
       }
