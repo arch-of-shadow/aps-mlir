@@ -152,10 +152,10 @@ struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mli
     auto *roccAdapterModule = generateRoCCAdapter(circuit, opcodes);
 
     // // Generate memory translator module
-    // auto *memoryTranslator = generateMemoryTranslator(circuit);
+    auto *memoryAdapterModule = generateMemoryAdapter(circuit);
     
     // Generate rule-based main module for TOR functions
-    auto [mainModule, poolInstance] = generateRuleBasedMainModule(moduleOp, circuit, poolModule, roccAdapterModule);
+    auto [mainModule, poolInstance] = generateRuleBasedMainModule(moduleOp, circuit, poolModule, roccAdapterModule, memoryAdapterModule);
 
     // Add burst read/write methods to expose memory pool functionality
     addBurstMethodsToMainModule(mainModule, poolInstance);
@@ -381,9 +381,8 @@ private:
     );
 
     burstWrite->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      auto trueConst = guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
-      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getResult());
+      auto trueConst = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
 
     burstWrite->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
@@ -1098,7 +1097,7 @@ private:
 
   /// Generate rule-based main module for TOR functions
   std::pair<Module*, Instance*> generateRuleBasedMainModule(ModuleOp moduleOp, Circuit &circuit,
-                                   Module *poolModule, Module *roccModule) {
+                                   Module *poolModule, Module *roccModule, Module *hellaMemModule) {
     // Create main module in the same circuit
     auto *mainModule = circuit.addModule("main");
 
@@ -1117,13 +1116,14 @@ private:
     // Add scratchpad pool instance - use the pool module we created earlier
     auto *poolInstance = mainModule->addInstance("scratchpad_pool", poolModule, {mainClk.getValue(), mainRst.getValue()});
     auto *roccInstance = mainModule->addInstance("rocc_adapter", roccModule, {mainClk.getValue(), mainRst.getValue()});
+    auto *hellaMemInstance = mainModule->addInstance("hellacache_adapter", hellaMemModule, {mainClk.getValue(), mainRst.getValue()});
 
     // For each TOR function, generate rules
     // Extract opcodes from the function or use defaults
     // For scalar.mlir, we need to determine the appropriate opcode
     uint32_t opcode = 0b0001011; // Default opcode for scalar operations
     for (auto funcOp : torFuncs) {
-      generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance, circuit, mainClk, mainRst, opcode);
+      generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance, hellaMemInstance, circuit, mainClk, mainRst, opcode);
     }
 
     return {mainModule, poolInstance};
@@ -1197,7 +1197,7 @@ private:
   }
 
   /// Generate Memory Translator module that bridges HellaCache interface with User Memory Protocol
-  Module *generateMemoryTranslator(Circuit &circuit) {
+  Module *generateMemoryAdapter(Circuit &circuit) {
     auto *translatorModule = circuit.addModule("MemoryTranslator");
     auto &builder = translatorModule->getBuilder();
     auto loc = translatorModule->getLoc();
@@ -1211,41 +1211,41 @@ private:
 
     // Create bundle types following Rust patterns
     // UserMemoryCmd: {addr: u32, cmd: u1, size: u2, data: u32, mask: u4, tag: u8}
-    auto userCmdBundleType = BundleBuilder(context)
-        .addUInt("addr", 32)
-        .addUInt("cmd", 1)
-        .addUInt("size", 2)
-        .addUInt("data", 32)
-        .addUInt("mask", 4)
-        .addUInt("tag", 8)
-        .build(builder, loc);
+    auto userCmdBundleType = BundleType::get(context, {
+      BundleType::BundleElement{builder.getStringAttr("addr"), false, UIntType::get(context, 32)},
+      BundleType::BundleElement{builder.getStringAttr("cmd"), false, UIntType::get(context, 1)},
+      BundleType::BundleElement{builder.getStringAttr("size"), false, UIntType::get(context, 2)},
+      BundleType::BundleElement{builder.getStringAttr("data"), false, UIntType::get(context, 32)},
+      BundleType::BundleElement{builder.getStringAttr("mask"), false, UIntType::get(context, 4)},
+      BundleType::BundleElement{builder.getStringAttr("tag"), false, UIntType::get(context, 8)}
+    });
 
     // HellaCacheCmd: {addr: u32, tag: u8, cmd: u5, size: u2, signed: u1, phys: u1, data: u32, mask: u4}
-    auto hellaCmdBundleType = BundleBuilder(context)
-        .addUInt("addr", 32)
-        .addUInt("tag", 8)
-        .addUInt("cmd", 5)
-        .addUInt("size", 2)
-        .addUInt("signed", 1)
-        .addUInt("phys", 1)
-        .addUInt("data", 32)
-        .addUInt("mask", 4)
-        .build(builder, loc);
+    auto hellaCmdBundleType = BundleType::get(context, {
+      BundleType::BundleElement{builder.getStringAttr("addr"), false, UIntType::get(context, 32)},
+      BundleType::BundleElement{builder.getStringAttr("tag"), false, UIntType::get(context, 8)},
+      BundleType::BundleElement{builder.getStringAttr("cmd"), false, UIntType::get(context, 5)},
+      BundleType::BundleElement{builder.getStringAttr("size"), false, UIntType::get(context, 2)},
+      BundleType::BundleElement{builder.getStringAttr("signed"), false, UIntType::get(context, 1)},
+      BundleType::BundleElement{builder.getStringAttr("phys"), false, UIntType::get(context, 1)},
+      BundleType::BundleElement{builder.getStringAttr("data"), false, UIntType::get(context, 32)},
+      BundleType::BundleElement{builder.getStringAttr("mask"), false, UIntType::get(context, 4)}
+    });
 
     // HellaCacheResp: {data: u32, tag: u8, cmd: u5, size: u2, signed: u1}
-    auto hellaRespBundleType = BundleBuilder(context)
-        .addUInt("data", 32)
-        .addUInt("tag", 8)
-        .addUInt("cmd", 5)
-        .addUInt("size", 2)
-        .addUInt("signed", 1)
-        .build(builder, loc);
+    auto hellaRespBundleType = BundleType::get(context, {
+      BundleType::BundleElement{builder.getStringAttr("data"), false, UIntType::get(context, 32)},
+      BundleType::BundleElement{builder.getStringAttr("tag"), false, UIntType::get(context, 8)},
+      BundleType::BundleElement{builder.getStringAttr("cmd"), false, UIntType::get(context, 5)},
+      BundleType::BundleElement{builder.getStringAttr("size"), false, UIntType::get(context, 2)},
+      BundleType::BundleElement{builder.getStringAttr("signed"), false, UIntType::get(context, 1)}
+    });
 
     // UserMemoryResp: {data: u32, tag: u8}
-    auto userRespBundleType = BundleBuilder(context)
-        .addUInt("data", 32)
-        .addUInt("tag", 8)
-        .build(builder, loc);
+    auto userRespBundleType = BundleType::get(context, {
+      BundleType::BundleElement{builder.getStringAttr("data"), false, UIntType::get(context, 32)},
+      BundleType::BundleElement{builder.getStringAttr("tag"), false, UIntType::get(context, 8)}
+    });
 
     // Create external FIFO and register modules
     auto savedIP = builder.saveInsertionPoint();
@@ -1286,7 +1286,7 @@ private:
     auto *slot1CanCollectWire = translatorModule->addInstance("slot1_can_collect_wire", wire1Mod, {});
 
     // Method: cmd_from_user - receives user memory commands and translates to HellaCache format
-    std::vector<std::pair<std::string, mlir::Type>> cmdFromUserArgs = {{"user_cmd", userCmdBundleType.getBundleType()}};
+    std::vector<std::pair<std::string, mlir::Type>> cmdFromUserArgs = {{"user_cmd", userCmdBundleType}};
     auto *cmdFromUser = translatorModule->addMethod("cmd_from_user", cmdFromUserArgs, {});
 
     cmdFromUser->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument>) {
@@ -1311,18 +1311,6 @@ private:
       // signed = false, phys = false (following Rust)
       Signal hellaSigned = UInt::constant(0, 1, bodyBuilder, loc);
       Signal hellaPhys = UInt::constant(0, 1, bodyBuilder, loc);
-
-      // Create HellaCache command bundle
-      auto hellaCmdBundle = BundleBuilder(context)
-          .addUInt("addr", 32)
-          .addUInt("tag", 8)
-          .addUInt("cmd", 5)
-          .addUInt("size", 2)
-          .addUInt("signed", 1)
-          .addUInt("phys", 1)
-          .addUInt("data", 32)
-          .addUInt("mask", 4)
-          .build(bodyBuilder, loc);
 
       // Pack the bundle fields into a 82-bit value for FIFO
       // Layout: data(32) + mask(4) + phys(1) + signed(1) + size(2) + cmd(5) + tag(8) + addr(32) = 85 bits (with padding)
@@ -1486,7 +1474,7 @@ private:
     slot1CanCollectLogicRule->finalize();
 
     // Method: resp_from_bus - receives responses from HellaCache and buffers them
-    std::vector<std::pair<std::string, mlir::Type>> respFromBusArgs = {{"hella_resp", hellaRespBundleType.getBundleType()}};
+    std::vector<std::pair<std::string, mlir::Type>> respFromBusArgs = {{"hella_resp", hellaRespBundleType}};
     auto *respFromBus = translatorModule->addMethod("resp_from_bus", respFromBusArgs, {});
 
     respFromBus->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument>) {
@@ -1545,7 +1533,7 @@ private:
     // Method: resp_to_user - provides user memory responses (with ordering)
     // This matches the Rust method exactly - returns user response bundle to output interface
     llvm::SmallVector<std::pair<std::string, mlir::Type>, 0> respToUserArgs;
-    llvm::SmallVector<mlir::Type, 1> respToUserReturns = {userRespBundleType.getBundleType()};
+    llvm::SmallVector<mlir::Type, 1> respToUserReturns = {userRespBundleType};
     auto *respToUser = translatorModule->addMethod("resp_to_user", respToUserArgs, respToUserReturns);
 
     respToUser->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
@@ -1577,9 +1565,14 @@ private:
             slot0TxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
             slot0RxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
 
-            // Create UserMemoryResp bundle and pack it: data(32) + tag(8) = 40 bits total
-            Signal packedResp = tag0.pad(24).cat(data0); // tag(8) + padding(24) + data(32) = 64 bits
-            return packedResp;
+            // Create UserMemoryResp bundle from unpacked fields using BundleCreateOp
+            // Order must match the bundle type definition: data, tag
+            llvm::SmallVector<mlir::Value> respBundleFields = {
+              data0.getValue(), tag0.getValue()
+            };
+
+            auto respBundleValue = builder.create<BundleCreateOp>(loc, userRespBundleType, respBundleFields);
+            return Signal(respBundleValue.getResult(), &builder, loc);
           },
           [&](mlir::OpBuilder &builder) -> Signal {
             // Else branch: clear slot 1 flags and check if slot 1 can collect
@@ -1598,9 +1591,14 @@ private:
                   Signal data1 = Signal(data1Values[0], &innerBuilder, loc);
                   Signal tag1 = Signal(tag1Values[0], &innerBuilder, loc);
 
-                  // Create UserMemoryResp bundle and pack it
-                  Signal packedResp = tag1.pad(24).cat(data1);
-                  return packedResp;
+                  // Create UserMemoryResp bundle from unpacked fields using BundleCreateOp
+                  // Order must match the bundle type definition: data, tag
+                  llvm::SmallVector<mlir::Value> respBundleFields = {
+                    data1.getValue(), tag1.getValue()
+                  };
+
+                  auto respBundleValue = innerBuilder.create<BundleCreateOp>(loc, userRespBundleType, respBundleFields);
+                  return Signal(respBundleValue.getResult(), &innerBuilder, loc);
                 },
                 [&](mlir::OpBuilder &innerBuilder) -> Signal {
                   // Default response if slot 1 can't collect either
@@ -1797,9 +1795,10 @@ private:
 
       auto respBundleValue = bodyBuilder.create<BundleCreateOp>(loc, roccRespBundleType, respBundleFields);
 
-      // Note: In a complete implementation, this would call the RoCC master's resp_to_bus method
+      // TODO: In a complete implementation, this would call the RoCC master's resp_to_bus method
       // For now, we just consume the response from the queue
       // rocc_master.resp_to_bus(respBundleValue.getResult());
+      (void)respBundleValue; // Suppress unused variable warning
 
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
     });
@@ -1860,8 +1859,8 @@ private:
 
   /// Generate rules for a specific TOR function - proper implementation from rulegenpass.cpp
   void generateRulesForFunction(Module *mainModule, tor::FuncOp funcOp,
-                               Instance *poolInstance, Instance *roccInstance, Circuit &circuit,
-                               Clock mainClk, Reset mainRst, uint32_t opcode) {
+                               Instance *poolInstance, Instance *roccInstance, Instance *hellaMemInstance, 
+                               Circuit &circuit, Clock mainClk, Reset mainRst, uint32_t opcode) {
     
     auto &builder = mainModule->getBuilder();
     MLIRContext *ctx = builder.getContext();
@@ -2258,6 +2257,94 @@ private:
             auto bundleValue = b.create<BundleCreateOp>(loc, bundleType, bundleFields);
             roccInstance->callMethod("resp_from_user", {bundleValue}, b);
             // writerf doesn't produce a result, just performs the write
+          }
+          else if (auto itfcLoadReq = dyn_cast<aps::ItfcLoadReq>(op)) {
+            // Handle CPU interface load request operations
+            // This sends a load request to memory and returns a request token
+            auto context = b.getContext();
+
+            auto userCmdBundleType = BundleType::get(context, {
+              BundleType::BundleElement{b.getStringAttr("addr"), false, UIntType::get(context, 32)},
+              BundleType::BundleElement{b.getStringAttr("cmd"), false, UIntType::get(context, 1)},
+              BundleType::BundleElement{b.getStringAttr("size"), false, UIntType::get(context, 2)},
+              BundleType::BundleElement{b.getStringAttr("data"), false, UIntType::get(context, 32)},
+              BundleType::BundleElement{b.getStringAttr("mask"), false, UIntType::get(context, 4)},
+              BundleType::BundleElement{b.getStringAttr("tag"), false, UIntType::get(context, 8)}
+            });
+
+            // Get address from indices (similar to MemLoad)
+            if (itfcLoadReq.getIndices().empty()) {
+              op->emitError("Interface load request must have at least one index");
+            }
+
+            auto addr = getValueInRule(itfcLoadReq.getIndices()[0], op, 0, b, localMap, loc);
+            if (failed(addr)) {
+              op->emitError("Failed to get address for interface load request");
+            }
+            auto addrSignal = Signal(*addr, &b, loc);
+            auto readCmd = UInt::constant(0, 1, b, loc);
+            auto data = UInt::constant(0, 32, b, loc);
+            auto size = UInt::constant(2, 2, b, loc);
+            auto mask = UInt::constant(0, 4, b, loc);
+            auto tagConst = UInt::constant(0x3f, 8, b, loc);
+            auto tag = addrSignal ^ tagConst;
+
+            llvm::SmallVector<mlir::Value> bundleFields = {*addr, readCmd.getValue(), size.getValue(), data.getValue(), mask.getValue(), tag.getValue()};
+            auto bundleValue = b.create<BundleCreateOp>(loc, userCmdBundleType, bundleFields);
+            hellaMemInstance->callMethod("cmd_from_user", {bundleValue}, b);
+
+            localMap[itfcLoadReq.getResult()] = UInt::constant(1, 1, b, loc).getValue();
+          }
+          else if (auto itfcLoadCollect = dyn_cast<aps::ItfcLoadCollect>(op)) {
+            auto resp = hellaMemInstance->callMethod("resp_to_user", {}, b)[0];
+            auto respBundle = Bundle(resp, &b, loc);
+
+            auto loadResult = respBundle["data"];
+
+            localMap[itfcLoadCollect.getResult()] = loadResult.getValue();
+          }
+          else if (auto itfcStoreReq = dyn_cast<aps::ItfcStoreReq>(op)) {
+            // Handle CPU interface store request operations
+            // This sends a store request to memory and returns a request token
+
+            // Get address from indices (value is first operand, address is from indices)
+            auto context = b.getContext();
+            if (itfcStoreReq.getIndices().empty()) {
+              op->emitError("Interface store request must have at least one index");
+            }
+            auto value = getValueInRule(itfcStoreReq.getValue(), op, 0, b, localMap, loc);
+            auto addr = getValueInRule(itfcStoreReq.getIndices()[0], op, 1, b, localMap, loc);
+            if (failed(value) || failed(addr)) {
+              op->emitError("Failed to get value or address for interface store request");
+            }
+
+            auto userCmdBundleType = BundleType::get(context, {
+              BundleType::BundleElement{b.getStringAttr("addr"), false, UIntType::get(context, 32)},
+              BundleType::BundleElement{b.getStringAttr("cmd"), false, UIntType::get(context, 1)},
+              BundleType::BundleElement{b.getStringAttr("size"), false, UIntType::get(context, 2)},
+              BundleType::BundleElement{b.getStringAttr("data"), false, UIntType::get(context, 32)},
+              BundleType::BundleElement{b.getStringAttr("mask"), false, UIntType::get(context, 4)},
+              BundleType::BundleElement{b.getStringAttr("tag"), false, UIntType::get(context, 8)}
+            });
+
+            if (failed(addr)) {
+              op->emitError("Failed to get address for interface load request");
+            }
+            auto addrSignal = Signal(*addr, &b, loc);
+            auto WriteCmd = UInt::constant(1, 1, b, loc);
+            auto size = UInt::constant(2, 2, b, loc);
+            auto mask = UInt::constant(0, 4, b, loc);
+            auto tagConst = UInt::constant(0x3f, 8, b, loc);
+            auto tag = addrSignal ^ tagConst;
+
+            llvm::SmallVector<mlir::Value> bundleFields = {*addr, WriteCmd.getValue(), size.getValue(), *value, mask.getValue(), tag.getValue()};
+            auto bundleValue = b.create<BundleCreateOp>(loc, userCmdBundleType, bundleFields);
+            hellaMemInstance->callMethod("cmd_from_user", {bundleValue}, b);
+
+            localMap[itfcStoreReq.getResult()] = UInt::constant(1, 1, b, loc).getValue();
+          }
+          else if (auto itfcStoreCollect = dyn_cast<aps::ItfcStoreCollect>(op)) {
+            // Do nothing here, don't reply...
           }
           else if (auto memLoad = dyn_cast<aps::MemLoad>(op)) {
             // Handle memory load operations
