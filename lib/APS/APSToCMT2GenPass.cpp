@@ -41,6 +41,7 @@
 #include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
 #include "circt/Dialect/FIRRTL/FIRRTLOps.h"
 #include "mlir-c/Support.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -73,15 +74,14 @@ struct SlotInfo {
   SmallVector<Operation *, 4> ops;
 };
 
-struct CrossUseInfo {
-  mlir::Value producerValue;
-  int64_t producerSlot = 0;
-  Operation *consumerOp = nullptr;
-  unsigned operandIndex = 0;
-  int64_t consumerSlot = 0;
-  std::string instanceName;
-  mlir::Type firType;
-  Instance *wireInstance = nullptr;
+struct CrossSlotFIFO {
+  mlir::Value producerValue;      // The SSA value being communicated
+  int64_t producerSlot = 0;       // Source time slot
+  int64_t consumerSlot = 0;       // Destination time slot
+  std::string instanceName;       // FIFO instance name
+  mlir::Type firType;            // FIRRTL type for the value
+  Instance *fifoInstance = nullptr; // FIFO module instance
+  llvm::SmallVector<std::pair<Operation*, unsigned>> consumers; // (consumerOp, operandIndex) pairs
 };
 
 struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mlir::ModuleOp>> {
@@ -156,7 +156,7 @@ struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mli
     // auto *roccAdapter = generateRoCCAdapter(circuit, opcodes);
 
     // Add burst read/write methods to expose memory pool functionality
-    addBurstMethodsToMainModule(mainModule, poolInstance);
+    // addBurstMethodsToMainModule(mainModule, poolInstance);
     
     auto generatedModule = circuit.generateMLIR();
     if (!generatedModule) {
@@ -309,7 +309,7 @@ private:
       // start_bank_idx = element_idx % num_banks
       auto startBankIdx = elementIdx % numBanksConst;
 
-      // Check if this bank participates: isMine = (position < elements_per_burst)
+      // Check if this bank participates: participatesInBurst = (position < elements_per_burst)
       // position = (my_bank - start_bank_idx + num_banks) % num_banks
       auto position = (myBankConst - startBankIdx + numBanksConst) % numBanksConst;
       auto isMine = position < elementsPerBurstConst;
@@ -770,7 +770,7 @@ private:
       // Collect bank names
       llvm::SmallVector<std::string, 4> bankNames;
       for (size_t i = 0; i < entryInfo.numBanks; ++i) {
-        bankNames.push_back(entryInfo.name + "_bank" + std::to_string(i));
+        bankNames.push_back(entryInfo.name + "_" + std::to_string(i));
       }
 
       // Create submodule for this memory entry (this will change insertion point)
@@ -871,19 +871,24 @@ private:
         auto *entryInst = entryInstances[i];
 
         uint32_t entryStart = entryInfo.baseAddress;
+        uint32_t entryEnd = entryStart + entryInfo.bankSize;
 
         // Calculate relative address for this entry
         auto startConst = UInt::constant(entryStart, 64, bodyBuilder, poolModule->getLoc());
-        auto relAddr = (addr - startConst).bits(63, 0);
+        auto endConst = UInt::constant(entryEnd, 64, bodyBuilder, poolModule->getLoc());
 
-        // Call submodule's burst_write
-        // Note: We call all submodules, but only the one with matching address range will write
-        // (the submodule's internal logic handles address decoding)
-        auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), entryInst->getName());
-        auto methodSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_write");
-        bodyBuilder.create<circt::cmt2::CallOp>(
-          loc, mlir::TypeRange{}, mlir::ValueRange{relAddr.getValue(), data.getValue()},
-          calleeSymbol, methodSymbol, nullptr, nullptr);
+        auto relAddr = (addr - startConst).bits(63, 0);
+        auto inRange = (addr >= startConst) & (addr < endConst);
+
+        // Only call submodule's burst_write if address is in range
+        // Use If to conditionally execute the call
+        If(inRange, [&](mlir::OpBuilder &thenBuilder) {
+          auto calleeSymbol = mlir::FlatSymbolRefAttr::get(thenBuilder.getContext(), entryInst->getName());
+          auto methodSymbol = mlir::FlatSymbolRefAttr::get(thenBuilder.getContext(), "burst_write");
+          thenBuilder.create<circt::cmt2::CallOp>(
+            loc, mlir::TypeRange{}, mlir::ValueRange{relAddr.getValue(), data.getValue()},
+            calleeSymbol, methodSymbol, nullptr, nullptr);
+        }, bodyBuilder, loc);
       }
 
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
@@ -1112,7 +1117,7 @@ private:
 
     // For each TOR function, generate rules
     for (auto funcOp : torFuncs) {
-      generateRulesForFunction(mainModule, funcOp, poolInstance, circuit);
+      generateRulesForFunction(mainModule, funcOp, poolInstance, circuit, mainClk, mainRst);
     }
 
     return {mainModule, poolInstance};
@@ -1799,8 +1804,11 @@ private:
 
   /// Generate rules for a specific TOR function - proper implementation from rulegenpass.cpp
   void generateRulesForFunction(Module *mainModule, tor::FuncOp funcOp,
-                               Instance *poolInstance, Circuit &circuit) {
-    MLIRContext *ctx = mainModule->getBuilder().getContext();
+                               Instance *poolInstance, Circuit &circuit,
+                               Clock mainClk, Reset mainRst) {
+    
+    auto &builder = mainModule->getBuilder();
+    MLIRContext *ctx = builder.getContext();
 
     // Collect operations per time slot.
     llvm::DenseMap<int64_t, SlotInfo> slotMap;
@@ -1844,11 +1852,10 @@ private:
       }
     }
 
-    // Analyze cross-slot value uses.
-    llvm::DenseMap<mlir::Value, SmallVector<CrossUseInfo *>> producerEdges;
-    llvm::DenseMap<Operation *, SmallVector<CrossUseInfo *>> consumerEdges;
-    llvm::DenseMap<std::pair<int64_t, int64_t>, unsigned> edgeCounts;
-    SmallVector<std::unique_ptr<CrossUseInfo>, 8> crossUseStorage;
+    // Analyze cross-slot value uses - simplified with single data structure
+    llvm::DenseMap<mlir::Value, CrossSlotFIFO*> crossSlotFIFOs;
+    llvm::DenseMap<std::pair<int64_t, int64_t>, unsigned> fifoCounts;
+    SmallVector<std::unique_ptr<CrossSlotFIFO>, 8> fifoStorage;
 
     // TOR function arguments are currently unsupported; ensure they are unused
     for (auto arg : funcOp.getArguments()) {
@@ -1865,60 +1872,99 @@ private:
       return {};
     };
 
+    // Build cross-slot FIFO mapping - single pass analysis
     for (int64_t slot : slotOrder) {
       for (Operation *op : slotMap[slot].ops) {
         if (isa<arith::ConstantOp>(op))
           continue;
+
         for (mlir::Value res : op->getResults()) {
           if (!isa<mlir::IntegerType>(res.getType()))
             continue;
 
+          // Check if this value has cross-slot uses
+          bool hasCrossSlotUses = false;
           for (OpOperand &use : res.getUses()) {
             Operation *user = use.getOwner();
             auto maybeConsumerSlot = getSlotForOp(user);
             if (!maybeConsumerSlot)
               continue;
             int64_t consumerSlot = *maybeConsumerSlot;
-            if (consumerSlot <= slot)
-              continue;
-
-            auto firType = toFirrtlType(res.getType(), ctx);
-            if (!firType) {
-              op->emitError("type is unsupported for rule lowering");
-              return;
+            if (consumerSlot > slot) {
+              hasCrossSlotUses = true;
+              break;
             }
-
-            auto key = std::make_pair(slot, consumerSlot);
-            unsigned count = edgeCounts[key]++;
-
-            auto info = std::make_unique<CrossUseInfo>();
-            info->producerValue = res;
-            info->producerSlot = slot;
-            info->consumerOp = user;
-            info->operandIndex = use.getOperandNumber();
-            info->consumerSlot = consumerSlot;
-            info->firType = firType;
-            info->instanceName = "fifo_s" + std::to_string(slot) + "_s" +
-                                 std::to_string(consumerSlot);
-            if (count > 0)
-              info->instanceName += "_" + std::to_string(count);
-
-            producerEdges[res].push_back(info.get());
-            consumerEdges[user].push_back(info.get());
-            crossUseStorage.push_back(std::move(info));
           }
+
+          if (!hasCrossSlotUses)
+            continue;
+
+          auto firType = toFirrtlType(res.getType(), ctx);
+          if (!firType) {
+            op->emitError("type is unsupported for rule lowering");
+            return;
+          }
+
+          // Create single FIFO for this producer value
+          auto fifo = std::make_unique<CrossSlotFIFO>();
+          fifo->producerValue = res;
+          fifo->producerSlot = slot;
+          fifo->firType = firType;
+
+          // Collect all consumers for this producer
+          for (OpOperand &use : res.getUses()) {
+            Operation *user = use.getOwner();
+            auto maybeConsumerSlot = getSlotForOp(user);
+            if (!maybeConsumerSlot)
+              continue;
+            int64_t consumerSlot = *maybeConsumerSlot;
+            if (consumerSlot > slot) {
+              fifo->consumers.push_back({user, use.getOperandNumber()});
+              if (fifo->consumerSlot == 0)  // Set primary consumer slot
+                fifo->consumerSlot = consumerSlot;
+            }
+          }
+
+          // Generate FIFO name based on producer-consumer slot pair
+          auto key = std::make_pair(slot, fifo->consumerSlot);
+          unsigned count = fifoCounts[key]++;
+          fifo->instanceName = "fifo_s" + std::to_string(slot) + "_s" +
+                               std::to_string(fifo->consumerSlot);
+          if (count > 0)
+            fifo->instanceName += "_" + std::to_string(count);
+
+          crossSlotFIFOs[res] = fifo.get();
+          fifoStorage.push_back(std::move(fifo));
         }
       }
     }
 
-    // Instantiate wire modules for cross-slot edges.
-    for (auto &infoPtr : crossUseStorage) {
-      auto *info = infoPtr.get();
-      int64_t width = cast<circt::firrtl::UIntType>(info->firType).getWidthOrSentinel();
+    auto savedIP = builder.saveInsertionPoint();
+    // Instantiate FIFO modules for cross-slot communication
+    for (auto &fifoPtr : fifoStorage) {
+      auto *fifo = fifoPtr.get();
+      int64_t width = cast<circt::firrtl::UIntType>(fifo->firType).getWidthOrSentinel();
       if (width < 0)
         width = 1;
-      auto *wireMod = STLLibrary::createWireModule(width, circuit);;
-      info->wireInstance = mainModule->addInstance(info->instanceName, wireMod, {});
+
+      // Create FIFO module with proper clock and reset
+      auto *fifoMod = STLLibrary::createFIFO1PushModule(width, circuit);
+      builder.restoreInsertionPoint(savedIP);
+      fifo->fifoInstance = mainModule->addInstance(fifo->instanceName, fifoMod,
+                                                   {mainClk.getValue(), mainRst.getValue()});
+    }
+
+    // Create token FIFOs for stage synchronization - one token per stage (except last)
+    llvm::DenseMap<int64_t, Instance*> stageTokenFifos;
+    for (size_t i = 0; i < slotOrder.size() - 1; ++i) {
+      int64_t currentSlot = slotOrder[i];
+      // Create 1-bit FIFO for token passing to next stage
+      auto *tokenFifoMod = STLLibrary::createFIFO1PushModule(1, circuit);
+      builder.restoreInsertionPoint(savedIP);
+      std::string tokenFifoName = "stage_s" + std::to_string(currentSlot) + "_token_fifo";
+      auto *tokenFifo = mainModule->addInstance(tokenFifoName, tokenFifoMod,
+                                                {mainClk.getValue(), mainRst.getValue()});
+      stageTokenFifos[currentSlot] = tokenFifo;
     }
 
     // Helper functions for value manipulation using Signal abstraction
@@ -1936,13 +1982,13 @@ private:
 
       auto type = cast<circt::firrtl::UIntType>(value.getType());
       if (!type) {
-        sourceOp->emitError("expected FIRRTL UInt type");
+        if (sourceOp) sourceOp->emitError("expected FIRRTL UInt type");
         return failure();
       }
 
       int64_t currentWidth = type.getWidthOrSentinel();
       if (currentWidth < 0) {
-        sourceOp->emitError("requires statically known bitwidth");
+        if (sourceOp) sourceOp->emitError("requires statically known bitwidth");
         return failure();
       }
 
@@ -1984,15 +2030,19 @@ private:
         return mlir::Value{};
       }
 
-      // Check if this is a cross-slot use.
-      auto it = producerEdges.find(v);
-      if (it != producerEdges.end()) {
-        for (CrossUseInfo *info : it->second) {
-          if (info->consumerOp == currentOp && info->operandIndex == operandIndex) {
-            auto result = info->wireInstance->callValue("read", builder);
-            assert(result.size() == 1);
-            localMap[v] = result[0];
-            return result[0];
+      // Check if this is a cross-slot FIFO read (only if operandIndex is valid)
+      if (operandIndex != static_cast<unsigned>(-1)) {
+        auto it = crossSlotFIFOs.find(v);
+        if (it != crossSlotFIFOs.end()) {
+          CrossSlotFIFO *fifo = it->second;
+          // Check if this operation is a consumer of this FIFO
+          for (auto [consumerOp, opIndex] : fifo->consumers) {
+            if (consumerOp == currentOp && opIndex == operandIndex) {
+              auto result = fifo->fifoInstance->callValue("deq", builder);
+              assert(result.size() == 1);
+              localMap[v] = result[0];
+              return result[0];
+            }
           }
         }
       }
@@ -2005,6 +2055,48 @@ private:
     llvm::DenseMap<mlir::Value, mlir::Value> localMap;
     llvm::SmallVector<std::pair<std::string, std::string>, 4> precedencePairs;
 
+    // Unified arithmetic operation helper to eliminate redundancy
+    auto performArithmeticOp = [&](mlir::OpBuilder &b, Location loc, mlir::Value lhs, mlir::Value rhs,
+                                    mlir::Value result, StringRef opName) -> LogicalResult {
+      // Determine result width based on operation type
+      auto lhsWidth = cast<circt::firrtl::UIntType>(lhs.getType()).getWidthOrSentinel();
+      auto rhsWidth = cast<circt::firrtl::UIntType>(rhs.getType()).getWidthOrSentinel();
+
+      int64_t resultWidth;
+      if (opName == "mul") {
+        resultWidth = lhsWidth + rhsWidth;  // Multiplication doubles width
+      } else {
+        resultWidth = std::max(lhsWidth, rhsWidth);  // Add/sub use max width
+      }
+
+      // Ensure both operands have the same width
+      auto lhsExtended = ensureUIntWidth(b, loc, lhs, resultWidth, nullptr);
+      auto rhsExtended = ensureUIntWidth(b, loc, rhs, resultWidth, nullptr);
+      if (failed(lhsExtended) || failed(rhsExtended))
+        return failure();
+
+      // Perform the arithmetic operation using Signal abstraction
+      Signal lhsSignal(*lhsExtended, &b, loc);
+      Signal rhsSignal(*rhsExtended, &b, loc);
+      mlir::Value resultValue;
+
+      if (opName == "add") {
+        resultValue = (lhsSignal + rhsSignal).getValue();
+      } else if (opName == "sub") {
+        resultValue = (lhsSignal - rhsSignal).getValue();
+      } else if (opName == "mul") {
+        resultValue = (lhsSignal * rhsSignal).getValue();
+      } else {
+        return failure();
+      }
+
+      localMap[result] = resultValue;
+      return success();
+    };
+
+    // auto trueConst = builder.create<ConstantOp>(mainModule->getLoc(), u64Type, llvm::APInt(64, 1927));
+    // auto builder2 = mainModule->getBuilder();
+    // builder2.create<ConstantOp>(mainModule->getLoc(), u64Type, llvm::APInt(64, 1949));
     for (int64_t slot : slotOrder) {
       auto *rule = mainModule->addRule("rule_s" + std::to_string(slot));
 
@@ -2020,94 +2112,109 @@ private:
         auto loc = b.getUnknownLoc();
         localMap.clear();
 
+        // Read token from previous stage at the start (except for first stage)
+        if (!slotOrder.empty() && slot != slotOrder[0]) {
+          auto it = std::find(slotOrder.begin(), slotOrder.end(), slot);
+          if (it != slotOrder.begin()) {
+            int64_t prevSlot = *(it - 1);
+            auto tokenFifoIt = stageTokenFifos.find(prevSlot);
+            if (tokenFifoIt != stageTokenFifos.end()) {
+              auto *tokenFifo = tokenFifoIt->second;
+              auto tokenValues = tokenFifo->callValue("deq", b);
+              // Token value should be 1'b1, but we don't need to use it
+              // Just reading from FIFO ensures synchronization
+            }
+          }
+        }
+
         for (Operation *op : slotMap[slot].ops) {
+          // Handle arithmetic operations using unified helper
           if (auto addOp = dyn_cast<tor::AddIOp>(op)) {
             auto lhs = getValueInRule(addOp.getLhs(), op, 0, b, localMap, loc);
             auto rhs = getValueInRule(addOp.getRhs(), op, 1, b, localMap, loc);
             if (failed(lhs) || failed(rhs))
               return;
-
-            // Use Signal for arithmetic operations
-            auto lhsSignal = Signal(*lhs, &b, loc);
-            auto rhsSignal = Signal(*rhs, &b, loc);
-
-            // Determine result width and extend if needed
-            auto lhsWidth = cast<circt::firrtl::UIntType>((*lhs).getType()).getWidthOrSentinel();
-            auto rhsWidth = cast<circt::firrtl::UIntType>((*rhs).getType()).getWidthOrSentinel();
-            auto resultWidth = std::max(lhsWidth, rhsWidth);
-
-            auto lhsExtended = ensureUIntWidth(b, loc, *lhs, resultWidth, op);
-            auto rhsExtended = ensureUIntWidth(b, loc, *rhs, resultWidth, op);
-            if (failed(lhsExtended) || failed(rhsExtended))
+            if (failed(performArithmeticOp(b, loc, *lhs, *rhs, addOp.getResult(), "add")))
               return;
-
-            auto sumSignal = Signal(*lhsExtended, &b, loc) + Signal(*rhsExtended, &b, loc);
-            localMap[addOp.getResult()] = sumSignal.getValue();
           }
           else if (auto subOp = dyn_cast<tor::SubIOp>(op)) {
             auto lhs = getValueInRule(subOp.getLhs(), op, 0, b, localMap, loc);
             auto rhs = getValueInRule(subOp.getRhs(), op, 1, b, localMap, loc);
             if (failed(lhs) || failed(rhs))
               return;
-
-            // Use Signal for arithmetic operations
-            auto lhsWidth = cast<circt::firrtl::UIntType>((*lhs).getType()).getWidthOrSentinel();
-            auto rhsWidth = cast<circt::firrtl::UIntType>((*rhs).getType()).getWidthOrSentinel();
-            auto resultWidth = std::max(lhsWidth, rhsWidth);
-
-            auto lhsExtended = ensureUIntWidth(b, loc, *lhs, resultWidth, op);
-            auto rhsExtended = ensureUIntWidth(b, loc, *rhs, resultWidth, op);
-            if (failed(lhsExtended) || failed(rhsExtended))
+            if (failed(performArithmeticOp(b, loc, *lhs, *rhs, subOp.getResult(), "sub")))
               return;
-
-            auto diffSignal = Signal(*lhsExtended, &b, loc) - Signal(*rhsExtended, &b, loc);
-            localMap[subOp.getResult()] = diffSignal.getValue();
           }
           else if (auto mulOp = dyn_cast<tor::MulIOp>(op)) {
             auto lhs = getValueInRule(mulOp.getLhs(), op, 0, b, localMap, loc);
             auto rhs = getValueInRule(mulOp.getRhs(), op, 1, b, localMap, loc);
             if (failed(lhs) || failed(rhs))
               return;
-
-            // Use Signal for arithmetic operations
-            auto lhsWidth = cast<circt::firrtl::UIntType>((*lhs).getType()).getWidthOrSentinel();
-            auto rhsWidth = cast<circt::firrtl::UIntType>((*rhs).getType()).getWidthOrSentinel();
-            auto resultWidth = lhsWidth + rhsWidth;
-
-            auto lhsExtended = ensureUIntWidth(b, loc, *lhs, resultWidth, op);
-            auto rhsExtended = ensureUIntWidth(b, loc, *rhs, resultWidth, op);
-            if (failed(lhsExtended) || failed(rhsExtended))
+            if (failed(performArithmeticOp(b, loc, *lhs, *rhs, mulOp.getResult(), "mul")))
               return;
-
-            auto prodSignal = Signal(*lhsExtended, &b, loc) * Signal(*rhsExtended, &b, loc);
-            localMap[mulOp.getResult()] = prodSignal.getValue();
           }
           else if (auto memLoad = dyn_cast<aps::MemLoad>(op)) {
             // Handle memory load operations
+            // PANIC if no indices provided
+            if (memLoad.getIndices().empty()) {
+              op->emitError("Memory load operation must have at least one index");
+              llvm::report_fatal_error("Memory load requires address indices");
+            }
+
             auto addr = getValueInRule(memLoad.getIndices()[0], op, 0, b, localMap, loc);
-            if (failed(addr))
-              return;
+            if (failed(addr)) {
+              op->emitError("Failed to get address for memory load");
+              llvm::report_fatal_error("Memory load address resolution failed");
+            }
 
+            // Get the memory reference and check if it comes from memref.get_global
+            Value memRef = memLoad.getMemref();
+            Operation *defOp = memRef.getDefiningOp();
 
-            // Call the scratchpad pool bank read method
+            std::string memoryBankRule;
+            if (auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(defOp)) {
+              // Extract the global symbol name and build the rule name
+              StringRef globalName = getGlobalOp.getName();
+              // Convert @mem_a_0 -> mem_a_0_read
+              memoryBankRule = (globalName.drop_front() + "_read").str(); // Remove @ prefix and add _read
+              llvm::outs() << "DEBUG: Memory load from global " << globalName << " using rule " << memoryBankRule << "\n";
+            }
+
+            // Call the appropriate scratchpad pool bank read method
             auto callResult = b.create<circt::cmt2::CallOp>(
                 loc, circt::firrtl::UIntType::get(b.getContext(), 64),
                 mlir::ValueRange{*addr},
                 mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
-                mlir::SymbolRefAttr::get(b.getContext(), "scratch_bank0_read"),
+                mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
                 mlir::ArrayAttr(), mlir::ArrayAttr());
 
             localMap[memLoad.getResult()] = callResult.getResult(0);
           }
-          else if (auto consumerEdgeIt = consumerEdges.find(op);
-                     consumerEdgeIt != consumerEdges.end()) {
-            // Handle cross-slot value writes
-            for (CrossUseInfo *info : consumerEdgeIt->second) {
-              auto value = getValueInRule(info->producerValue, op, info->operandIndex, b, localMap, loc);
+          // Handle cross-slot FIFO writes for producer operations
+          // Enqueue producer result values to appropriate FIFOs
+          for (mlir::Value result : op->getResults()) {
+            if (!isa<mlir::IntegerType>(result.getType()))
+              continue;
+
+            auto fifoIt = crossSlotFIFOs.find(result);
+            if (fifoIt != crossSlotFIFOs.end()) {
+              CrossSlotFIFO *fifo = fifoIt->second;
+              // Enqueue the value to the FIFO in the producer's slot
+              auto value = getValueInRule(result, op, /*operandIndex=*/-1, b, localMap, loc);
               if (failed(value))
                 return;
-              info->wireInstance->callMethod("write", {*value}, b);
+              fifo->fifoInstance->callMethod("enq", {*value}, b);
             }
+          }
+        }
+
+        // Write token to next stage at the end (except for last stage)
+        if (!slotOrder.empty() && slot != slotOrder.back()) {
+          auto tokenFifoIt = stageTokenFifos.find(slot);
+          if (tokenFifoIt != stageTokenFifos.end()) {
+            auto *tokenFifo = tokenFifoIt->second;
+            auto tokenValue = UInt::constant(1, 1, b, loc);
+            tokenFifo->callMethod("enq", {tokenValue.getValue()}, b);
           }
         }
 
@@ -2121,8 +2228,8 @@ private:
         auto it = std::find(slotOrder.begin(), slotOrder.end(), slot);
         if (it != slotOrder.begin()) {
           int64_t prevSlot = *(it - 1);
-          std::string from = "@rule_s" + std::to_string(prevSlot);
-          std::string to = "@rule_s" + std::to_string(slot);
+          std::string from = "@rule_s" + std::to_string(slot);
+          std::string to = "@rule_s" + std::to_string(prevSlot);
           precedencePairs.emplace_back(from, to);
         }
       }
