@@ -37,7 +37,7 @@ def ConvertInput : Pass<"convert-input", "mlir::ModuleOp"> {
   let constructor = "mlir::createConvertInputPass()";
   let dependentDialects = ["mlir::tor::TORDialect"];
   let options = [
-    Option<"top_function", "top-function", "std::string", "\"main\"", "The top function name">,
+    // Option<"top_function", "top-function", "std::string", "\"main\"", "The top function name">,
     Option<"clock", "clock", "double", "6.0", "Clock cycle">,
     Option<"resource", "resource", "std::string", "\"./resource_dynamatic.json\"", "Resource file">,
     Option<"output_path", "output-path", "std::string", "\"output_path\"", "output path">,

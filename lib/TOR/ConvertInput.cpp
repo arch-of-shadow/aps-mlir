@@ -408,43 +408,11 @@ namespace {
         }
     };
 
-    struct DesignOpPattern : OpRewritePattern<mlir::ModuleOp> {
-        DesignOpPattern(MLIRContext *ctx, std::string top_function)
-                : OpRewritePattern<mlir::ModuleOp>(ctx), top_function(top_function) {}
+    // REMOVED: DesignOpPattern - no longer needed, we create one design per function directly
 
-        LogicalResult matchAndRewrite(mlir::ModuleOp op, PatternRewriter &rewriter) const override {
-            // llvm::errs() << "DesignOpPattern::matchAndRewrite called with top_function=" << top_function << "\n";
-            
-            if (isa<tor::DesignOp>(op.getBody()->front())) {
-                // llvm::errs() << "  Already has tor::DesignOp, returning failure\n";
-                return failure();
-            }
-
-            // llvm::errs() << "  Creating tor::DesignOp...\n";
-            Region tmp_region;
-            rewriter.inlineRegionBefore(op.getRegion(), tmp_region, tmp_region.begin());
-            op.getRegion().push_back(new Block);
-            rewriter.setInsertionPointToStart(op.getBody());
-            auto designOp = rewriter.create<tor::DesignOp>(op.getLoc(), top_function);
-            rewriter.inlineRegionBefore(tmp_region, designOp.getBody(), designOp.getBody().begin());
-
-            // llvm::errs() << "  tor::DesignOp created successfully\n";
-            return success();
-        }
-
-        std::string top_function;
-    };
-
-    void solve(FuncOp op, std::string top_function, std::string resource, double clock, PatternRewriter &rewriter) {
+    void solve(FuncOp op, std::string resource, double clock, PatternRewriter &rewriter) {
         rewriter.setInsertionPoint(op);
-        StringRef function_name = op.getName() == top_function ? "main" : op.getName();
-        if (function_name != "main") {
-            for (auto arg: op.getArgumentTypes()) {
-                if (isa<MemRefType, tor::MemRefType>(arg)) {
-                    return;
-                }
-            }
-        }
+        StringRef function_name = op.getName();
 
         auto funcOp = rewriter.create<tor::FuncOp>(op.getLoc(), function_name,
                                                    op.getFunctionType());
@@ -685,7 +653,7 @@ namespace {
                         rewriter.setInsertionPoint(call);
                         rewriter.replaceOpWithNewOp<tor::CallOp>(call, call.getResultTypes(),
                                                                  new_func.getSymName(), 0, 0, new_operands);
-                        solve(new_func, top_function, resource, clock, rewriter);
+                        solve(new_func, resource, clock, rewriter);
                         return;
                     }
                 }
@@ -697,7 +665,7 @@ namespace {
                 auto design = dyn_cast<tor::DesignOp>(funcOp->getParentOp());
                 for (auto func: design.getOps<func::FuncOp>()) {
                     if (func.getSymName() == call.getCallee()) {
-                        solve(func, top_function, resource, clock, rewriter);
+                        solve(func, resource, clock, rewriter);
                         return;
                     }
                 }
@@ -707,59 +675,7 @@ namespace {
         rewriter.eraseOp(op);
     }
 
-    struct FuncCallPattern : public OpRewritePattern<FuncOp> {
-        FuncCallPattern(MLIRContext *ctx, std::string top_function, std::string resource, double clock)
-                : OpRewritePattern<FuncOp>(ctx), top_function(top_function), resource(resource), clock(clock) {}
-
-        LogicalResult matchAndRewrite(FuncOp op, PatternRewriter &rewriter) const override {
-            // DISABLED: ConvertInput pass no longer modifies memref dialect operations
-            // std::map<std::string, Value> memory_mapping;
-            // auto design = op->getParentOp();
-            // design->walk([&](memref::GlobalOp global) {
-            //     rewriter.setInsertionPoint(global);
-            //     auto memref = global.getType();
-            //     tor::AllocOp alloc;
-            //     if (memref.getShape().empty()) {
-            //         auto newType = tor::MemRefType::get({1}, memref.getElementType(), {},
-            //                                             StringAttr::get(global.getContext(), ""));
-            //         auto value = global.getInitialValue();
-            //         auto value_d = value.has_value() && !llvm::isa<mlir::UnitAttr>(value.value()) ? value.value() : nullptr;
-            //         alloc = rewriter.create<tor::AllocOp>(global.getLoc(), newType, nullptr, value_d, nullptr);
-            //         memory_mapping[global.getSymName().str()] = alloc.getResult();
-            //     } else {
-            //         auto newType = tor::MemRefType::get(memref.getShape(), memref.getElementType(), {},
-            //                                             StringAttr::get(global.getContext(), ""));
-            //         auto value = global.getInitialValue();
-            //         auto value_d = value.has_value() && !llvm::isa<mlir::UnitAttr>(value.value()) ? value.value() : nullptr;
-            //         alloc = rewriter.create<tor::AllocOp>(global.getLoc(), newType, nullptr, value_d, nullptr);
-            //         memory_mapping[global.getSymName().str()] = alloc.getResult();
-            //     }
-            //     saveOldAttrWithName(alloc, global, "bind_storage_type");
-            //     saveOldAttrWithName(alloc, global, "bind_storage-line");
-            //     saveOldAttrWithName(alloc, global, "interface-line");
-            //     saveOldAttrWithName(alloc, global, "mode");
-            //     saveOldAttrWithName(alloc, global, "bus");
-            //     saveOldAttrWithName(alloc, global, "offset");
-            //     saveOldAttrWithName(alloc, global, "ARLEN");
-            //     saveOldAttrWithName(alloc, global, "AWLEN");
-            //     saveOldAttrWithName(alloc, global, "max_widen_bitwidth");
-            //     saveOldAttrWithName(alloc, global, "initial_addr");
-            //     saveOldAttrWithName(alloc, global, "interface-storage_type");
-            //     saveOldAttrWithName(alloc, global, "num_read_outstanding");
-            //     saveOldAttrWithName(alloc, global, "num_write_outstanding");
-            //     rewriter.eraseOp(global);
-            // });
-            // design->walk([&](memref::GetGlobalOp get_global) {
-            //     get_global.getResult().replaceAllUsesWith(memory_mapping[get_global.getName().str()]);
-            //     rewriter.eraseOp(get_global);
-            // });
-            solve(op, top_function, resource, clock, rewriter);
-            return success();
-        }
-
-        std::string top_function, resource;
-        double clock;
-    };
+    // REMOVED: FuncToDesignPattern - using direct manipulation instead of pattern matching
 
 
     struct MulIOpConversion : public OpRewritePattern<func::FuncOp> {
@@ -852,42 +768,50 @@ namespace {
                     signalPassFailure();
             }
             {
-                // llvm::errs() << "  Phase 3: Creating tor.design (manual approach)\n";
-                
-                // Check if already has tor::DesignOp
-                if (!llvm::isa<tor::DesignOp>(moduleOp.getBody()->front())) {
-                    // llvm::errs() << "    Manually creating tor::DesignOp...\n";
-                    
-                    OpBuilder builder(&getContext());
-                    Block *moduleBlock = moduleOp.getBody();
-                    
-                    // Collect all operations to move (before creating designOp)
-                    SmallVector<Operation *> opsToMove;
-                    for (Operation &op : llvm::make_early_inc_range(*moduleBlock)) {
-                        opsToMove.push_back(&op);
+                // llvm::errs() << "  Phase 3: Converting each func.func with opcode/funct7 to tor.design\n";
+
+                // Collect all func.func operations at module level that have opcode and funct7 attributes
+                SmallVector<FuncOp> funcsToConvert;
+                for (Operation &op : llvm::make_early_inc_range(*moduleOp.getBody())) {
+                    if (auto funcOp = dyn_cast<FuncOp>(&op)) {
+                        // Only convert functions with both opcode and funct7 attributes
+                        if (funcOp->hasAttr("opcode") && funcOp->hasAttr("funct7")) {
+                            funcsToConvert.push_back(funcOp);
+                        }
                     }
-                    
-                    // llvm::errs() << "    Found " << opsToMove.size() << " operations to move\n";
-                    
-                    // Create tor::DesignOp at the start of module
-                    builder.setInsertionPointToStart(moduleBlock);
-                    auto designOp = builder.create<tor::DesignOp>(moduleOp.getLoc(), top_function);
-                    
+                }
+
+                // llvm::errs() << "    Found " << funcsToConvert.size() << " functions with opcode/funct7 to convert\n";
+
+                OpBuilder builder(&getContext());
+
+                // Convert each function to its own tor.design
+                for (auto funcOp : funcsToConvert) {
+                    // llvm::errs() << "    Converting function: " << funcOp.getName() << "\n";
+
+                    // Get opcode and funct7 attributes before moving the function
+                    auto opcodeAttr = funcOp->getAttr("opcode");
+                    auto funct7Attr = funcOp->getAttr("funct7");
+
+                    // Create tor::DesignOp for this function
+                    builder.setInsertionPoint(funcOp);
+                    auto designOp = builder.create<tor::DesignOp>(funcOp.getLoc(), funcOp.getName().str());
+
+                    // Transfer opcode and funct7 attributes to the design
+                    designOp->setAttr("opcode", opcodeAttr);
+                    designOp->setAttr("funct7", funct7Attr);
+
                     // Add entry block to designOp's body region
                     Block *designBlock = new Block();
                     designOp.getBody().push_back(designBlock);
-                    
-                    // Move all operations into designOp's body
-                    for (Operation *op : opsToMove) {
-                        op->moveBefore(designBlock, designBlock->end());
-                    }
-                    
-                    // llvm::errs() << "    tor::DesignOp created successfully with " 
-                    //              << designBlock->getOperations().size() << " operations inside\n";
-                } else {
-                    // llvm::errs() << "    Already has tor::DesignOp, skipping\n";
+
+                    // Move the function into the design
+                    funcOp->moveBefore(designBlock, designBlock->end());
+
+                    // llvm::errs() << "    Created tor.design for: " << funcOp.getName()
+                    //              << " with opcode=" << opcodeAttr << " funct7=" << funct7Attr << "\n";
                 }
-                
+
                 // llvm::errs() << "  Phase 3: Completed\n";
             }
             {
@@ -898,35 +822,46 @@ namespace {
             }
 
             {
-                // llvm::errs() << "  Phase 5: FuncCallPattern (converting func.func to tor.func)\n";
-                
-                // Walk to find the top function and apply pattern to the design containing it
-                bool foundTopFunction = false;
+                // llvm::errs() << "  Phase 5: Converting func.func to tor.func inside each tor.design\n";
+
+                // Create an OpBuilder for rewriting
+                OpBuilder builder(&getContext());
+
+                // Walk through all tor.design operations and convert their functions
+                SmallVector<std::pair<tor::DesignOp, SmallVector<FuncOp>>> designsWithFuncs;
                 moduleOp->walk([&](tor::DesignOp designOp) {
-                    designOp.walk([&](func::FuncOp op) {
-                        // llvm::errs() << "    Found func.func: " << op.getSymName() << "\n";
-                        if (op.getSymName() == top_function && !foundTopFunction) {
-                            // llvm::errs() << "    Applying pattern to top function: " << top_function << "\n";
-                            foundTopFunction = true;
-                            
-                            // Create fresh pattern set and apply to the entire design
-                            RewritePatternSet Patterns(&getContext());
-                            Patterns.add<FuncCallPattern>(&getContext(), top_function, resource, clock);
-                            
-                            if (failed(applyPatternsAndFoldGreedily(designOp.getOperation(), std::move(Patterns), config))) {
-                                // llvm::errs() << "    Failed to apply pattern\n";
-                                signalPassFailure();
-                            } else {
-                                // llvm::errs() << "    Pattern applied successfully\n";
-                            }
-                        }
+                    SmallVector<FuncOp> funcsInDesign;
+                    designOp.walk([&](FuncOp op) {
+                        funcsInDesign.push_back(op);
                     });
+                    if (!funcsInDesign.empty()) {
+                        designsWithFuncs.push_back({designOp, funcsInDesign});
+                    }
                 });
-                
-                if (!foundTopFunction) {
-                    // llvm::errs() << "    WARNING: Top function '" << top_function << "' not found!\n";
+
+                // Convert functions in each design
+                for (auto &pair : designsWithFuncs) {
+                    auto designOp = pair.first;
+                    auto &funcsInDesign = pair.second;
+
+                    // llvm::errs() << "    Found " << funcsInDesign.size() << " functions in design: "
+                    //              << designOp.getName() << "\n";
+
+                    for (auto funcOp : funcsInDesign) {
+                        // llvm::errs() << "    Converting func: " << funcOp.getName() << "\n";
+
+                        // Create a wrapper rewriter that inherits from PatternRewriter
+                        struct SimplePatternRewriter : public PatternRewriter {
+                            SimplePatternRewriter(MLIRContext *ctx) : PatternRewriter(ctx) {}
+                        };
+
+                        SimplePatternRewriter rewriter(&getContext());
+
+                        // Call solve to convert func.func to tor.func
+                        solve(funcOp, resource, clock, rewriter);
+                    }
                 }
-                
+
                 // llvm::errs() << "  Phase 5: Completed\n";
             }
 

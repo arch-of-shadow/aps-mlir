@@ -45,9 +45,6 @@ int main(int argc, char **argv) {
     program.add_argument("-i", "--input")
         .required()
         .help("Input CADL/MLIR file (e.g., examples/burst_demo.cadl or examples/zyy.mlir)");
-    program.add_argument("-f", "--function")
-        .required()
-        .help("Specify the target function");
     program.add_argument("-o", "--output")
         .required()
         .help("Output path (e.g., zyy_out)");
@@ -84,7 +81,6 @@ int main(int argc, char **argv) {
     const auto clockPeriod = program.get<std::string>("--clock");
     const auto resourceFile = program.get<std::string>("--resource");
     const auto outputPath = program.get<std::string>("--output");
-    const auto targetFunction = program.get<std::string>("--function");
     const auto generateScheduleGraph = program.get<bool>("--gensg");
     const auto generatePragmaReport = program.get<bool>("--genpr");
 
@@ -212,8 +208,7 @@ int main(int argc, char **argv) {
     args.push_back("--expression-balance");
 
     // Convert input with top function, clock, and resource parameters
-    args.push_back("--convert-input=top-function=" + targetFunction +
-                               " clock=" + clockPeriod +
+    args.push_back("--convert-input=clock=" + clockPeriod +
                                " resource=" + resourceFile +
                                " output-path=" + outputPath + "/file");
 
