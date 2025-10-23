@@ -1619,7 +1619,7 @@ private:
     // Rust: schedule!(resp_from_bus, commit_cmd) means resp_from_bus must fire before commit_cmd
     // Rust: schedule!(resp_from_bus, resp_to_user) means resp_from_bus must fire before resp_to_user
     // Note: In CMT2 C++, this would be handled by the scheduling system, but we document it here
-
+    translatorModule->setPrecedence({{"resp_from_bus", "commit_cmd"},{"resp_from_bus", "resp_to_user"}});
     // Schedule relationships:
     // 1. resp_from_bus → commit_cmd (resp_from_bus must execute before commit_cmd)
     // 2. resp_from_bus → resp_to_user (resp_from_bus must execute before resp_to_user)
