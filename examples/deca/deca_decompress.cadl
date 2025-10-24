@@ -60,11 +60,9 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
     // Stage 1: Sparse-to-Dense Expansion (bitmask-driven)
     // Expand sparse values to dense array based on bitmask
     // ========================================================================
+    let vidx: u32 = 0;
     [[unroll(4)]]
-    with
-        idx: u32 = (0, idx + 1)
-        vidx: u32 = (0, vidx_next)
-    do {
+    with idx: u32 = (0, idx + 1) do {
         // Extract bit from bitmask byte
         let byte_idx: u32 = idx / 8;           // Which byte (0..3)
         let bit_pos: u8 = idx[2:0];            // Bit position within byte (0..7)
@@ -81,12 +79,9 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
 
         // Update sparse index counter (counts non-zero elements)
         let inc_val: u32 = if is_nonzero {1} else {0};
-        let vidx_next: u32 = vidx + inc_val;
+        vidx = vidx + inc_val;
 
     } while idx + 1 < 32;
-
-    // Save the final vidx (= number of non-zero elements) for return
-    let nnz: u32 = vidx;
 
     // ========================================================================
     // Stage 2: Fully Affine Decompression
@@ -108,7 +103,5 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
 
     // Burst write decompressed output (32 × i16 = 64 bytes)
     _burst_write[out_addr +: 64] = decompressed_weights[0 +: ];
-
-    // Return number of non-zero elements processed (from stage 1)
-    _irf[rd] = nnz;
+    _irf[rd] = 0;
 }

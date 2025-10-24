@@ -27,3 +27,26 @@ uint8_t vcovmat3d_vv(int32_t *cov_out, int32_t *points, uint8_t rs2, uint32_t rd
     rd_result = 0;
     return rd_result;
 }
+
+// right function for instruction use
+
+uint8_t vcovmat3d_vv(uint32_t *rs1, uint32_t *rd) {
+    // rs1: points base
+    // rd: output covariance matrix base
+    int32_t x = rs1[0];
+    int32_t y = rs1[1];
+    int32_t z = rs1[2];
+    int32_t cx = rs1[3];
+    int32_t cy = rs1[4];
+    int32_t cz = rs1[5];
+    int32_t dx = (x - cx);
+    int32_t dy = (y - cy);
+    int32_t dz = (z - cz);
+    rd[0] = (dx * dx);
+    rd[1] = (dx * dy);
+    rd[2] = (dx * dz);
+    rd[3] = (dy * dy);
+    rd[4] = (dy * dz);
+    rd[5] = (dz * dz);
+    return 0;
+}

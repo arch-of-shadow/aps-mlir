@@ -3,25 +3,27 @@
 
 #include <stdint.h>
 
-uint8_t vgemv3d_vv(int32_t *acc, int32_t *matrix, int32_t *result, int32_t *vec, uint32_t rd_value, uint32_t rs1_value, uint32_t rs2_value) {
+uint8_t vgemv3d_vv(int32_t *rd, int32_t *rs1, int32_t *rs2) {
+    int32_t acc = 0;
+
     uint8_t rd_result = 0;
-    uint32_t mat_addr = rs1_value;
-    uint32_t vec_addr = rs2_value;
-    // burst_read eliminated (arrays directly accessible)
-    // burst_read eliminated (arrays directly accessible)
+    int32_t * mat_addr = rs1;
+    int32_t * vec_addr = rs2;
+    // burst_read lowered via register-backed scratchpad
+    // burst_read lowered via register-backed scratchpad
     uint32_t i;
     for (i = 0; i < 4; ++i) {
-        (*acc) = 0;
+        acc = 0;
         uint32_t j;
         for (j = 0; j < 4; ++j) {
-            (*acc) = ((*acc) + (matrix[((i * 4) + j)] * vec[j]));
+            acc = (acc + (rs1[((i * 4) + j)] * rs2[j]));
             uint32_t j_ = (j + 1);
         }
-        result[i] = (*acc);
+        rd[i] = acc;
         uint32_t i_ = (i + 1);
     }
-    uint32_t out_addr = rd_value;
-    // burst_write eliminated (arrays directly accessible)
+    int32_t * out_addr = rd;
+    // burst_write lowered via register-backed scratchpad
     rd_result = 0;
     return rd_result;
 }

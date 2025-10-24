@@ -6,10 +6,11 @@ expect from the generated output, and how to validate changes locally.
 ## 1. Overview
 
 `cadl_frontend/transpile_to_c.py` converts CADL flows into pure C functions
-without any hardware plumbing. The generated C matches the semantics you would
-get after the `APSToStandard` pass: register reads become function inputs,
-register writes become return values, burst transfers disappear, and loops are
-rewritten into idiomatic C constructs when possible.
+without any hardware plumbing. The generated C now keeps track of register
+based addressing information so that instruction matching can reason about
+operand relationships: register reads that feed memory traffic become typed
+pointer parameters, scratchpad bursts fold into direct pointer arithmetic, and
+loops are still rewritten into idiomatic C constructs when possible.
 
 Use this tool whenever you need a Polygeist-friendly C view of CADL code, e.g.
 for instruction matching or behavioural comparisons with handwritten
@@ -45,23 +46,31 @@ This produces a translation unit with:
 
 ### Register handling
 
-- Each `_irf[rsX]` read turns into a value parameter named `rsX_value` (the
-  type is inferred from the consuming CADL code).
-- Every `_irf[rd] = …` write is turned into a normal C return. Multiple writes
-  create a `typedef struct …_result_t` with one field per write.
-- Register index arguments (`rs1`, `rs2`, `rd`, …) are dropped if they never
-  escape `_irf[...]` operations, and shorthand aliases (`r1`, `r2`, …) are
-  rewritten to use the same inferred value parameters.
+- `_irf[rsX]` reads that are only used as scalars still become value
+  parameters named `rsX_value` with an inferred C integer type.
+- When an `_irf[rsX]` value participates in `_mem[...]` or `_burst_*` accesses,
+  the transpiler infers the element type and emits a pointer parameter named
+  `rsX` (or similar) instead. All subsequent memory accesses are rewritten to
+  index into that pointer, preserving the original addressing relationships.
+- Multiple register writes continue to materialise as either a scalar return or
+  a struct, as before.
+- Register index arguments that never escape `_irf[...]` operations are still
+  pruned, and shorthand aliases (`r1`, `r2`, …) reuse the inferred parameter.
 
 ### Arrays and memory
 
-- CADL statics become pointer parameters (`uint8_t *bitmask`, `int16_t *buf`,
-  etc.).
-- `_burst_read` / `_burst_write` operations are removed with explanatory
-  comments; the arrays are assumed to be directly accessible.
-- `_mem[...]` writes are elided in high-level mode, producing comments instead
-  of side-effecting code. Reads remain as pointer accesses, so the generated
-  signature keeps an `_mem` pointer when required.
+- Scratchpad statics that are populated via bursts are no longer emitted as
+  function parameters. Instead they are rewritten on the fly to index the
+  register-derived base pointer with the appropriate offset.
+- Static scratchpad arrays or scalars that never participate in bursts stay
+  local inside the generated function—stack allocations with zero
+  initialisation replace the previous parameter lifting.
+- `_burst_read` / `_burst_write` statements disappear from the final C, leaving
+  a short comment to signal that the access was folded into pointer arithmetic.
+- `_mem[...]` loads and stores that are anchored on register addresses become
+  pointer accesses through the corresponding register parameter, removing the
+  need for a global `_mem` pointer whenever the access pattern can be resolved
+  statically.
 
 ### Control flow
 

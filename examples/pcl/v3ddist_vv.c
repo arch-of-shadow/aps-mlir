@@ -34,3 +34,28 @@ uint8_t v3ddist_vv(uint32_t *dist_out, uint32_t *points1_x, uint32_t *points1_y,
     rd_result = 0;
     return rd_result;
 }
+
+// right function for instruction use
+
+uint8_t v3ddist_vv(uint32_t *rs1, uint32_t *rs2, uint32_t *rd) {
+    // rs1: points1 base
+    // rs2: points2 base
+    // rd: output distances base
+    uint32_t vl = 16;
+
+    uint32_t i;
+    for (i = 0; i < vl; ++i) {
+        uint32_t x1 = rs1[i];
+        uint32_t y1 = rs1[i + vl];
+        uint32_t z1 = rs1[i + 2 * vl];
+        uint32_t x2 = rs2[i];
+        uint32_t y2 = rs2[i + vl];
+        uint32_t z2 = rs2[i + 2 * vl];
+        uint32_t dx = (x1 - x2);
+        uint32_t dy = (y1 - y2);
+        uint32_t dz = (z1 - z2);
+        uint32_t dist_sq = (((dx * dx) + (dy * dy)) + (dz * dz));
+        rd[i] = dist_sq;
+    }
+    return 0;
+}
