@@ -32,6 +32,7 @@
 #include "circt/Dialect/Cmt2/ECMT2/Circuit.h"
 #include "circt/Dialect/Cmt2/ECMT2/FunctionLike.h"
 #include "circt/Dialect/Cmt2/ECMT2/Instance.h"
+#include "circt/Dialect/Cmt2/ECMT2/Interface.h"
 #include "circt/Dialect/Cmt2/ECMT2/Module.h"
 #include "circt/Dialect/Cmt2/ECMT2/ModuleLibrary.h"
 #include "circt/Dialect/Cmt2/ECMT2/STLLibrary.h"
@@ -53,6 +54,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
@@ -60,6 +62,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include <string>
+#include <bit>
 
 #define DEBUG_TYPE "aps-memory-pool-gen"
 
@@ -86,8 +89,42 @@ struct CrossSlotFIFO {
   llvm::SmallVector<std::pair<Operation*, unsigned>> consumers; // (consumerOp, operandIndex) pairs
 };
 
+  uint32_t roundUpToPowerOf2(uint32_t value) {
+      if (value <= 1) return 1;
+      value--;
+      value |= value >> 1;
+      value |= value >> 2;
+      value |= value >> 4;
+      value |= value >> 8;
+      value |= value >> 16;
+      value++;
+      return value;
+  }
+
+  /// Helper struct for memory entry information
+  struct MemoryEntryInfo {
+    std::string name;
+    uint32_t baseAddress;
+    uint32_t bankSize;
+    uint32_t numBanks;
+    bool isCyclic;
+    int dataWidth;
+    int addrWidth;
+    int depth;
+    llvm::SmallVector<Instance*, 4> bankInstances;
+  };
+
+  /// Result struct for generateMemoryPool containing module and memory entry map
+  struct MemoryPoolResult {
+    Module* poolModule;
+    llvm::DenseMap<llvm::StringRef, MemoryEntryInfo> memEntryMap;
+  };
+
 struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mlir::ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(APSToCMT2GenPass)
+
+  // Memory entry map for fast lookup by name
+  llvm::DenseMap<llvm::StringRef, MemoryEntryInfo> memEntryMap;
 
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<aps::APSDialect>();
@@ -136,15 +173,13 @@ struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mli
       return;
     }
 
-    // Create CMT2 circuit (always needed for both memory and rules)
-    llvm::outs() << "DEBUG: Creating CMT2 circuit\n";
     MLIRContext *context = moduleOp.getContext();
     Circuit circuit("MemoryPool", *context);
 
-    // Generate the memory pool
-    llvm::outs() << "DEBUG: About to call generateMemoryPool\n";
-
-    Module *poolModule = generateMemoryPool(circuit, moduleOp, memoryMapOp);
+    addBurstMemoryInterface(circuit);
+    auto memoryPoolResult = generateMemoryPool(circuit, moduleOp, memoryMapOp);
+    Module *poolModule = memoryPoolResult.poolModule;
+    memEntryMap = std::move(memoryPoolResult.memEntryMap);
 
     // Generate RoCC adapter module
     // TODO: Extract opcodes from the TOR functions or pass as parameter
@@ -230,18 +265,38 @@ private:
     return true;
   }
 
-  /// Helper struct for memory entry information
-  struct MemoryEntryInfo {
-    std::string name;
-    uint32_t baseAddress;
-    uint32_t bankSize;
-    uint32_t numBanks;
-    bool isCyclic;
-    int dataWidth;
-    int addrWidth;
-    int depth;
-    llvm::SmallVector<Instance*, 4> bankInstances;
-  };
+  void addBurstMemoryInterface(Circuit &circuit) {
+    auto &context = circuit.getContext();
+    auto *burstMemoryInterface = circuit.addInterface("BurstDMAController");
+    auto u32Type = UIntType::get(&context, 32);
+    auto u4Type = UIntType::get(&context, 4);
+    auto u1Type = UIntType::get(&context, 1);
+    burstMemoryInterface->addMethod(
+      "cpu_to_isax",
+      {
+        {"cpu_addr", u32Type},
+        {"isax_addr", u32Type},
+        {"length", u4Type}
+      },
+      {}
+    );
+    burstMemoryInterface->addMethod(
+      "isax_to_cpu",
+      {
+        {"cpu_addr", u32Type},
+        {"isax_addr", u32Type},
+        {"length", u4Type}
+      },
+      {}
+    );
+    burstMemoryInterface->addValue(
+      // This will not ready if burst engine is running
+      // So the main operation can be stucked
+      "poll_for_idle",
+      {}, 
+      {TypeAttr::get(u1Type)}
+    );
+  }
 
   // ============================================================================
   //
@@ -974,7 +1029,7 @@ private:
   }
 
   /// Generate the CMT2 memory pool module
-  Module *generateMemoryPool(Circuit &circuit, ModuleOp moduleOp, aps::MemoryMapOp memoryMapOp) {
+  MemoryPoolResult generateMemoryPool(Circuit &circuit, ModuleOp moduleOp, aps::MemoryMapOp memoryMapOp) {
     llvm::outs() << "DEBUG: generateMemoryPool() started\n";
     MLIRContext *context = moduleOp.getContext();
     OpBuilder builder(context);
@@ -1014,6 +1069,9 @@ private:
 
     // Store instances for each memory entry (for address decoding)
     llvm::SmallVector<MemoryEntryInfo> memEntryInfos;
+
+    // Create memory entry map for fast lookup by name
+    llvm::DenseMap<llvm::StringRef, MemoryEntryInfo> memEntryMap;
 
     // For each memory entry, create SRAM banks (only if entries exist)
     for (auto memEntry : memEntries) {
@@ -1066,15 +1124,16 @@ private:
       entryInfo.addrWidth = addrWidth;
       entryInfo.depth = depth;
 
-      // Add this memory entry info to the list
-      memEntryInfos.push_back(std::move(entryInfo));
+      // Add this memory entry info to the list and map
+      memEntryInfos.push_back(entryInfo);
+      memEntryMap[memEntry.getName()] = std::move(entryInfo);
     }
 
     // Now generate address decoding logic for burst access
     // This will create memory entry submodules with bank instances
     generateBurstAccessLogic(poolModule, memEntryInfos, circuit, clk, rst);
 
-    return poolModule;
+    return MemoryPoolResult{poolModule, std::move(memEntryMap)};
   }
 
   /// Convert MLIR type to FIRRTL type
@@ -1112,6 +1171,7 @@ private:
     // Add clock and reset arguments
     auto mainClk = mainModule->addClockArgument("clk");
     auto mainRst = mainModule->addResetArgument("rst");
+    auto *burstControllerItfcDecl = mainModule->defineInterfaceDecl("dma", "BurstDMAController");
 
     // Add scratchpad pool instance - use the pool module we created earlier
     auto *poolInstance = mainModule->addInstance("scratchpad_pool", poolModule, {mainClk.getValue(), mainRst.getValue()});
@@ -1123,7 +1183,7 @@ private:
     // For scalar.mlir, we need to determine the appropriate opcode
     uint32_t opcode = 0b0001011; // Default opcode for scalar operations
     for (auto funcOp : torFuncs) {
-      generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance, hellaMemInstance, circuit, mainClk, mainRst, opcode);
+      generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance, hellaMemInstance, burstControllerItfcDecl, circuit, mainClk, mainRst, opcode);
     }
 
     return {mainModule, poolInstance};
@@ -1254,7 +1314,8 @@ private:
     auto hellaCmdFifoMod = STLLibrary::createFIFO1PushModule(82, circuit);
 
     // Response buffer registers (grouped by bitwidth for reuse)
-    auto reg32Mod = STLLibrary::createRegModule(32, 0, circuit);  // 32-bit registers for data and tags
+    auto reg32Mod = STLLibrary::createRegModule(32, 0, circuit);  // 32-bit registers for data
+    auto reg8Mod = STLLibrary::createRegModule(8, 0, circuit);  // 32-bit registers for tags
     auto reg1Mod = STLLibrary::createRegModule(1, 0, circuit);    // 1-bit registers for flags
 
     // Wire modules for logic (grouped by bitwidth)
@@ -1268,13 +1329,13 @@ private:
 
     // Slot 0 instances (registers don't need clock/reset)
     auto *slot0DataReg = translatorModule->addInstance("slot0_data_reg", reg32Mod, {});
-    auto *slot0TagReg = translatorModule->addInstance("slot0_tag_reg", reg32Mod, {});
+    auto *slot0TagReg = translatorModule->addInstance("slot0_tag_reg", reg8Mod, {});
     auto *slot0TxdReg = translatorModule->addInstance("slot0_txd_reg", reg1Mod, {});
     auto *slot0RxdReg = translatorModule->addInstance("slot0_rxd_reg", reg1Mod, {});
 
     // Slot 1 instances (registers don't need clock/reset)
     auto *slot1DataReg = translatorModule->addInstance("slot1_data_reg", reg32Mod, {});
-    auto *slot1TagReg = translatorModule->addInstance("slot1_tag_reg", reg32Mod, {});
+    auto *slot1TagReg = translatorModule->addInstance("slot1_tag_reg", reg8Mod, {});
     auto *slot1TxdReg = translatorModule->addInstance("slot1_txd_reg", reg1Mod, {});
     auto *slot1RxdReg = translatorModule->addInstance("slot1_rxd_reg", reg1Mod, {});
 
@@ -1330,8 +1391,8 @@ private:
     auto *commitCmdRule = translatorModule->addRule("commit_cmd");
 
     commitCmdRule->guard([&](mlir::OpBuilder &guardBuilder) {
-      auto u1Type = UIntType::get(guardBuilder.getContext(), 1);
-      guardBuilder.create<ConstantOp>(loc, u1Type, llvm::APInt(1, 1));
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
     });
 
     commitCmdRule->body([&](mlir::OpBuilder &bodyBuilder) {
@@ -1552,18 +1613,18 @@ private:
       auto slot0CollectValues = slot0CanCollectWire->callValue("read", bodyBuilder);
       Signal slot0CanCollect = Signal(slot0CollectValues[0], &bodyBuilder, loc);
 
-      // Read slot 0 data for immediate use if needed
-      auto data0Values = slot0DataReg->callValue("read", bodyBuilder);
-      auto tag0Values = slot0TagReg->callValue("read", bodyBuilder);
-      Signal data0 = Signal(data0Values[0], &bodyBuilder, loc);
-      Signal tag0 = Signal(tag0Values[0], &bodyBuilder, loc);
-
       // Rust pattern: let retval = if_! (slot_0_can_collect.read() { ... } else { ... })
       auto retval = If(slot0CanCollect,
           [&](mlir::OpBuilder &builder) -> Signal {
             // Clear slot 0 flags BEFORE returning (matching Rust exactly)
             slot0TxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
             slot0RxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
+
+            // Read slot 0 data for immediate use if needed
+            auto data0Values = slot0DataReg->callValue("read", bodyBuilder);
+            auto tag0Values = slot0TagReg->callValue("read", bodyBuilder);
+            Signal data0 = Signal(data0Values[0], &bodyBuilder, loc);
+            Signal tag0 = Signal(tag0Values[0], &bodyBuilder, loc);
 
             // Create UserMemoryResp bundle from unpacked fields using BundleCreateOp
             // Order must match the bundle type definition: data, tag
@@ -1579,33 +1640,20 @@ private:
             slot1TxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
             slot1RxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
 
-            // Check if slot 1 can collect
-            auto slot1CollectValues = slot1CanCollectWire->callValue("read", builder);
-            Signal slot1CanCollect = Signal(slot1CollectValues[0], &builder, loc);
+            // Read slot 1 data
+            auto data1Values = slot1DataReg->callValue("read", builder);
+            auto tag1Values = slot1TagReg->callValue("read", builder);
+            Signal data1 = Signal(data1Values[0], &builder, loc);
+            Signal tag1 = Signal(tag1Values[0], &builder, loc);
 
-            auto slot1Resp = If(slot1CanCollect,
-                [&](mlir::OpBuilder &innerBuilder) -> Signal {
-                  // Read slot 1 data
-                  auto data1Values = slot1DataReg->callValue("read", innerBuilder);
-                  auto tag1Values = slot1TagReg->callValue("read", innerBuilder);
-                  Signal data1 = Signal(data1Values[0], &innerBuilder, loc);
-                  Signal tag1 = Signal(tag1Values[0], &innerBuilder, loc);
+            // Create UserMemoryResp bundle from unpacked fields using BundleCreateOp
+            // Order must match the bundle type definition: data, tag
+            llvm::SmallVector<mlir::Value> respBundleFields = {
+              data1.getValue(), tag1.getValue()
+            };
 
-                  // Create UserMemoryResp bundle from unpacked fields using BundleCreateOp
-                  // Order must match the bundle type definition: data, tag
-                  llvm::SmallVector<mlir::Value> respBundleFields = {
-                    data1.getValue(), tag1.getValue()
-                  };
-
-                  auto respBundleValue = innerBuilder.create<BundleCreateOp>(loc, userRespBundleType, respBundleFields);
-                  return Signal(respBundleValue.getResult(), &innerBuilder, loc);
-                },
-                [&](mlir::OpBuilder &innerBuilder) -> Signal {
-                  // Default response if slot 1 can't collect either
-                  return UInt::constant(0, 64, innerBuilder, loc);
-                },
-                builder, loc);
-            return slot1Resp;
+            auto respBundleValue = builder.create<BundleCreateOp>(loc, userRespBundleType, respBundleFields);
+            return Signal(respBundleValue.getResult(), &builder, loc);
           },
           bodyBuilder, loc);
 
@@ -1859,7 +1907,8 @@ private:
 
   /// Generate rules for a specific TOR function - proper implementation from rulegenpass.cpp
   void generateRulesForFunction(Module *mainModule, tor::FuncOp funcOp,
-                               Instance *poolInstance, Instance *roccInstance, Instance *hellaMemInstance, 
+                               Instance *poolInstance, Instance *roccInstance, Instance *hellaMemInstance,
+                               InterfaceDecl *dmaItfc, 
                                Circuit &circuit, Clock mainClk, Reset mainRst, uint32_t opcode) {
     
     auto &builder = mainModule->getBuilder();
@@ -2287,7 +2336,7 @@ private:
             auto size = UInt::constant(2, 2, b, loc);
             auto mask = UInt::constant(0, 4, b, loc);
             auto tagConst = UInt::constant(0x3f, 8, b, loc);
-            auto tag = addrSignal ^ tagConst;
+            auto tag = (addrSignal ^ tagConst).bits(7, 0);
 
             llvm::SmallVector<mlir::Value> bundleFields = {*addr, readCmd.getValue(), size.getValue(), data.getValue(), mask.getValue(), tag.getValue()};
             auto bundleValue = b.create<BundleCreateOp>(loc, userCmdBundleType, bundleFields);
@@ -2335,7 +2384,7 @@ private:
             auto size = UInt::constant(2, 2, b, loc);
             auto mask = UInt::constant(0, 4, b, loc);
             auto tagConst = UInt::constant(0x3f, 8, b, loc);
-            auto tag = addrSignal ^ tagConst;
+            auto tag = (addrSignal ^ tagConst).bits(7, 0);
 
             llvm::SmallVector<mlir::Value> bundleFields = {*addr, WriteCmd.getValue(), size.getValue(), *value, mask.getValue(), tag.getValue()};
             auto bundleValue = b.create<BundleCreateOp>(loc, userCmdBundleType, bundleFields);
@@ -2382,6 +2431,118 @@ private:
                 mlir::ArrayAttr(), mlir::ArrayAttr());
 
             localMap[memLoad.getResult()] = callResult.getResult(0);
+          } else if (auto memBurstLoadReq = dyn_cast<aps::ItfcBurstLoadReq>(op)) {
+            Value cpuAddr = memBurstLoadReq.getCpuAddr();
+            Value memRef = memBurstLoadReq.getMemrefs()[0];
+            Value start = memBurstLoadReq.getStart();
+            Value numOfElements = memBurstLoadReq.getLength();
+
+            // Get the global memory reference name
+            auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(memRef.getDefiningOp());
+            auto globalName = getGlobalOp.getName().str();
+
+            // Find the corresponding memory entry using the pre-built map
+            MemoryEntryInfo* targetMemEntry = nullptr;
+            if (!globalName.empty()) {
+              auto it = memEntryMap.find(globalName);
+              if (it != memEntryMap.end()) {
+                targetMemEntry = &it->second;
+              }
+            }
+
+            // Get element type and size from the memory entry info or global memref
+            int elementSizeBytes = 1; // Default to 1 byte
+            if (targetMemEntry) {
+              // Use the data width from the memory entry info
+              elementSizeBytes = (targetMemEntry->dataWidth + 7) / 8; // Convert bits to bytes, rounding up
+            } else if (!globalName.empty()) {
+              op->emitError("Failed to find target memory entry!");
+            }
+
+            // Calculate localAddr: baseAddress + (start * numOfElements * elementSizeBytes)
+            uint32_t baseAddress = targetMemEntry->baseAddress;
+
+            // Calculate offset: start * numOfElements * elementSizeBytes
+            // First multiply start * numOfElements
+            auto baseAddrConst = UInt::constant(baseAddress, 32, b, loc);
+            auto startSig = Signal(start, &b, loc);
+            auto elementSizeBytesConst = UInt::constant(32, elementSizeBytes, b, loc);
+            Signal localAddr = baseAddrConst + startSig * elementSizeBytesConst;
+
+            // Calculate total burst length: elementSizeBytes * numOfElements, rounded up to nearest power of 2
+            auto numElementsOp = numOfElements.getDefiningOp<arith::ConstantOp>();
+            auto numElementsAttr = numElementsOp.getValue();
+            auto numElements = dyn_cast<IntegerAttr>(numElementsAttr).getValue().getZExtValue();
+
+            uint64_t totalBurstLength = (uint64_t)elementSizeBytes * numElements;
+            uint32_t roundedTotalBurstLength = roundUpToPowerOf2((uint32_t)totalBurstLength);
+            auto realCpuLength = UInt::constant(32, roundedTotalBurstLength, b, loc);
+
+            dmaItfc->callMethod("cpu_to_isax", {
+              cpuAddr, 
+              localAddr.bits(31, 0).getValue(), 
+              realCpuLength.bits(3, 0).getValue()
+            }, b);
+
+          } else if (auto memBurstLoadCollect = dyn_cast<aps::ItfcBurstLoadCollect>(op)) {
+            // no action needed
+            dmaItfc->callMethod("poll_for_idle", {}, b);
+          } else if (auto memBurstStoreReq = dyn_cast<aps::ItfcBurstStoreReq>(op)) {
+
+            Value cpuAddr = memBurstLoadReq.getCpuAddr();
+            Value memRef = memBurstLoadReq.getMemrefs()[0];
+            Value start = memBurstLoadReq.getStart();
+            Value numOfElements = memBurstLoadReq.getLength();
+
+            // Get the global memory reference name
+            auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(memRef.getDefiningOp());
+            auto globalName = getGlobalOp.getName().str();
+
+            // Find the corresponding memory entry using the pre-built map
+            MemoryEntryInfo* targetMemEntry = nullptr;
+            if (!globalName.empty()) {
+              auto it = memEntryMap.find(globalName);
+              if (it != memEntryMap.end()) {
+                targetMemEntry = &it->second;
+              }
+            }
+
+            // Get element type and size from the memory entry info or global memref
+            int elementSizeBytes = 1; // Default to 1 byte
+            if (targetMemEntry) {
+              // Use the data width from the memory entry info
+              elementSizeBytes = (targetMemEntry->dataWidth + 7) / 8; // Convert bits to bytes, rounding up
+            } else if (!globalName.empty()) {
+              op->emitError("Failed to find target memory entry!");
+            }
+
+            // Calculate localAddr: baseAddress + (start * numOfElements * elementSizeBytes)
+            uint32_t baseAddress = targetMemEntry->baseAddress;
+
+            // Calculate offset: start * numOfElements * elementSizeBytes
+            // First multiply start * numOfElements
+            auto baseAddrConst = UInt::constant(baseAddress, 32, b, loc);
+            auto startSig = Signal(start, &b, loc);
+            auto elementSizeBytesConst = UInt::constant(32, elementSizeBytes, b, loc);
+            Signal localAddr = baseAddrConst + startSig * elementSizeBytesConst;
+
+            // Calculate total burst length: elementSizeBytes * numOfElements, rounded up to nearest power of 2
+            auto numElementsOp = numOfElements.getDefiningOp<arith::ConstantOp>();
+            auto numElementsAttr = numElementsOp.getValue();
+            auto numElements = dyn_cast<IntegerAttr>(numElementsAttr).getValue().getZExtValue();
+
+            uint64_t totalBurstLength = (uint64_t)elementSizeBytes * numElements;
+            uint32_t roundedTotalBurstLength = roundUpToPowerOf2((uint32_t)totalBurstLength);
+            auto realCpuLength = UInt::constant(32, roundedTotalBurstLength, b, loc);
+
+            dmaItfc->callMethod("isax_to_cpu", {
+              cpuAddr, 
+              localAddr.bits(31, 0).getValue(), 
+              realCpuLength.bits(3, 0).getValue()
+            }, b);
+
+          } else if (auto memBurstStoreCollect = dyn_cast<aps::ItfcBurstStoreCollect>(op)) {
+            dmaItfc->callMethod("poll_for_idle", {}, b);
           }
           // Handle cross-slot FIFO writes for producer operations
           // Enqueue producer result values to appropriate FIFOs
