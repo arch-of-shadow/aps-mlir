@@ -120,6 +120,14 @@ struct CrossSlotFIFO {
     llvm::DenseMap<llvm::StringRef, MemoryEntryInfo> memEntryMap;
   };
 
+  // Struct to hold all instances returned by generateRuleBasedMainModule
+  struct MainModuleInstances {
+    Module* mainModule;
+    Instance* poolInstance;
+    Instance* roccInstance;
+    Instance* hellaMemInstance;
+  };
+
 struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mlir::ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(APSToCMT2GenPass)
 
@@ -177,6 +185,7 @@ struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mli
     Circuit circuit("MemoryPool", *context);
 
     addBurstMemoryInterface(circuit);
+    addRoccAndHellaMemoryInterface(circuit);
     auto memoryPoolResult = generateMemoryPool(circuit, moduleOp, memoryMapOp);
     Module *poolModule = memoryPoolResult.poolModule;
     memEntryMap = std::move(memoryPoolResult.memEntryMap);
@@ -190,10 +199,16 @@ struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mli
     auto *memoryAdapterModule = generateMemoryAdapter(circuit);
     
     // Generate rule-based main module for TOR functions
-    auto [mainModule, poolInstance] = generateRuleBasedMainModule(moduleOp, circuit, poolModule, roccAdapterModule, memoryAdapterModule);
+    auto instances = generateRuleBasedMainModule(moduleOp, circuit, poolModule, roccAdapterModule, memoryAdapterModule);
+    auto *mainModule = instances.mainModule;
+    auto *poolInstance = instances.poolInstance;
+    auto *roccInstance = instances.roccInstance;
+    auto *hellaMemInstance = instances.hellaMemInstance;
 
     // Add burst read/write methods to expose memory pool functionality
     addBurstMethodsToMainModule(mainModule, poolInstance);
+
+    addRoCCAndMemoryMethodToMainModule(mainModule, roccInstance, hellaMemInstance);
     
 
     auto generatedModule = circuit.generateMLIR();
@@ -295,6 +310,24 @@ private:
       "poll_for_idle",
       {}, 
       {TypeAttr::get(u1Type)}
+    );
+  }
+
+
+  void addRoccAndHellaMemoryInterface(Circuit &circuit) {
+    auto roccRespInterface = circuit.addInterface("roccRespItfc");
+    auto &builder = circuit.getBuilder();
+    auto roccRespBundleType = getRoccRespBundleType(builder);
+    roccRespInterface->addMethod("rocc_resp_to_bus", 
+      {{"result", roccRespBundleType}}, 
+      {}
+    );
+
+    auto hellaCmdInterface = circuit.addInterface("hellaCmdItfc");
+    auto hellaCmdBundleType = getHellaCmdBundleType(builder);
+    hellaCmdInterface->addMethod("hella_cmd_to_bus", 
+      {{"cmd", hellaCmdBundleType}},
+      {}
     );
   }
 
@@ -1028,6 +1061,48 @@ private:
 
   }
 
+  void addRoCCAndMemoryMethodToMainModule(Module *mainModule, Instance *roccInstance, Instance *hellaMemInstance) {
+    auto &builder = mainModule->getBuilder();
+    auto roccCmdBundleType = getRoccCmdBundleType(builder);
+    auto hellaRespBundleType = getHellaRespBundleType(builder);
+    auto loc = mainModule->getLoc();
+    auto *roccCmdMethod = mainModule->addMethod(
+      "rocc_cmd", 
+      {{{"rocc_cmd", roccCmdBundleType}}}, 
+      {}
+    );
+
+    roccCmdMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    });
+    roccCmdMethod->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto arg = args[0];
+      auto loc = bodyBuilder.getUnknownLoc();
+      roccInstance->callMethod("cmd_from_bus", arg, bodyBuilder);
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+    roccCmdMethod->finalize();
+
+    auto *hellaRespMethod = mainModule->addMethod(
+      "hella_resp", 
+      {{"hella_resp", hellaRespBundleType}}, 
+    {}
+    );
+
+    hellaRespMethod->guard([&](mlir::OpBuilder &guardBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    });
+    hellaRespMethod->body([&](mlir::OpBuilder &bodyBuilder, llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto arg = args[0];
+      auto loc = bodyBuilder.getUnknownLoc();
+      hellaMemInstance->callMethod("resp_from_bus", arg, bodyBuilder);
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+    hellaRespMethod->finalize();
+  }
+
   /// Generate the CMT2 memory pool module
   MemoryPoolResult generateMemoryPool(Circuit &circuit, ModuleOp moduleOp, aps::MemoryMapOp memoryMapOp) {
     llvm::outs() << "DEBUG: generateMemoryPool() started\n";
@@ -1155,7 +1230,7 @@ private:
   // ============================================================================
 
   /// Generate rule-based main module for TOR functions
-  std::pair<Module*, Instance*> generateRuleBasedMainModule(ModuleOp moduleOp, Circuit &circuit,
+  MainModuleInstances generateRuleBasedMainModule(ModuleOp moduleOp, Circuit &circuit,
                                    Module *poolModule, Module *roccModule, Module *hellaMemModule) {
     // Create main module in the same circuit
     auto *mainModule = circuit.addModule("main");
@@ -1172,11 +1247,27 @@ private:
     auto mainClk = mainModule->addClockArgument("clk");
     auto mainRst = mainModule->addResetArgument("rst");
     auto *burstControllerItfcDecl = mainModule->defineInterfaceDecl("dma", "BurstDMAController");
+    mainModule->defineInterfaceDecl("rocc_resp", "roccRespItfc");
+    mainModule->defineInterfaceDecl("hella_cmd", "hellaCmdItfc");
 
     // Add scratchpad pool instance - use the pool module we created earlier
-    auto *poolInstance = mainModule->addInstance("scratchpad_pool", poolModule, {mainClk.getValue(), mainRst.getValue()});
-    auto *roccInstance = mainModule->addInstance("rocc_adapter", roccModule, {mainClk.getValue(), mainRst.getValue()});
-    auto *hellaMemInstance = mainModule->addInstance("hellacache_adapter", hellaMemModule, {mainClk.getValue(), mainRst.getValue()});
+    auto *poolInstance = mainModule->addInstance(
+      "scratchpad_pool", 
+      poolModule, 
+      {mainClk.getValue(), mainRst.getValue()}
+    );
+    auto *roccInstance = mainModule->addInstance(
+      "rocc_adapter", 
+      roccModule, 
+      {mainClk.getValue(), mainRst.getValue()},
+      {{"rocc_resp", "rocc_resp"}}
+    );
+    auto *hellaMemInstance = mainModule->addInstance(
+      "hellacache_adapter", 
+      hellaMemModule, 
+      {mainClk.getValue(), mainRst.getValue()},
+      {{"hella_cmd", "hella_cmd"}}
+    );
 
     // For each TOR function, generate rules
     // Extract opcodes from the function or use defaults
@@ -1186,7 +1277,7 @@ private:
       generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance, hellaMemInstance, burstControllerItfcDecl, circuit, mainClk, mainRst, opcode);
     }
 
-    return {mainModule, poolInstance};
+    return {mainModule, poolInstance, roccInstance, hellaMemInstance};
   }
 
   /// Add burst read/write methods to main module
@@ -1256,22 +1347,21 @@ private:
 
   }
 
-  /// Generate Memory Translator module that bridges HellaCache interface with User Memory Protocol
-  Module *generateMemoryAdapter(Circuit &circuit) {
-    auto *translatorModule = circuit.addModule("MemoryTranslator");
-    auto &builder = translatorModule->getBuilder();
-    auto loc = translatorModule->getLoc();
+  BundleType getHellaRespBundleType(Builder &builder) {
     auto *context = builder.getContext();
+    return BundleType::get(context, {
+      BundleType::BundleElement{builder.getStringAttr("data"), false, UIntType::get(context, 32)},
+      BundleType::BundleElement{builder.getStringAttr("tag"), false, UIntType::get(context, 8)},
+      BundleType::BundleElement{builder.getStringAttr("cmd"), false, UIntType::get(context, 5)},
+      BundleType::BundleElement{builder.getStringAttr("size"), false, UIntType::get(context, 2)},
+      BundleType::BundleElement{builder.getStringAttr("signed"), false, UIntType::get(context, 1)}
+    });
+  }
 
-    // Add clock and reset arguments
-    Clock clk = translatorModule->addClockArgument("clk");
-    Reset rst = translatorModule->addResetArgument("rst");
 
-    // Define types for the protocols (using inline definitions to avoid unused variables)
-
-    // Create bundle types following Rust patterns
-    // UserMemoryCmd: {addr: u32, cmd: u1, size: u2, data: u32, mask: u4, tag: u8}
-    auto userCmdBundleType = BundleType::get(context, {
+  BundleType getHellaUserCmdBundleType(Builder &builder) {
+    auto *context = builder.getContext();
+    return BundleType::get(context, {
       BundleType::BundleElement{builder.getStringAttr("addr"), false, UIntType::get(context, 32)},
       BundleType::BundleElement{builder.getStringAttr("cmd"), false, UIntType::get(context, 1)},
       BundleType::BundleElement{builder.getStringAttr("size"), false, UIntType::get(context, 2)},
@@ -1279,9 +1369,12 @@ private:
       BundleType::BundleElement{builder.getStringAttr("mask"), false, UIntType::get(context, 4)},
       BundleType::BundleElement{builder.getStringAttr("tag"), false, UIntType::get(context, 8)}
     });
+  }
 
-    // HellaCacheCmd: {addr: u32, tag: u8, cmd: u5, size: u2, signed: u1, phys: u1, data: u32, mask: u4}
-    auto hellaCmdBundleType = BundleType::get(context, {
+
+  BundleType getHellaCmdBundleType(Builder &builder) {
+    auto *context = builder.getContext();
+    return BundleType::get(context, {
       BundleType::BundleElement{builder.getStringAttr("addr"), false, UIntType::get(context, 32)},
       BundleType::BundleElement{builder.getStringAttr("tag"), false, UIntType::get(context, 8)},
       BundleType::BundleElement{builder.getStringAttr("cmd"), false, UIntType::get(context, 5)},
@@ -1291,27 +1384,47 @@ private:
       BundleType::BundleElement{builder.getStringAttr("data"), false, UIntType::get(context, 32)},
       BundleType::BundleElement{builder.getStringAttr("mask"), false, UIntType::get(context, 4)}
     });
+  }
 
-    // HellaCacheResp: {data: u32, tag: u8, cmd: u5, size: u2, signed: u1}
-    auto hellaRespBundleType = BundleType::get(context, {
-      BundleType::BundleElement{builder.getStringAttr("data"), false, UIntType::get(context, 32)},
-      BundleType::BundleElement{builder.getStringAttr("tag"), false, UIntType::get(context, 8)},
-      BundleType::BundleElement{builder.getStringAttr("cmd"), false, UIntType::get(context, 5)},
-      BundleType::BundleElement{builder.getStringAttr("size"), false, UIntType::get(context, 2)},
-      BundleType::BundleElement{builder.getStringAttr("signed"), false, UIntType::get(context, 1)}
-    });
 
-    // UserMemoryResp: {data: u32, tag: u8}
-    auto userRespBundleType = BundleType::get(context, {
+  BundleType getHellaUserRespBundleType(Builder &builder) {
+    auto *context = builder.getContext();
+    return BundleType::get(context, {
       BundleType::BundleElement{builder.getStringAttr("data"), false, UIntType::get(context, 32)},
       BundleType::BundleElement{builder.getStringAttr("tag"), false, UIntType::get(context, 8)}
     });
+  }
+
+  /// Generate Memory Translator module that bridges HellaCache interface with User Memory Protocol
+  Module *generateMemoryAdapter(Circuit &circuit) {
+    auto *translatorModule = circuit.addModule("MemoryTranslator");
+    auto &builder = translatorModule->getBuilder();
+    auto loc = translatorModule->getLoc();
+
+    // Add clock and reset arguments
+    Clock clk = translatorModule->addClockArgument("clk");
+    Reset rst = translatorModule->addResetArgument("rst");
+    auto hellaCmdItfcDecl = translatorModule->defineInterfaceDecl("hella_cmd", "hellaCmdItfc");
+
+    // Define types for the protocols (using inline definitions to avoid unused variables)
+
+    // Create bundle types following Rust patterns
+    // UserMemoryCmd: {addr: u32, cmd: u1, size: u2, data: u32, mask: u4, tag: u8}
+    auto userCmdBundleType = getHellaUserCmdBundleType(builder);
+
+    // HellaCacheCmd: {addr: u32, tag: u8, cmd: u5, size: u2, signed: u1, phys: u1, data: u32, mask: u4}
+    auto hellaCmdBundleType = getHellaCmdBundleType(builder);
+
+    // HellaCacheResp: {data: u32, tag: u8, cmd: u5, size: u2, signed: u1}
+    auto hellaRespBundleType = getHellaRespBundleType(builder);
+    // UserMemoryResp: {data: u32, tag: u8}
+    auto userRespBundleType = getHellaUserRespBundleType(builder);
 
     // Create external FIFO and register modules
     auto savedIP = builder.saveInsertionPoint();
 
-    // Command queue (FIFO1Push for HellaCache commands - 82 bits total)
-    auto hellaCmdFifoMod = STLLibrary::createFIFO1PushModule(82, circuit);
+    // Command queue (FIFO1Push for HellaCache commands - 85 bits total)
+    auto hellaCmdFifoMod = STLLibrary::createFIFO1PushModule(85, circuit);
 
     // Response buffer registers (grouped by bitwidth for reuse)
     auto reg32Mod = STLLibrary::createRegModule(32, 0, circuit);  // 32-bit registers for data
@@ -1373,7 +1486,7 @@ private:
       Signal hellaSigned = UInt::constant(0, 1, bodyBuilder, loc);
       Signal hellaPhys = UInt::constant(0, 1, bodyBuilder, loc);
 
-      // Pack the bundle fields into a 82-bit value for FIFO
+      // Pack the bundle fields into a 85-bit value for FIFO
       // Layout: data(32) + mask(4) + phys(1) + signed(1) + size(2) + cmd(5) + tag(8) + addr(32) = 85 bits (with padding)
       Signal packedHellaCmd = userData.cat(userMask).cat(hellaPhys).cat(hellaSigned)
                               .cat(userSize).cat(hellaCmd).cat(userTag).cat(userAddr);
@@ -1401,9 +1514,15 @@ private:
       auto hellaCmd = Signal(cmdValues[0], &bodyBuilder, loc);
 
       // Extract fields from HellaCache command (assuming packed format)
-      // Layout: data(32) + mask(4) + phys(1) + signed(1) + size(2) + cmd(5) + tag(8) + addr(32)
-      Signal tagAddr = hellaCmd.bits(39, 32);     // bits 32-39: tag used as address for matching
-      Signal cmdField = hellaCmd.bits(46, 42);     // bits 42-46: cmd (5-bit)
+      // Layout: addr(32) + tag(8) + cmd(5) + size(2) + signed(1) + phys(1) + mask(4) + data(32)
+      Signal addr = hellaCmd.bits(31, 0);          // bits 0-31: addr (32-bit) - LSB
+      Signal tag = hellaCmd.bits(39, 32);          // bits 32-39: tag (8-bit)
+      Signal cmdField = hellaCmd.bits(44, 40);     // bits 40-44: cmd (5-bit)
+      Signal size = hellaCmd.bits(46, 45);         // bits 45-46: size (2-bit)
+      Signal signedField = hellaCmd.bits(47, 47);   // bit 47: signed (1-bit)
+      Signal phys = hellaCmd.bits(48, 48);         // bit 48: phys (1-bit)
+      Signal mask = hellaCmd.bits(52, 49);         // bits 49-52: mask (4-bit)
+      Signal data = hellaCmd.bits(84, 53);         // bits 53-84: data (32-bit) - MSB
 
       // Check if this is a read command (cmd == 0)
       Signal cmdIsRead = cmdField == UInt::constant(0, 5, bodyBuilder, loc);
@@ -1420,14 +1539,14 @@ private:
                 [&](mlir::OpBuilder &innerBuilder) -> Signal {
                   // next slot is 0 - use slot 0 for tracking
                   slot0TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                  slot0TagReg->callMethod("write", {tagAddr.getValue()}, innerBuilder);
+                  slot0TagReg->callMethod("write", {tag.getValue()}, innerBuilder);
                   newerSlotReg->callMethod("write", {UInt::constant(0, 1, innerBuilder, loc).getValue()}, innerBuilder);
                   return UInt::constant(0, 1, innerBuilder, loc);
                 },
                 [&](mlir::OpBuilder &innerBuilder) -> Signal {
                   // next slot is 1 - use slot 1 for tracking
                   slot1TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                  slot1TagReg->callMethod("write", {tagAddr.getValue()}, innerBuilder);
+                  slot1TagReg->callMethod("write", {tag.getValue()}, innerBuilder);
                   newerSlotReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
                   return UInt::constant(0, 1, innerBuilder, loc);
                 },
@@ -1440,11 +1559,23 @@ private:
           },
           bodyBuilder, loc);
 
-      // Note: In a complete implementation, we would also need to:
-      // 1. Send the command to the actual HellaCache interface (hella_slave.cmd_to_bus)
-      // 2. Handle write response processing if needed
-      // This would require connecting to external HellaCache interface modules
+      // Construct the HellaCache command bundle from extracted fields
+      // Bundle format: {addr: u32, tag: u8, cmd: u5, size: u2, signed: u1, phys: u1, data: u32, mask: u4}
+      llvm::SmallVector<mlir::Value> bundleFields = {
+        addr.getValue(),    // addr: u32
+        tag.getValue(),     // tag: u8
+        cmdField.getValue(), // cmd: u5
+        size.getValue(),    // size: u2
+        signedField.getValue(), // signed: u1
+        phys.getValue(),    // phys: u1
+        data.getValue(),    // data: u32
+        mask.getValue()     // mask: u4
+      };
 
+      auto hellaCmdBundle = bodyBuilder.create<BundleCreateOp>(loc, hellaCmdBundleType, bundleFields);
+
+      // Send the constructed bundle to the HellaCache interface
+      hellaCmdItfcDecl->callMethod("hella_cmd_to_bus", {hellaCmdBundle}, bodyBuilder);
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
     });
 
@@ -1675,20 +1806,9 @@ private:
     return translatorModule;
   }
 
-  /// Generate RoCC Adapter module that bridges RoCC interface with accelerator execution units
-  Module *generateRoCCAdapter(Circuit &circuit, const llvm::SmallVector<uint32_t, 4> &opcodes) {
-    auto *roccAdapterModule = circuit.addModule("RoCCAdapter");
-    auto &builder = roccAdapterModule->getBuilder();
-    auto loc = roccAdapterModule->getLoc();
+  BundleType getRoccCmdBundleType(Builder &builder) {
     auto *context = builder.getContext();
-
-    // Add clock and reset arguments
-    Clock clk = roccAdapterModule->addClockArgument("clk");
-    Reset rst = roccAdapterModule->addResetArgument("rst");
-
-    // Create bundle types following Rust patterns
-    // RoccCmd: {funct: u7, rs1: u5, rs2: u5, rd: u5, xs1: u1, xs2: u1, xd: u1, opcode: u7, rs1data: u32, rs2data: u32}
-    auto roccCmdBundleType = BundleType::get(context, {
+    return BundleType::get(context, {
       BundleType::BundleElement{builder.getStringAttr("funct"), false, UIntType::get(context, 7)},
       BundleType::BundleElement{builder.getStringAttr("rs1"), false, UIntType::get(context, 5)},
       BundleType::BundleElement{builder.getStringAttr("rs2"), false, UIntType::get(context, 5)},
@@ -1700,11 +1820,31 @@ private:
       BundleType::BundleElement{builder.getStringAttr("rs1data"), false, UIntType::get(context, 32)},
       BundleType::BundleElement{builder.getStringAttr("rs2data"), false, UIntType::get(context, 32)}
     });
+  }
 
-    auto roccRespBundleType = BundleType::get(builder.getContext(), {
+  BundleType getRoccRespBundleType(Builder &builder) {
+    auto *context = builder.getContext();
+    return BundleType::get(builder.getContext(), {
       BundleType::BundleElement{builder.getStringAttr("rd"), false, UIntType::get(context, 5)},
       BundleType::BundleElement{builder.getStringAttr("rddata"), false, UIntType::get(context, 32)}
     });
+  }
+
+  /// Generate RoCC Adapter module that bridges RoCC interface with accelerator execution units
+  Module *generateRoCCAdapter(Circuit &circuit, const llvm::SmallVector<uint32_t, 4> &opcodes) {
+    auto *roccAdapterModule = circuit.addModule("RoCCAdapter");
+    auto &builder = roccAdapterModule->getBuilder();
+    auto loc = roccAdapterModule->getLoc();
+    auto *roccRespItfcDecl = roccAdapterModule->defineInterfaceDecl("rocc_resp", "roccRespItfc");
+
+    // Add clock and reset arguments
+    Clock clk = roccAdapterModule->addClockArgument("clk");
+    Reset rst = roccAdapterModule->addResetArgument("rst");
+
+    // Create bundle types following Rust patterns
+    // RoccCmd: {funct: u7, rs1: u5, rs2: u5, rd: u5, xs1: u1, xs2: u1, xd: u1, opcode: u7, rs1data: u32, rs2data: u32}
+    auto roccCmdBundleType = getRoccCmdBundleType(builder);
+    auto roccRespBundleType = getRoccRespBundleType(builder);
 
     // Create external FIFO modules
     auto savedIP = builder.saveInsertionPoint();
@@ -1843,10 +1983,7 @@ private:
 
       auto respBundleValue = bodyBuilder.create<BundleCreateOp>(loc, roccRespBundleType, respBundleFields);
 
-      // TODO: In a complete implementation, this would call the RoCC master's resp_to_bus method
-      // For now, we just consume the response from the queue
-      // rocc_master.resp_to_bus(respBundleValue.getResult());
-      (void)respBundleValue; // Suppress unused variable warning
+      roccRespItfcDecl->callMethod("rocc_resp_to_bus", {respBundleValue}, bodyBuilder);
 
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
     });
