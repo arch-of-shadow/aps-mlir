@@ -49,6 +49,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/SymbolTable.h"
@@ -192,7 +193,11 @@ struct APSToCMT2GenPass : public PassWrapper<APSToCMT2GenPass, OperationPass<mli
 
     // Generate RoCC adapter module
     // TODO: Extract opcodes from the TOR functions or pass as parameter
-    llvm::SmallVector<uint32_t, 4> opcodes = {0b0001011, 0b0101011}; // Example opcodes
+    llvm::SmallVector<unsigned long, 4> opcodes = {}; // Example opcodes
+    moduleOp.walk([&](tor::FuncOp funcOp) {
+      auto opcode = dyn_cast<IntegerAttr>(funcOp->getAttr("opcode"));
+      opcodes.push_back(opcode.getInt());
+    });
     auto *roccAdapterModule = generateRoCCAdapter(circuit, opcodes);
 
     // // Generate memory translator module
@@ -1238,9 +1243,7 @@ private:
     // Find all TOR functions that need rule generation
     llvm::SmallVector<tor::FuncOp, 4> torFuncs;
     moduleOp.walk([&](tor::FuncOp funcOp) {
-      if (funcOp.getName() == "main") {  // Focus on main function for now
-        torFuncs.push_back(funcOp);
-      }
+      torFuncs.push_back(funcOp);
     });
 
     // Add clock and reset arguments
@@ -1272,8 +1275,8 @@ private:
     // For each TOR function, generate rules
     // Extract opcodes from the function or use defaults
     // For scalar.mlir, we need to determine the appropriate opcode
-    uint32_t opcode = 0b0001011; // Default opcode for scalar operations
     for (auto funcOp : torFuncs) {
+      auto opcode = dyn_cast<IntegerAttr>(funcOp->getAttr("opcode")).getInt();
       generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance, hellaMemInstance, burstControllerItfcDecl, circuit, mainClk, mainRst, opcode);
     }
 
@@ -1831,7 +1834,7 @@ private:
   }
 
   /// Generate RoCC Adapter module that bridges RoCC interface with accelerator execution units
-  Module *generateRoCCAdapter(Circuit &circuit, const llvm::SmallVector<uint32_t, 4> &opcodes) {
+  Module *generateRoCCAdapter(Circuit &circuit, const llvm::SmallVector<unsigned long, 4> &opcodes) {
     auto *roccAdapterModule = circuit.addModule("RoCCAdapter");
     auto &builder = roccAdapterModule->getBuilder();
     auto loc = roccAdapterModule->getLoc();
@@ -2046,7 +2049,7 @@ private:
   void generateRulesForFunction(Module *mainModule, tor::FuncOp funcOp,
                                Instance *poolInstance, Instance *roccInstance, Instance *hellaMemInstance,
                                InterfaceDecl *dmaItfc, 
-                               Circuit &circuit, Clock mainClk, Reset mainRst, uint32_t opcode) {
+                               Circuit &circuit, Clock mainClk, Reset mainRst, unsigned long opcode) {
     
     auto &builder = mainModule->getBuilder();
     MLIRContext *ctx = builder.getContext();
@@ -2208,40 +2211,6 @@ private:
       return constant.getValue();
     };
 
-    auto ensureUIntWidth = [&](mlir::OpBuilder &builder, Location valueLoc,
-                               mlir::Value value, unsigned targetWidth,
-                               Operation *sourceOp) -> FailureOr<mlir::Value> {
-      if (targetWidth == 0)
-        targetWidth = 1;
-
-      auto type = cast<circt::firrtl::UIntType>(value.getType());
-      if (!type) {
-        if (sourceOp) sourceOp->emitError("expected FIRRTL UInt type");
-        return failure();
-      }
-
-      int64_t currentWidth = type.getWidthOrSentinel();
-      if (currentWidth < 0) {
-        if (sourceOp) sourceOp->emitError("requires statically known bitwidth");
-        return failure();
-      }
-
-      if (static_cast<unsigned>(currentWidth) == targetWidth)
-        return value;
-
-      // Use Signal abstraction for width manipulation
-      auto signal = Signal(value, &builder, valueLoc);
-      if (static_cast<unsigned>(currentWidth) < targetWidth) {
-        // Pad to target width
-        auto paddedSignal = signal.pad(targetWidth);
-        return paddedSignal.getValue();
-      } else {
-        // Truncate to target width
-        auto truncatedSignal = signal.bits(targetWidth - 1, 0);
-        return truncatedSignal.getValue();
-      }
-    };
-
     // Helper to materialise values inside a rule.
     auto getValueInRule = [&](mlir::Value v, Operation *currentOp,
                               unsigned operandIndex,
@@ -2301,38 +2270,32 @@ private:
     auto performArithmeticOp = [&](mlir::OpBuilder &b, Location loc, mlir::Value lhs, mlir::Value rhs,
                                     mlir::Value result, StringRef opName) -> LogicalResult {
       // Determine result width based on operation type
-      auto lhsWidth = cast<circt::firrtl::UIntType>(lhs.getType()).getWidthOrSentinel();
-      auto rhsWidth = cast<circt::firrtl::UIntType>(rhs.getType()).getWidthOrSentinel();
-
-      int64_t resultWidth;
-      if (opName == "mul") {
-        resultWidth = lhsWidth + rhsWidth;  // Multiplication doubles width
-      } else {
-        resultWidth = std::max(lhsWidth, rhsWidth);  // Add/sub use max width
-      }
-
-      // Ensure both operands have the same width
-      auto lhsExtended = ensureUIntWidth(b, loc, lhs, resultWidth, nullptr);
-      auto rhsExtended = ensureUIntWidth(b, loc, rhs, resultWidth, nullptr);
-      if (failed(lhsExtended) || failed(rhsExtended))
-        return failure();
+      auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
 
       // Perform the arithmetic operation using Signal abstraction
-      Signal lhsSignal(*lhsExtended, &b, loc);
-      Signal rhsSignal(*rhsExtended, &b, loc);
-      mlir::Value resultValue;
-
+      Signal lhsSignal(lhs, &b, loc);
+      Signal rhsSignal(rhs, &b, loc);
+      
+      Signal resultSignal(lhs, &b, loc); // dummy init
       if (opName == "add") {
-        resultValue = (lhsSignal + rhsSignal).getValue();
+        resultSignal = lhsSignal + rhsSignal;
       } else if (opName == "sub") {
-        resultValue = (lhsSignal - rhsSignal).getValue();
+        resultSignal = lhsSignal - rhsSignal;
       } else if (opName == "mul") {
-        resultValue = (lhsSignal * rhsSignal).getValue();
+        resultSignal = lhsSignal * rhsSignal;
       } else {
         return failure();
       }
 
-      localMap[result] = resultValue;
+      auto firrtlWidth = resultSignal.getWidth();
+      Signal resultSignalWidthFix = resultSignal;
+      if (firrtlWidth > requiredWidth) {
+        resultSignalWidthFix = resultSignal.bits(requiredWidth - 1, 0);
+      } else if (firrtlWidth < requiredWidth) {
+        resultSignalWidthFix = resultSignal.pad(requiredWidth);
+      }
+
+      localMap[result] = resultSignalWidthFix.getValue();
       return success();
     };
 
