@@ -424,6 +424,9 @@ namespace {
         }
         saveOldAttrWithName(funcOp, op, "dataflow");
         saveOldAttrWithName(funcOp, op, "dataflow-line");
+        // Preserve opcode and funct7 attributes for ISA extensions
+        saveOldAttrWithName(funcOp, op, "opcode");
+        saveOldAttrWithName(funcOp, op, "funct7");
         rewriter.inlineRegionBefore(op.getBody(), funcOp.getBody(), funcOp.end());
         rewriter.setInsertionPointToStart(op->getBlock());
         funcOp.walk([&](LLVM::UndefOp op) {
@@ -768,48 +771,57 @@ namespace {
                     signalPassFailure();
             }
             {
-                // llvm::errs() << "  Phase 3: Converting each func.func with opcode/funct7 to tor.design\n";
+                // llvm::errs() << "  Phase 3: Converting all func.func with opcode/funct7 to a single tor.design\n";
 
                 // Collect all func.func operations at module level that have opcode and funct7 attributes
                 SmallVector<FuncOp> funcsToConvert;
+                // Also collect memref.global operations to move into the design
+                SmallVector<memref::GlobalOp> globalMemrefs;
+                
                 for (Operation &op : llvm::make_early_inc_range(*moduleOp.getBody())) {
                     if (auto funcOp = dyn_cast<FuncOp>(&op)) {
                         // Only convert functions with both opcode and funct7 attributes
                         if (funcOp->hasAttr("opcode") && funcOp->hasAttr("funct7")) {
                             funcsToConvert.push_back(funcOp);
                         }
+                    } else if (auto globalOp = dyn_cast<memref::GlobalOp>(&op)) {
+                        // Collect all memref.global operations
+                        globalMemrefs.push_back(globalOp);
                     }
                 }
 
                 // llvm::errs() << "    Found " << funcsToConvert.size() << " functions with opcode/funct7 to convert\n";
+                // llvm::errs() << "    Found " << globalMemrefs.size() << " memref.global operations to move\n";
 
-                OpBuilder builder(&getContext());
+                if (!funcsToConvert.empty()) {
+                    OpBuilder builder(&getContext());
 
-                // Convert each function to its own tor.design
-                for (auto funcOp : funcsToConvert) {
-                    // llvm::errs() << "    Converting function: " << funcOp.getName() << "\n";
-
-                    // Get opcode and funct7 attributes before moving the function
-                    auto opcodeAttr = funcOp->getAttr("opcode");
-                    auto funct7Attr = funcOp->getAttr("funct7");
-
-                    // Create tor::DesignOp for this function
-                    builder.setInsertionPoint(funcOp);
-                    auto designOp = builder.create<tor::DesignOp>(funcOp.getLoc(), funcOp.getName().str());
-
-                    // Transfer opcode and funct7 attributes to the design
-                    designOp->setAttr("opcode", opcodeAttr);
-                    designOp->setAttr("funct7", funct7Attr);
+                    // Create a single tor::DesignOp for all functions
+                    builder.setInsertionPoint(funcsToConvert[0]);
+                    auto designOp = builder.create<tor::DesignOp>(funcsToConvert[0].getLoc(), "aps_isaxes");
 
                     // Add entry block to designOp's body region
                     Block *designBlock = new Block();
                     designOp.getBody().push_back(designBlock);
 
-                    // Move the function into the design
-                    funcOp->moveBefore(designBlock, designBlock->end());
+                    // Move all memref.global operations into the design first
+                    for (auto globalOp : globalMemrefs) {
+                        // llvm::errs() << "    Moving memref.global: " << globalOp.getSymName() << "\n";
+                        globalOp->moveBefore(designBlock, designBlock->end());
+                    }
 
-                    // llvm::errs() << "    Created tor.design for: " << funcOp.getName()
-                    //              << " with opcode=" << opcodeAttr << " funct7=" << funct7Attr << "\n";
+                    // Move all functions into the single design
+                    for (auto funcOp : funcsToConvert) {
+                        // llvm::errs() << "    Moving function: " << funcOp.getName() << "\n";
+                        
+                        // Keep opcode and funct7 attributes on the function itself
+                        // so they can be accessed later for scheduling/routing
+                        
+                        // Move the function into the shared design
+                        funcOp->moveBefore(designBlock, designBlock->end());
+                    }
+
+                    // llvm::errs() << "    Created single tor.design with " << funcsToConvert.size() << " functions and " << globalMemrefs.size() << " globals\n";
                 }
 
                 // llvm::errs() << "  Phase 3: Completed\n";
