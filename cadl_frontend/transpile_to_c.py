@@ -1016,38 +1016,35 @@ class CTranspiler:
                 if type_hint:
                     self.var_types[static_name] = type_hint
 
-        for name, dtype in self.flow_inputs.items():
-            c_type = self.map_type(dtype)
-            params.append(f"{c_type} {name}")
-            used_param_names.add(name)
-            self.register_declaration(name)
+        register_param_order = [
+            ("ident:rs1", "rs1"),
+            ("ident:rs2", "rs2"),
+        ]
 
-        if self.needs_mem_pointer:
-            params.append("uint32_t *_mem")
-            used_param_names.add("_mem")
-            self.register_declaration("_mem")
-
-        for key in sorted(self.irf_read_infos.keys()):
-            info = self.irf_read_infos[key]
-            base_name = _sanitize_identifier(info.name_hint) or "reg"
+        for key, base_name in register_param_order:
+            info = self.irf_read_infos.get(key)
+            if not info:
+                info = RegisterReadInfo(key=key, index_expr=None, name_hint=base_name)
+                self.irf_read_infos[key] = info
+            sanitized = _sanitize_identifier(base_name) or "reg"
             if info.pointer_element_types:
                 elem_type = self.choose_type_hint(info.pointer_element_types)
-                candidate = base_name
+                candidate = sanitized
                 info.is_pointer_param = True
             else:
                 c_type = self.choose_type_hint(info.type_hints)
-                param_decl = c_type
-                candidate = f"{base_name}_value"
+                candidate = f"{sanitized}_value"
                 info.is_pointer_param = False
             param_name = self.unique_param_name(candidate, used_param_names)
             info.parameter_name = param_name
             self.irf_read_params[key] = param_name
             if info.is_pointer_param:
-                params.append(f"{elem_type} *{param_name}")
+                decl = f"{elem_type} *{param_name}"
                 self.var_types[param_name] = f"{elem_type} *"
             else:
-                params.append(f"{param_decl} {param_name}")
-                self.var_types[param_name] = param_decl
+                decl = f"{c_type} {param_name}"
+                self.var_types[param_name] = c_type
+            params.append(decl)
             used_param_names.add(param_name)
             self.register_declaration(param_name)
 
@@ -1128,7 +1125,7 @@ class CTranspiler:
             elem_type = self.map_basic_type(ty.element_type)
             dims = ty.dimensions if ty.dimensions else [1]
             dims_str = ''.join(f"[{dim}]" for dim in dims)
-            return f"{elem_type} {name}{dims_str} = {{0}};", None
+            return f"{elem_type} {name}{dims_str};", None
         if isinstance(ty, DataType_Single):
             base_type = self.map_basic_type(ty.basic_type)
             return f"{base_type} {name} = 0;", base_type

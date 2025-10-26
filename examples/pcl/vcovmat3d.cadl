@@ -25,7 +25,7 @@ static cov_out: [i32; 6];
 #[funct7(7'b0110000)]
 rtype vcovmat3d_vv(rs1: u5, rs2: u5, rd: u5) {
   let addr: u32 = _irf[rs1];  // Base address for both points (contiguous in memory)
-
+  let out_addr: u32 = _irf[rs2];
   // Single burst read for both points (fully partitioned for parallel access)
   // Reads 6 i32 values in one burst operation (only 1 latency penalty)
   points[0 +: ] = _burst_read[addr +: 6];
@@ -55,7 +55,6 @@ rtype vcovmat3d_vv(rs1: u5, rs2: u5, rd: u5) {
   cov_out[5] = dz * dz;  // σ_zz
 
   // Burst write covariance matrix back to memory
-  let out_addr: u32 = _irf[rd];
   _burst_write[out_addr +: 6] = cov_out[0 +: ];
 
   _irf[rd] = 0;

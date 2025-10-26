@@ -30,7 +30,7 @@ static dist_out: [u32; 16];
 #[funct7(7'b0101001)]
 rtype v3ddist_vs(rs1: u5, rs2: u5, rd: u5) {
   let addr: u32 = _irf[rs1];      // Base address for point set
-  let ref_addr: u32 = _irf[rs2];  // Address of reference point
+  let out_addr: u32 = _irf[rs2];  // Address of output addr
   let vl: u32 = 16;                // Vector length
 
   // Burst read point coordinates from memory (SOA layout)
@@ -39,9 +39,9 @@ rtype v3ddist_vs(rs1: u5, rs2: u5, rd: u5) {
   points_z[0 +: ] = _burst_read[addr + 128 +: 16];  // 2 × 16 words × 4 bytes
 
   // Read reference point (scalar broadcast)
-  let ref_x: u32 = _mem[ref_addr];
-  let ref_y: u32 = _mem[ref_addr + 4];
-  let ref_z: u32 = _mem[ref_addr + 8];
+  let ref_x: u32 = _mem[addr + 192];
+  let ref_y: u32 = _mem[addr + 196];
+  let ref_z: u32 = _mem[addr + 200];
 
   // Compute distances to reference point with partial unrolling
   [[unroll(4)]]
@@ -64,7 +64,6 @@ rtype v3ddist_vs(rs1: u5, rs2: u5, rd: u5) {
   } while (i_ < vl);
 
   // Burst write results back to memory
-  let out_addr: u32 = _irf[rd];
   _burst_write[out_addr +: 16] = dist_out[0 +: ];
 
   _irf[rd] = 0;

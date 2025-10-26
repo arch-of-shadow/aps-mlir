@@ -46,16 +46,22 @@ This produces a translation unit with:
 
 ### Register handling
 
-- `_irf[rsX]` reads that are only used as scalars still become value
-  parameters named `rsX_value` with an inferred C integer type.
+- Every generated function now takes exactly two parameters that correspond to
+  the values of `rs1` and `rs2` in that order. These appear even when a register
+  is unused so that instruction-level call sites always have a stable
+  signature.
+- `_irf[rsX]` reads that remain scalar-only become value parameters named
+  `rsX_value` with an inferred C integer type.
 - When an `_irf[rsX]` value participates in `_mem[...]` or `_burst_*` accesses,
   the transpiler infers the element type and emits a pointer parameter named
-  `rsX` (or similar) instead. All subsequent memory accesses are rewritten to
-  index into that pointer, preserving the original addressing relationships.
+  `rsX` instead. All subsequent memory accesses are rewritten to index into
+  that pointer, preserving the original addressing relationships.
 - Multiple register writes continue to materialise as either a scalar return or
-  a struct, as before.
-- Register index arguments that never escape `_irf[...]` operations are still
-  pruned, and shorthand aliases (`r1`, `r2`, …) reuse the inferred parameter.
+  a struct, but the canonical destination is `_irf[rd]`, which becomes the
+  function's `return` value.
+- Register index arguments that never escape `_irf[...]` operations are folded
+  into the corresponding value parameter; the original `rs` identifiers are not
+  emitted as standalone C parameters anymore.
 
 ### Arrays and memory
 
@@ -63,8 +69,8 @@ This produces a translation unit with:
   function parameters. Instead they are rewritten on the fly to index the
   register-derived base pointer with the appropriate offset.
 - Static scratchpad arrays or scalars that never participate in bursts stay
-  local inside the generated function—stack allocations with zero
-  initialisation replace the previous parameter lifting.
+  local inside the generated function—arrays are declared on the stack (no
+  automatic zero fill) instead of being lifted to parameters.
 - `_burst_read` / `_burst_write` statements disappear from the final C, leaving
   a short comment to signal that the access was folded into pointer arithmetic.
 - `_mem[...]` loads and stores that are anchored on register addresses become

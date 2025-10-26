@@ -4,10 +4,10 @@
 #include <stdint.h>
 
 uint32_t vfpsmax_v(uint32_t *rs1, uint32_t *rs2) {
-    uint32_t indices[16] = {0};
-    uint32_t reduction_idxs_in[16] = {0};
-    uint32_t reduction_idxs_out[16] = {0};
-    uint32_t reduction_vals_out[16] = {0};
+    uint32_t indices[16];
+    uint32_t reduction_idxs_in[16];
+    uint32_t reduction_idxs_out[16];
+    uint32_t reduction_vals_out[16];
 
     uint32_t rd_result = 0;
     uint32_t * addr = rs1;

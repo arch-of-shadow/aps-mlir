@@ -34,6 +34,7 @@ static dense_values: [i8; 32];
 #[partition_cyclic_array([1])]
 static decompressed_weights: [i16; 32];
 
+static vidx: u32 = 0;
 
 // ============================================================================
 // DECA Decompression - Two Stage Fully Affine Version
@@ -49,7 +50,7 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
 
     // Calculate output address from base_addr
     // Compressed data size: 4 bytes (bitmask) + 32 bytes (values) = 36 bytes
-    let out_addr: u32 = base_addr + 36;
+    let out_addr: u32 = _irf[rd];
 
     // Burst read compressed data
     // Memory layout: [bitmask (4 bytes u8), values (32 bytes i8)]
@@ -60,7 +61,7 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
     // Stage 1: Sparse-to-Dense Expansion (bitmask-driven)
     // Expand sparse values to dense array based on bitmask
     // ========================================================================
-    let vidx: u32 = 0;
+
     [[unroll(4)]]
     with idx: u32 = (0, idx + 1) do {
         // Extract bit from bitmask byte
