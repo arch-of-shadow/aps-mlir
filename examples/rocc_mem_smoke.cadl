@@ -11,5 +11,5 @@ rtype rocc_mem_test(rs1: u5, rs2: u5, rd: u5) {
     let m: u32 = _mem[a];
 
     // Return result
-    _irf[rd] = m + b;
+    _irf[rd] = m *b *b*b;
 }

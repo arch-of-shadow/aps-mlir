@@ -1436,6 +1436,7 @@ private:
 
     // Wire modules for logic (grouped by bitwidth)
     auto wire1Mod = STLLibrary::createWireModule(1, circuit);     // 1-bit wires for logic
+    auto wire32Mod = STLLibrary::createWireModule(32, circuit);     // 1-bit wires for logic
 
     builder.restoreInsertionPoint(savedIP);
 
@@ -1536,29 +1537,22 @@ private:
 
       // Command processing logic for read commands (following Rust pattern)
       If(cmdIsRead,
-          [&](mlir::OpBuilder &builder) -> Signal {
+          [&](mlir::OpBuilder &builder){ 
             // Slot selection logic: if newer_slot == 1, use slot 0; else use slot 1
-            auto slotLogic = If(newerSlot == UInt::constant(1, 1, builder, loc),
-                [&](mlir::OpBuilder &innerBuilder) -> Signal {
+            If(newerSlot == UInt::constant(1, 1, builder, loc),
+                [&](mlir::OpBuilder &innerBuilder) {
                   // next slot is 0 - use slot 0 for tracking
                   slot0TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
                   slot0TagReg->callMethod("write", {tag.getValue()}, innerBuilder);
                   newerSlotReg->callMethod("write", {UInt::constant(0, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                  return UInt::constant(0, 1, innerBuilder, loc);
                 },
-                [&](mlir::OpBuilder &innerBuilder) -> Signal {
+                [&](mlir::OpBuilder &innerBuilder) {
                   // next slot is 1 - use slot 1 for tracking
                   slot1TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
                   slot1TagReg->callMethod("write", {tag.getValue()}, innerBuilder);
                   newerSlotReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                  return UInt::constant(0, 1, innerBuilder, loc);
                 },
                 builder, loc);
-            return slotLogic;
-          },
-          [&](mlir::OpBuilder &builder) -> Signal {
-            // For write commands or other operations, no slot management needed
-            return UInt::constant(0, 1, builder, loc);
           },
           bodyBuilder, loc);
 
@@ -1668,6 +1662,10 @@ private:
 
     slot1CanCollectLogicRule->finalize();
 
+    auto *clearSlot0Wire = translatorModule->addInstance("slot0_clear_wire", wire1Mod, {});
+    auto *clearSlot1Wire = translatorModule->addInstance("slot1_clear_wire", wire1Mod, {});
+    auto *clearSlotData = translatorModule->addInstance("slot_clear_data", wire32Mod, {});
+
     // Method: resp_from_bus - receives responses from HellaCache and buffers them
     std::vector<std::pair<std::string, mlir::Type>> respFromBusArgs = {{"hella_resp", hellaRespBundleType}};
     auto *respFromBus = translatorModule->addMethod("resp_from_bus", respFromBusArgs, {});
@@ -1692,38 +1690,45 @@ private:
       // Read current newer_slot flag
       auto newerSlotValues = newerSlotReg->callValue("read", bodyBuilder);
       Signal newerSlot = Signal(newerSlotValues[0], &bodyBuilder, loc);
+      Signal slot0Tag = Signal(slot0TagReg->callValue("read",bodyBuilder)[0], &bodyBuilder, loc);
+      Signal slot1Tag = Signal(slot1TagReg->callValue("read",bodyBuilder)[0], &bodyBuilder, loc);
 
+      auto b0 = UInt::constant(0, 1, bodyBuilder, loc);
+      auto b1 = UInt::constant(1, 1, bodyBuilder, loc);
       // Conditional logic following Rust pattern
-      auto result = If(cmdIsRead,
-          [&](mlir::OpBuilder &builder) -> Signal {
-            // Check which slot to use following Rust logic
-            auto useSlot1 = If(newerSlot == UInt::constant(1, 1, builder, loc),
-                [&](mlir::OpBuilder &innerBuilder) -> Signal {
-                  // Use slot 0 if newer_slot == 1
-                  slot0TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                  slot0TagReg->callMethod("write", {tagAddr.getValue()}, innerBuilder);
-                  newerSlotReg->callMethod("write", {UInt::constant(0, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                  return UInt::constant(0, 1, innerBuilder, loc);
-                },
-                [&](mlir::OpBuilder &innerBuilder) -> Signal {
-                  // Use slot 1 if newer_slot == 0
-                  slot1TxdReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                  slot1TagReg->callMethod("write", {tagAddr.getValue()}, innerBuilder);
-                  newerSlotReg->callMethod("write", {UInt::constant(1, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                  return UInt::constant(0, 1, innerBuilder, loc);
-                },
-                builder, loc);
-            return useSlot1;
-          },
-          [&](mlir::OpBuilder &builder) -> Signal {
-            return UInt::constant(0, 1, builder, loc);
-          },
-          bodyBuilder, loc);
-
+      clearSlot0Wire->callMethod("write", {(cmdIsRead & (slot0Tag == tagAddr)).getValue()}, bodyBuilder);
+      clearSlot1Wire->callMethod("write", {(cmdIsRead & (slot1Tag == tagAddr)).getValue()}, bodyBuilder);
+      clearSlotData->callMethod("write", respData.getValue(),bodyBuilder); 
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
     });
 
     respFromBus->finalize();
+
+    auto *clearSlot0 = translatorModule->addRule("clear_slot_0");
+    clearSlot0->guard([&](mlir::OpBuilder &guardBuilder) {
+      auto ret = clearSlot0Wire->callValue("read", guardBuilder);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, ret);
+    });
+    clearSlot0->body([&](mlir::OpBuilder &bodyBuilder) {
+      slot0RxdReg->callMethod("write", {UInt::constant(1, 1, bodyBuilder, loc).getValue()}, bodyBuilder);
+      auto resp = clearSlotData->callValue("read", bodyBuilder);
+      slot0DataReg->callMethod("write", {resp}, bodyBuilder);
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+    clearSlot0->finalize();
+
+    auto *clearSlot1 = translatorModule->addRule("clear_slot_1");
+    clearSlot1->guard([&](mlir::OpBuilder &guardBuilder) {
+      auto ret = clearSlot0Wire->callValue("read", guardBuilder);
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, ret);
+    });
+    clearSlot1->body([&](mlir::OpBuilder &bodyBuilder) {
+      slot0RxdReg->callMethod("write", {UInt::constant(1, 1, bodyBuilder, loc).getValue()}, bodyBuilder);
+      auto resp = clearSlotData->callValue("read", bodyBuilder);
+      slot0DataReg->callMethod("write", {resp}, bodyBuilder);
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+    clearSlot1->finalize();
 
     // Method: resp_to_user - provides user memory responses (with ordering)
     // This matches the Rust method exactly - returns user response bundle to output interface
@@ -1751,8 +1756,8 @@ private:
       auto retval = If(slot0CanCollect,
           [&](mlir::OpBuilder &builder) -> Signal {
             // Clear slot 0 flags BEFORE returning (matching Rust exactly)
-            slot0TxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
-            slot0RxdReg->callMethod("write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
+            slot0TxdReg->callMethod("write", {UInt::constant(0, 1, bodyBuilder, loc).getValue()}, builder);
+            slot0RxdReg->callMethod("write", {UInt::constant(0, 1, bodyBuilder, loc).getValue()}, builder);
 
             // Read slot 0 data for immediate use if needed
             auto data0Values = slot0DataReg->callValue("read", bodyBuilder);
@@ -1791,7 +1796,6 @@ private:
           },
           bodyBuilder, loc);
 
-      // Return the retval (matching Rust: ret!(var!(retval)))
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc, retval.getValue());
     });
 
@@ -2093,6 +2097,14 @@ private:
           continue;
         if (isa<aps::MemLoad, aps::CpuRfRead, aps::CpuRfWrite>(op))
           continue;
+        if (isa<aps::ItfcLoadReq, aps::ItfcLoadCollect>(op))
+          continue;
+        if (isa<aps::ItfcStoreReq, aps::ItfcStoreCollect>(op))
+          continue;
+        if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstLoadCollect>(op))
+          continue;
+        if (isa<aps::ItfcBurstStoreReq, aps::ItfcBurstStoreCollect>(op))
+          continue;
         op->emitError("unsupported operation for rule generation");
         return;
       }
@@ -2239,7 +2251,9 @@ private:
         if (it != crossSlotFIFOs.end()) {
           CrossSlotFIFO *fifo = it->second;
           // Check if this operation is a consumer of this FIFO
+          // llvm::outs() << currentOp << " " << operandIndex;
           for (auto [consumerOp, opIndex] : fifo->consumers) {
+            // llvm::outs() << consumerOp << " " << opIndex;
             if (consumerOp == currentOp && opIndex == operandIndex) {
               auto result = fifo->fifoInstance->callValue("deq", builder);
               assert(result.size() == 1);
@@ -2426,7 +2440,7 @@ private:
               op->emitError("Interface load request must have at least one index");
             }
 
-            auto addr = getValueInRule(itfcLoadReq.getIndices()[0], op, 0, b, localMap, loc);
+            auto addr = getValueInRule(itfcLoadReq.getIndices()[0], op, 1, b, localMap, loc);
             if (failed(addr)) {
               op->emitError("Failed to get address for interface load request");
             }
@@ -2462,7 +2476,7 @@ private:
               op->emitError("Interface store request must have at least one index");
             }
             auto value = getValueInRule(itfcStoreReq.getValue(), op, 0, b, localMap, loc);
-            auto addr = getValueInRule(itfcStoreReq.getIndices()[0], op, 1, b, localMap, loc);
+            auto addr = getValueInRule(itfcStoreReq.getIndices()[0], op, 2, b, localMap, loc);
             if (failed(value) || failed(addr)) {
               op->emitError("Failed to get value or address for interface store request");
             }
