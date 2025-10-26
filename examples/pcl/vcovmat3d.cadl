@@ -7,17 +7,17 @@
 // Both points stored together - complete partitioning for parallel access
 // Layout: [p1.x, p1.y, p1.z, p2.x, p2.y, p2.z]
 #[partition_dim_array([0])]
-#[partition_factor_array([6])]
+#[partition_factor_array([8])]
 #[partition_cyclic_array([0])]
-static points: [i32; 6];
+static points: [i32; 8];
 
 // Output: 6 values for upper triangle of 3×3 symmetric covariance matrix
 // [C00, C01, C02, C11, C12, C22]
 // Complete partitioning for parallel output
 #[partition_dim_array([0])]
-#[partition_factor_array([6])]
+#[partition_factor_array([8])]
 #[partition_cyclic_array([0])]
-static cov_out: [i32; 6];
+static cov_out: [i32; 8];
 
 // VCOVMAT3D.VV - Vector-Vector mode
 // Computes outer product between two 3D points
@@ -28,7 +28,7 @@ rtype vcovmat3d_vv(rs1: u5, rs2: u5, rd: u5) {
   let out_addr: u32 = _irf[rs2];
   // Single burst read for both points (fully partitioned for parallel access)
   // Reads 6 i32 values in one burst operation (only 1 latency penalty)
-  points[0 +: ] = _burst_read[addr +: 6];
+  points[0 +: ] = _burst_read[addr +: 8];
 
   // Extract coordinates (all available in parallel due to complete partitioning)
   let x: i32 = points[0];
@@ -53,9 +53,10 @@ rtype vcovmat3d_vv(rs1: u5, rs2: u5, rd: u5) {
   cov_out[3] = dy * dy;  // σ_yy
   cov_out[4] = dy * dz;  // σ_yz
   cov_out[5] = dz * dz;  // σ_zz
-
+  cov_out[6] = points[6];  // σ_xx
+  cov_out[7] = points[7];  // σ_yy
   // Burst write covariance matrix back to memory
-  _burst_write[out_addr +: 6] = cov_out[0 +: ];
+  _burst_write[out_addr +: 8] = cov_out[0 +: ];
 
   _irf[rd] = 0;
 }
