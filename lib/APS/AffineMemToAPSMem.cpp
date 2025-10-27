@@ -45,9 +45,30 @@ struct AffineLoadToAPSMemLoadPattern : public OpRewritePattern<AffineLoadOp> {
                                 PatternRewriter &rewriter) const override {
     Location loc = loadOp.getLoc();
 
-    // Get the indices (affine.load has already been lowered to use explicit indices)
-    SmallVector<Value> indices(loadOp.getMapOperands().begin(),
-                               loadOp.getMapOperands().end());
+    // Get the indices - need to handle both constant and dynamic indices
+    SmallVector<Value> indices;
+
+    // Check if we have map operands (dynamic indices)
+    if (!loadOp.getMapOperands().empty()) {
+      // Dynamic indices from map operands
+      indices.append(loadOp.getMapOperands().begin(), loadOp.getMapOperands().end());
+    } else {
+      // Constant indices - need to extract them from the affine map
+      AffineMap map = loadOp.getAffineMap();
+      for (unsigned i = 0; i < map.getNumResults(); ++i) {
+        AffineExpr expr = map.getResult(i);
+        if (auto constExpr = dyn_cast<AffineConstantExpr>(expr)) {
+          // This is a constant index - create a constant value
+          int64_t constValue = constExpr.getValue();
+          auto constOp = rewriter.create<arith::ConstantOp>(loc,
+              rewriter.getI32IntegerAttr(constValue));
+          indices.push_back(constOp);
+        } else {
+          // This shouldn't happen if we have no map operands, but handle it
+          return failure();
+        }
+      }
+    }
 
     // Cast indices from index to i32 type
     SmallVector<Value> i32CastedIndices =
@@ -63,7 +84,8 @@ struct AffineLoadToAPSMemLoadPattern : public OpRewritePattern<AffineLoadOp> {
     // Replace the affine.load
     rewriter.replaceOp(loadOp, apsLoadOp.getResult());
 
-    LLVM_DEBUG(llvm::dbgs() << "Converted affine.load to aps.memload\n");
+    LLVM_DEBUG(llvm::dbgs() << "Converted affine.load to aps.memload (indices: "
+                            << indices.size() << ")\n");
     return success();
   }
 };
@@ -76,9 +98,30 @@ struct AffineStoreToAPSMemStorePattern : public OpRewritePattern<AffineStoreOp> 
                                 PatternRewriter &rewriter) const override {
     Location loc = storeOp.getLoc();
 
-    // Get the indices (affine.store has already been lowered to use explicit indices)
-    SmallVector<Value> indices(storeOp.getMapOperands().begin(),
-                               storeOp.getMapOperands().end());
+    // Get the indices - need to handle both constant and dynamic indices
+    SmallVector<Value> indices;
+
+    // Check if we have map operands (dynamic indices)
+    if (!storeOp.getMapOperands().empty()) {
+      // Dynamic indices from map operands
+      indices.append(storeOp.getMapOperands().begin(), storeOp.getMapOperands().end());
+    } else {
+      // Constant indices - need to extract them from the affine map
+      AffineMap map = storeOp.getAffineMap();
+      for (unsigned i = 0; i < map.getNumResults(); ++i) {
+        AffineExpr expr = map.getResult(i);
+        if (auto constExpr = dyn_cast<AffineConstantExpr>(expr)) {
+          // This is a constant index - create a constant value
+          int64_t constValue = constExpr.getValue();
+          auto constOp = rewriter.create<arith::ConstantOp>(loc,
+              rewriter.getI32IntegerAttr(constValue));
+          indices.push_back(constOp);
+        } else {
+          // This shouldn't happen if we have no map operands, but handle it
+          return failure();
+        }
+      }
+    }
 
     // Cast indices from index to i32 type
     SmallVector<Value> i32CastedIndices =
@@ -91,7 +134,8 @@ struct AffineStoreToAPSMemStorePattern : public OpRewritePattern<AffineStoreOp> 
     // Erase the affine.store
     rewriter.eraseOp(storeOp);
 
-    LLVM_DEBUG(llvm::dbgs() << "Converted affine.store to aps.memstore\n");
+    LLVM_DEBUG(llvm::dbgs() << "Converted affine.store to aps.memstore (indices: "
+                            << indices.size() << ")\n");
     return success();
   }
 };
@@ -104,7 +148,7 @@ struct AffineMemToAPSMemPass : MemRefToAPSMemBase<AffineMemToAPSMemPass> {
         &getContext());
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-    if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns), config))) {
+    if (failed(applyPatternsGreedily(op, std::move(patterns), config))) {
       signalPassFailure();
     }
   }

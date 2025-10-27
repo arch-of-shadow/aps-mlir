@@ -8,14 +8,14 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 class APSOp<string mnemonic, list<Trait> traits = []> :
   Op<APSDialect, mnemonic, traits>;
 
-def CpuRfRead : APSOp<"readrf", [MemoryEffects<[MemRead]>]> {
+def CpuRfRead : APSOp<"readrf", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "read cpu register file";
   let arguments = (ins AnyInteger:$rs);
   let results = (outs AnyInteger:$result);
   let assemblyFormat = "$rs attr-dict `:` type($rs) `->` type($result)";
 }
 
-def CpuRfWrite : APSOp<"writerf", [MemoryEffects<[MemWrite]>]> {
+def CpuRfWrite : APSOp<"writerf", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "write cpu register file";
   let arguments = (ins AnyInteger:$rd, AnyInteger:$value);
   let assemblyFormat = "$rd `,` $value attr-dict `:` type($rd) `,` type($value)";
@@ -32,7 +32,7 @@ def MemDeclare : APSOp<"memdeclare", []> {
   let assemblyFormat = "attr-dict `:` type($result)";
 }
 
-def MemLoad : APSOp<"memload", [MemoryEffects<[MemRead]>]> {
+def MemLoad : APSOp<"memload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "load from memory instance";
   let description = [{
     Loads a value from the specified memory instance at the given address.
@@ -43,7 +43,7 @@ def MemLoad : APSOp<"memload", [MemoryEffects<[MemRead]>]> {
   let assemblyFormat = "$memref `[` $indices `]` attr-dict `:` type($memref) `,` type($indices) `->` type($result)";
 }
 
-def MemStore : APSOp<"memstore", [MemoryEffects<[MemWrite]>]> {
+def MemStore : APSOp<"memstore", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "store to memory instance";
   let description = [{
     Stores a value to the specified memory instance at the given address.
@@ -53,7 +53,7 @@ def MemStore : APSOp<"memstore", [MemoryEffects<[MemWrite]>]> {
   let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices)";
 }
 
-def ItfcLoadReq : APSOp<"itfc.load_req", [MemoryEffects<[MemRead]>]> {
+def ItfcLoadReq : APSOp<"itfc.load_req", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "interface load request from memory instance";
   let description = [{
     Sends a load request to the memory instance at the given address.
@@ -96,7 +96,7 @@ def ItfcLoadCollect : APSOp<"itfc.load_collect", []> {
   let assemblyFormat = "$request attr-dict `:` type($request) `->` type($result)";
 }
 
-def ItfcStoreReq : APSOp<"itfc.store_req", [MemoryEffects<[MemWrite]>]> {
+def ItfcStoreReq : APSOp<"itfc.store_req", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "interface store request to memory instance";
   let description = [{
     Sends a store request to the memory instance at the given address.
@@ -193,7 +193,7 @@ def ItfcBurstStoreCollect : APSOp<"itfc.burst_store_collect", []> {
   let assemblyFormat = "$request attr-dict `:` type($request)";
 }
 
-def GlobalLoad : APSOp<"globalload", [MemoryEffects<[MemRead]>]> {
+def GlobalLoad : APSOp<"globalload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "load from scalar global variable";
   let description = [{
     Loads a value from a scalar global variable (memref<element_type>).
@@ -215,7 +215,7 @@ def GlobalLoad : APSOp<"globalload", [MemoryEffects<[MemRead]>]> {
   let hasCanonicalizer = 1;
 }
 
-def GlobalStore : APSOp<"globalstore", [MemoryEffects<[MemWrite]>]> {
+def GlobalStore : APSOp<"globalstore", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "store to scalar global variable";
   let description = [{
     Stores a value to a scalar global variable (memref<element_type>).

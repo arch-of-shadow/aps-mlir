@@ -6,11 +6,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "APS/BBHandler.h"
+#include "APS/APSOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
 
@@ -98,7 +100,7 @@ LogicalResult BBHandler::validateOperations() {
         continue;
       if (isa<tor::AddIOp, tor::SubIOp, tor::MulIOp>(op))
         continue;
-      if (isa<aps::MemLoad, aps::CpuRfRead, aps::CpuRfWrite>(op))
+      if (isa<aps::MemLoad, aps::MemStore, aps::CpuRfRead, aps::CpuRfWrite>(op))
         continue;
       if (isa<aps::ItfcLoadReq, aps::ItfcLoadCollect>(op))
         continue;
@@ -108,6 +110,9 @@ LogicalResult BBHandler::validateOperations() {
         continue;
       if (isa<aps::ItfcBurstStoreReq, aps::ItfcBurstStoreCollect>(op))
         continue;
+      if (isa<aps::GlobalLoad, aps::GlobalStore>(op)) {
+        continue;
+      }
       op->emitError("unsupported operation for rule generation");
       return failure();
     }
@@ -443,6 +448,7 @@ FailureOr<mlir::Value> OperationGenerator::getValueInRule(mlir::Value v, Operati
   // Check if this is a cross-slot FIFO read (only if operandIndex is valid)
   if (operandIndex != static_cast<unsigned>(-1)) {
     auto &crossSlotFIFOs = bbHandler->getCrossSlotFIFOs();
+    llvm::outs() << "crossSlotFIFO size: " << crossSlotFIFOs.size() << "\n";
     auto it = crossSlotFIFOs.find(v);
     if (it != crossSlotFIFOs.end()) {
       // Check all FIFOs for this value to find the right one for this consumer

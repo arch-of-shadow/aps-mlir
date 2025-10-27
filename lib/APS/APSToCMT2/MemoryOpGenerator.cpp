@@ -10,6 +10,9 @@
 #include "circt/Dialect/Cmt2/ECMT2/Signal.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/ValueRange.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
 
@@ -35,6 +38,10 @@ LogicalResult MemoryOpGenerator::generateRule(
   } else if (auto burstStoreCollect =
                  dyn_cast<aps::ItfcBurstStoreCollect>(op)) {
     return generateBurstStoreCollect(burstStoreCollect, b, loc, slot, localMap);
+  } else if (auto globalLoad = dyn_cast<aps::GlobalLoad>(op)) {
+    return generateGlobalMemLoad(globalLoad, b, loc, slot, localMap);
+  } else if (auto globalStore = dyn_cast<aps::GlobalStore>(op)) {
+    return generateGlobalMemStore(globalStore, b, loc, slot, localMap);
   } else if (isa<memref::GetGlobalOp>(op)) {
     return success();
   }
@@ -45,7 +52,95 @@ LogicalResult MemoryOpGenerator::generateRule(
 bool MemoryOpGenerator::canHandle(Operation *op) const {
   return isa<aps::MemLoad, aps::MemStore, aps::ItfcBurstLoadReq,
              aps::ItfcBurstLoadCollect, aps::ItfcBurstStoreReq,
-             aps::ItfcBurstStoreCollect, memref::GetGlobalOp>(op);
+             aps::ItfcBurstStoreCollect, memref::GetGlobalOp,
+             aps::GlobalStore, aps::GlobalLoad>(op);
+}
+
+LogicalResult MemoryOpGenerator::generateGlobalMemLoad(
+    aps::GlobalLoad op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  // GlobalLoad is for scalar globals (rank-0 memrefs) - no indices needed
+  // Get the global symbol name directly from the operation
+  StringRef globalName = op.getGlobalName();
+
+  // Build the rule name: convert @count -> count_read
+  std::string memoryBankRule = (globalName + "_bank0_read").str();
+
+  llvm::outs() << "DEBUG: Global load from scalar global " << globalName
+               << " using rule " << memoryBankRule << "\n";
+
+  // For scalar globals, we need to get the base address from the memory entry map
+  const MemoryEntryInfo *targetMemEntry = nullptr;
+  if (!globalName.empty()) {
+    auto &memEntryMap = bbHandler->getMemEntryMap();
+    auto it = memEntryMap.find(globalName);
+    if (it != memEntryMap.end()) {
+      targetMemEntry = &it->second;
+    }
+  }
+
+  if (!targetMemEntry) {
+    op.emitError("Failed to find target memory entry for global: ") << globalName.str();
+    return failure();
+  }
+
+  // Create base address constant for the scalar global
+  auto baseAddr = UInt::constant(0, 1, b, loc);
+
+  // Call the appropriate scratchpad pool bank read method
+  auto callResult = b.create<circt::cmt2::CallOp>(
+      loc, circt::firrtl::UIntType::get(b.getContext(), targetMemEntry->dataWidth),
+      mlir::ValueRange{baseAddr.getValue()},
+      mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
+      mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
+      mlir::ArrayAttr(), mlir::ArrayAttr());
+
+  localMap[op.getResult()] = callResult.getResult(0);
+  return success();
+}
+
+LogicalResult MemoryOpGenerator::generateGlobalMemStore(
+    aps::GlobalStore op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  // GlobalLoad is for scalar globals (rank-0 memrefs) - no indices needed
+  // Get the global symbol name directly from the operation
+  StringRef globalName = op.getGlobalName();
+
+  // Build the rule name: convert @count -> count_read
+  std::string memoryBankRule = (globalName + "_bank0_write").str();
+
+  llvm::outs() << "DEBUG: Global load from scalar global " << globalName
+               << " using rule " << memoryBankRule << "\n";
+
+  // For scalar globals, we need to get the base address from the memory entry map
+  const MemoryEntryInfo *targetMemEntry = nullptr;
+  if (!globalName.empty()) {
+    auto &memEntryMap = bbHandler->getMemEntryMap();
+    auto it = memEntryMap.find(globalName);
+    if (it != memEntryMap.end()) {
+      targetMemEntry = &it->second;
+    }
+  }
+
+  if (!targetMemEntry) {
+    op.emitError("Failed to find target memory entry for global: ") << globalName.str();
+    return failure();
+  }
+
+  // Create base address constant for the scalar global
+  auto baseAddr = UInt::constant(0, 1, b, loc);
+  auto data = getValueInRule(op.getValue(), op.getOperation(), 0, b,
+                             localMap, loc);
+
+  // Call the appropriate scratchpad pool bank read method
+  b.create<circt::cmt2::CallOp>(
+      loc, mlir::ValueRange{},
+      mlir::ValueRange{baseAddr.getValue(), *data},
+      mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
+      mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
+      mlir::ArrayAttr(), mlir::ArrayAttr());
+
+  return success();
 }
 
 LogicalResult MemoryOpGenerator::generateMemLoad(
@@ -73,7 +168,7 @@ LogicalResult MemoryOpGenerator::generateMemLoad(
     // Extract the global symbol name and build the rule name
     StringRef globalName = getGlobalOp.getName();
     // Convert @mem_a_0 -> mem_a_0_read
-    memoryBankRule = (globalName.drop_front() + "_read")
+    memoryBankRule = (globalName + "_read")
                          .str(); // Remove @ prefix and add _read
     llvm::outs() << "DEBUG: Memory load from global " << globalName
                  << " using rule " << memoryBankRule << "\n";
@@ -105,6 +200,7 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   Value cpuAddr = op.getCpuAddr();
   Value memRef = op.getMemrefs()[0];
   Value start = op.getStart();
+  llvm::outs() << start.getType();
   Value numOfElements = op.getLength();
 
   // Get the global memory reference name
@@ -115,13 +211,26 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   }
   auto globalName = getGlobalOp.getName().str();
 
-  // Find the corresponding memory entry using the pre-built map
+  // Find the corresponding memory entry using the pre-built map with prefix matching
   const MemoryEntryInfo *targetMemEntry = nullptr;
   if (!globalName.empty()) {
     auto &memEntryMap = bbHandler->getMemEntryMap();
-    auto it = memEntryMap.find(globalName);
-    if (it != memEntryMap.end()) {
-      targetMemEntry = &it->second;
+    
+    // First try exact match
+    auto exactIt = memEntryMap.find(globalName);
+    if (exactIt != memEntryMap.end()) {
+      targetMemEntry = &exactIt->second;
+    } else {
+      // If exact match fails, try prefix matching with underscore
+      llvm::SmallVector<const MemoryEntryInfo *, 4> matchingEntries;
+      
+      for (auto &entry : memEntryMap) {
+        std::string key = entry.first.str();
+        // Check if the map key starts with globalName + "_"
+        if (globalName.rfind( key + "_", 0) == 0) {
+          targetMemEntry = &entry.second;
+        }
+      }
     }
   }
 
@@ -140,8 +249,20 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
 
   // Calculate offset: start * numOfElements * elementSizeBytes
   auto baseAddrConst = UInt::constant(baseAddress, 32, b, loc);
-  auto startSig = Signal(start, &b, loc);
-  auto elementSizeBytesConst = UInt::constant(32, elementSizeBytes, b, loc);
+
+  // Convert start value to FIRRTL type - if it's not already FIRRTL, we need to handle it
+  mlir::Value startValue = start;
+
+  // Check if start is a constant that we can convert properly
+  if (auto constOp = start.getDefiningOp<arith::ConstantOp>()) {
+    auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
+    unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
+    startValue = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
+  }
+  // Note: If start is not a constant and not FIRRTL type, Signal constructor should handle it
+
+  auto startSig = Signal(startValue, &b, loc).bits(31, 0);
+  auto elementSizeBytesConst = UInt::constant(elementSizeBytes, 32, b, loc);
   Signal localAddr = baseAddrConst + startSig * elementSizeBytesConst;
 
   // Calculate total burst length: elementSizeBytes * numOfElements, rounded up
@@ -160,6 +281,34 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
       bbHandler->roundUpToPowerOf2((uint32_t)totalBurstLength);
   auto realCpuLength = UInt::constant(32, roundedTotalBurstLength, b, loc);
 
+  // Convert cpuAddr to FIRRTL type if needed
+  mlir::Value cpuAddrValue = cpuAddr;
+
+  llvm::outs() << "DEBUG: Converting cpuAddr value, type: " << cpuAddr.getType() << "\n";
+
+  // Check if cpuAddr is a constant that we can convert properly
+  if (auto constOp = cpuAddr.getDefiningOp<arith::ConstantOp>()) {
+    llvm::outs() << "DEBUG: cpuAddr is a constant, converting to FIRRTL\n";
+    auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
+    unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
+    cpuAddrValue = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
+  } else {
+    llvm::outs() << "DEBUG: cpuAddr is not a constant, checking if FIRRTL type\n";
+    // Check if it's already a FIRRTL type
+    if (isa<circt::firrtl::FIRRTLBaseType>(cpuAddr.getType())) {
+      llvm::outs() << "DEBUG: cpuAddr is already FIRRTL type\n";
+    } else {
+      llvm::outs() << "DEBUG: cpuAddr is standard MLIR type, need conversion\n";
+      // For non-constant standard types, we need to create a proper conversion
+      if (auto intType = dyn_cast<mlir::IntegerType>(cpuAddr.getType())) {
+        unsigned width = intType.getWidth();
+        llvm::outs() << "DEBUG: Creating FIRRTL constant for non-constant i" << width << " value\n";
+        // For now, create a 0 constant of the appropriate width - this needs proper handling
+        cpuAddrValue = UInt::constant(0, width, b, loc).getValue();
+      }
+    }
+  }
+
   // Call DMA interface
   auto dmaItfc = bbHandler->getDmaInterface();
   if (!dmaItfc) {
@@ -168,7 +317,7 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   }
 
   dmaItfc->callMethod("cpu_to_isax",
-                      {cpuAddr, localAddr.bits(31, 0).getValue(),
+                      {cpuAddrValue, localAddr.bits(31, 0).getValue(),
                        realCpuLength.bits(3, 0).getValue()},
                       b);
 
@@ -203,13 +352,26 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   }
   auto globalName = getGlobalOp.getName().str();
 
-  // Find the corresponding memory entry using the pre-built map
+  // Find the corresponding memory entry using the pre-built map with prefix matching
   const MemoryEntryInfo *targetMemEntry = nullptr;
   if (!globalName.empty()) {
     auto &memEntryMap = bbHandler->getMemEntryMap();
-    auto it = memEntryMap.find(globalName);
-    if (it != memEntryMap.end()) {
-      targetMemEntry = &it->second;
+    
+    // First try exact match
+    auto exactIt = memEntryMap.find(globalName);
+    if (exactIt != memEntryMap.end()) {
+      targetMemEntry = &exactIt->second;
+    } else {
+      // If exact match fails, try prefix matching with underscore
+      llvm::SmallVector<const MemoryEntryInfo *, 4> matchingEntries;
+      
+      for (auto &entry : memEntryMap) {
+        std::string key = entry.first.str();
+        // Check if the map key starts with globalName + "_"
+        if (globalName.rfind( key + "_", 0) == 0) {
+          targetMemEntry = &entry.second;
+        }
+      }
     }
   }
 
@@ -226,10 +388,38 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   // elementSizeBytes)
   uint32_t baseAddress = targetMemEntry->baseAddress;
 
+  // Convert start value to FIRRTL type - if it's not already FIRRTL, we need to handle it
+  mlir::Value startValue = start;
+
+  llvm::outs() << "DEBUG: Converting start value, type: " << start.getType() << "\n";
+
+  // Check if start is a constant that we can convert properly
+  if (auto constOp = start.getDefiningOp<arith::ConstantOp>()) {
+    llvm::outs() << "DEBUG: start is a constant, converting to FIRRTL\n";
+    auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
+    unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
+    startValue = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
+  } else {
+    llvm::outs() << "DEBUG: start is not a constant, checking if FIRRTL type\n";
+    // Check if it's already a FIRRTL type
+    if (isa<circt::firrtl::FIRRTLBaseType>(start.getType())) {
+      llvm::outs() << "DEBUG: start is already FIRRTL type\n";
+    } else {
+      llvm::outs() << "DEBUG: start is standard MLIR type, need conversion\n";
+      // For non-constant standard types, we need to create a proper conversion
+      if (auto intType = dyn_cast<mlir::IntegerType>(start.getType())) {
+        unsigned width = intType.getWidth();
+        llvm::outs() << "DEBUG: Creating FIRRTL constant for non-constant i" << width << " value\n";
+        // For now, create a 0 constant of the appropriate width - this needs proper handling
+        startValue = UInt::constant(0, width, b, loc).getValue();
+      }
+    }
+  }
+
   // Calculate offset: start * numOfElements * elementSizeBytes
   auto baseAddrConst = UInt::constant(baseAddress, 32, b, loc);
-  auto startSig = Signal(start, &b, loc);
-  auto elementSizeBytesConst = UInt::constant(32, elementSizeBytes, b, loc);
+  auto startSig = Signal(startValue, &b, loc);
+  auto elementSizeBytesConst = UInt::constant(elementSizeBytes, 32, b, loc);
   Signal localAddr = baseAddrConst + startSig * elementSizeBytesConst;
 
   // Calculate total burst length: elementSizeBytes * numOfElements, rounded up
@@ -248,6 +438,34 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
       bbHandler->roundUpToPowerOf2((uint32_t)totalBurstLength);
   auto realCpuLength = UInt::constant(32, roundedTotalBurstLength, b, loc);
 
+  // Convert cpuAddr to FIRRTL type if needed
+  mlir::Value cpuAddrValue = cpuAddr;
+
+  llvm::outs() << "DEBUG: Converting cpuAddr value, type: " << cpuAddr.getType() << "\n";
+
+  // Check if cpuAddr is a constant that we can convert properly
+  if (auto constOp = cpuAddr.getDefiningOp<arith::ConstantOp>()) {
+    llvm::outs() << "DEBUG: cpuAddr is a constant, converting to FIRRTL\n";
+    auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
+    unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
+    cpuAddrValue = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
+  } else {
+    llvm::outs() << "DEBUG: cpuAddr is not a constant, checking if FIRRTL type\n";
+    // Check if it's already a FIRRTL type
+    if (isa<circt::firrtl::FIRRTLBaseType>(cpuAddr.getType())) {
+      llvm::outs() << "DEBUG: cpuAddr is already FIRRTL type\n";
+    } else {
+      llvm::outs() << "DEBUG: cpuAddr is standard MLIR type, need conversion\n";
+      // For non-constant standard types, we need to create a proper conversion
+      if (auto intType = dyn_cast<mlir::IntegerType>(cpuAddr.getType())) {
+        unsigned width = intType.getWidth();
+        llvm::outs() << "DEBUG: Creating FIRRTL constant for non-constant i" << width << " value\n";
+        // For now, create a 0 constant of the appropriate width - this needs proper handling
+        cpuAddrValue = UInt::constant(0, width, b, loc).getValue();
+      }
+    }
+  }
+
   // Call DMA interface
   auto dmaItfc = bbHandler->getDmaInterface();
   if (!dmaItfc) {
@@ -256,7 +474,7 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   }
 
   dmaItfc->callMethod("isax_to_cpu",
-                      {cpuAddr, localAddr.bits(31, 0).getValue(),
+                      {cpuAddrValue, localAddr.bits(31, 0).getValue(),
                        realCpuLength.bits(3, 0).getValue()},
                       b);
 

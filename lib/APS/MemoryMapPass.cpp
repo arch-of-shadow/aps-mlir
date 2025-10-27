@@ -120,9 +120,9 @@ private:
       if (!group.banks.empty()) {
         auto memrefType = llvm::cast<MemRefType>(group.banks[0].getType());
         uint64_t numElements = memrefType.getNumElements();
-        if (numElements == 1) {
-          continue; // Skip single-element memrefs
-        }
+        // if (numElements == 1) {
+        //   continue; // Skip single-element memrefs
+        // }
         uint32_t elementSize = memrefType.getElementTypeBitWidth() / 8;
         bankSize = numElements * elementSize;
       }

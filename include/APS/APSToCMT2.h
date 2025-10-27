@@ -125,7 +125,7 @@ private:
   Module *generateBankWrapperModule(const MemoryEntryInfo &entryInfo,
                                     Circuit &circuit, size_t bankIdx,
                                     ExternalModule *memMod, Clock clk,
-                                    Reset rst);
+                                    Reset rst, bool burstEnable);
 
   Module *
   generateMemoryEntryModule(const MemoryEntryInfo &entryInfo, Circuit &circuit,

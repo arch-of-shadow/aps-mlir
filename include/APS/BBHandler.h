@@ -8,6 +8,7 @@
 #ifndef APS_BBHANDLER_H
 #define APS_BBHANDLER_H
 
+#include "APS/APSOps.h"
 #include "APS/APSToCMT2.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Operation.h"
@@ -268,6 +269,18 @@ private:
   /// Handle regular memory store
   LogicalResult
   generateMemStore(aps::MemStore op, mlir::OpBuilder &b, Location loc,
+                   int64_t slot,
+                   llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Handle global memory load
+  LogicalResult
+  generateGlobalMemLoad(aps::GlobalLoad op, mlir::OpBuilder &b, Location loc,
+                  int64_t slot,
+                  llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Handle global memory store
+  LogicalResult
+  generateGlobalMemStore(aps::GlobalStore op, mlir::OpBuilder &b, Location loc,
                    int64_t slot,
                    llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
