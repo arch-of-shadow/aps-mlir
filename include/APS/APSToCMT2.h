@@ -173,14 +173,9 @@ private:
   Module *
   generateRoCCAdapter(Circuit &circuit,
                       const llvm::SmallVector<unsigned long, 4> &opcodes);
+public:
   // Memory entry map for fast lookup by name
   llvm::DenseMap<llvm::StringRef, MemoryEntryInfo> memEntryMap;
-
-  /// Helper function to convert MLIR type to FIRRTL type
-  mlir::Type toFirrtlType(mlir::Type type, mlir::MLIRContext *ctx);
-
-  /// Helper function to round up to power of 2
-  uint32_t roundUpToPowerOf2(uint32_t value);
 
   /// Generate rules for a specific TOR function
   /// This function handles:
