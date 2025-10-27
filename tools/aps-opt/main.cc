@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
         .help("Clock period in ns (default: 10.0)");
     program.add_argument("--resource")
         .required()
-        .default_value(std::string("examples/resource.json"))
+        .default_value(std::string("examples/resource_ihp130.json"))
         .help("Path to resource.json for scheduling information");
     program.add_argument("--gensg")
         .default_value(false)
