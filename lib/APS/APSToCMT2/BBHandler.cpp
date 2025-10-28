@@ -7,6 +7,7 @@
 
 #include "APS/BBHandler.h"
 #include "APS/APSOps.h"
+#include "circt/Dialect/Cmt2/ECMT2/Signal.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Operation.h"
@@ -45,6 +46,12 @@ BBHandler::BBHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp fun
 }
 
 LogicalResult BBHandler::processBasicBlocks() {
+  // This method requires a function context
+  if (!funcOp) {
+    llvm::outs() << "[BBHandler] Error: processBasicBlocks called without function context\n";
+    return failure();
+  }
+  
   // Phase 1: Analysis
   if (failed(collectOperationsBySlot()))
     return failure();
@@ -63,33 +70,114 @@ LogicalResult BBHandler::processBasicBlocks() {
 }
 
 LogicalResult BBHandler::collectOperationsBySlot() {
-  auto insertOpIntoSlot = [&](Operation *op, int64_t slot) {
-    auto &info = slotMap[slot];
-    info.ops.push_back(op);
-  };
-
+  // New approach: Identify basic blocks by control flow boundaries
+  // Operations within the same basic block can span multiple timeslots naturally
+  
+  llvm::outs() << "[BBHandler] Collecting operations by basic block (control-flow based)\n";
+  
+  // First, identify basic blocks based on control flow operations
+  llvm::SmallVector<llvm::SmallVector<Operation*, 8>> basicBlocks;
+  llvm::SmallVector<Operation*, 8> currentBlock;
+  
   for (Operation &op : funcOp.getBody().getOps()) {
     if (isa<tor::TimeGraphOp>(op) || isa<tor::ReturnOp>(op))
       continue;
-
-    if (auto startAttr = op.getAttrOfType<IntegerAttr>("starttime")) {
-      int64_t slot = startAttr.getInt();
-      insertOpIntoSlot(&op, slot);
+      
+    if (isa<arith::ConstantOp>(op)) {
+      // Constants can be processed separately
       continue;
     }
-
-    if (isa<arith::ConstantOp>(op))
-      continue;
-
-    op.emitError("missing required 'starttime' attribute for rule generation");
-    return failure();
+    
+    // Check if this operation starts a new basic block
+    if (isControlFlowBoundary(&op)) {
+      if (!currentBlock.empty()) {
+        basicBlocks.push_back(std::move(currentBlock));
+        currentBlock.clear();
+      }
+      // Control flow operations get their own block
+      currentBlock.push_back(&op);
+      basicBlocks.push_back(std::move(currentBlock));
+      currentBlock.clear();
+    } else {
+      // Regular operation - add to current block
+      currentBlock.push_back(&op);
+    }
   }
-
+  
+  // Add final block if not empty
+  if (!currentBlock.empty()) {
+    basicBlocks.push_back(std::move(currentBlock));
+  }
+  
+  llvm::outs() << "[BBHandler] Identified " << basicBlocks.size() << " basic blocks\n";
+  
+  // Now organize operations by timeslot within each basic block
+  // For operations with explicit timeslots, use them; otherwise infer timing
+  for (auto &block : basicBlocks) {
+    for (Operation *op : block) {
+      if (auto startAttr = op->getAttrOfType<IntegerAttr>("starttime")) {
+        int64_t slot = startAttr.getInt();
+        slotMap[slot].ops.push_back(op);
+        llvm::outs() << "[BBHandler] Operation with explicit timeslot: slot " << slot << "\n";
+      } else {
+        // For operations without explicit timeslots, we need to infer timing
+        // This will be handled by the basic block's natural flow
+        llvm::outs() << "[BBHandler] Operation without explicit timeslot - will infer timing\n";
+        // For now, place in slot 0 - this will be refined later
+        slotMap[0].ops.push_back(op);
+      }
+    }
+  }
+  
   // Populate sorted slot order
   for (auto &kv : slotMap)
     slotOrder.push_back(kv.first);
   llvm::sort(slotOrder);
+  
+  if (slotOrder.empty() && !basicBlocks.empty()) {
+    // If no explicit timeslots, create a single slot for the basic block
+    slotOrder.push_back(0);
+  }
 
+  return success();
+}
+
+LogicalResult BBHandler::collectOperationsFromList(llvm::SmallVector<Operation*> &operations) {
+  // Organize the provided operations by their time slots
+  llvm::outs() << "[BBHandler] Organizing " << operations.size() << " operations by time slots\n";
+  
+  // Clear existing slot map and order
+  slotMap.clear();
+  slotOrder.clear();
+  
+  // Process each operation and assign to appropriate slot
+  for (Operation *op : operations) {
+    if (auto startAttr = op->getAttrOfType<IntegerAttr>("starttime")) {
+      int64_t slot = startAttr.getInt();
+      slotMap[slot].ops.push_back(op);
+      llvm::outs() << "[BBHandler] Operation with explicit timeslot: slot " << slot << " - " << op->getName() << "\n";
+    } else {
+      // For operations without explicit timeslots, place in slot 0
+      slotMap[0].ops.push_back(op);
+      llvm::outs() << "[BBHandler] Operation without explicit timeslot - placed in slot 0 - " << op->getName() << "\n";
+    }
+  }
+  
+  // Populate sorted slot order
+  for (auto &kv : slotMap)
+    slotOrder.push_back(kv.first);
+  llvm::sort(slotOrder);
+  
+  if (slotOrder.empty() && !operations.empty()) {
+    // If no explicit timeslots but we have operations, create a single slot
+    slotOrder.push_back(0);
+  }
+  
+  llvm::outs() << "[BBHandler] Organized operations into " << slotOrder.size() << " time slots\n";
+  for (int64_t slot : slotOrder) {
+    llvm::outs() << "[BBHandler]   Slot " << slot << " has " << slotMap[slot].ops.size() << " operations\n";
+  }
+  
   return success();
 }
 
@@ -100,15 +188,13 @@ LogicalResult BBHandler::validateOperations() {
         continue;
       if (isa<tor::AddIOp, tor::SubIOp, tor::MulIOp>(op))
         continue;
-      if (isa<aps::MemLoad, aps::MemStore, aps::CpuRfRead, aps::CpuRfWrite>(op))
+      if (isa<mlir::arith::AddIOp, mlir::arith::SubIOp, mlir::arith::MulIOp>(op))
         continue;
-      if (isa<aps::ItfcLoadReq, aps::ItfcLoadCollect>(op))
+      if (isa<mlir::arith::AndIOp, mlir::arith::OrIOp, mlir::arith::XOrIOp>(op))
         continue;
-      if (isa<aps::ItfcStoreReq, aps::ItfcStoreCollect>(op))
+      if (isa<mlir::arith::ShLIOp, mlir::arith::ShRSIOp, mlir::arith::ShRUIOp>(op))
         continue;
-      if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstLoadCollect>(op))
-        continue;
-      if (isa<aps::ItfcBurstStoreReq, aps::ItfcBurstStoreCollect>(op))
+      if (isa<mlir::arith::CmpIOp>(op))
         continue;
       if (isa<aps::GlobalLoad, aps::GlobalStore>(op)) {
         continue;
@@ -200,7 +286,7 @@ LogicalResult BBHandler::createTokenFIFOs() {
   auto savedIP = mainModule->getBuilder().saveInsertionPoint();
 
   // Create token FIFOs for stage synchronization - one token per stage (except last)
-  llvm::DenseMap<int64_t, Instance*> stageTokenFifos;
+  stageTokenFifos.clear(); // Clear any existing token FIFOs
   for (size_t i = 0; i < slotOrder.size() - 1; ++i) {
     int64_t currentSlot = slotOrder[i];
     // Create 1-bit FIFO for token passing to next stage
@@ -210,6 +296,7 @@ LogicalResult BBHandler::createTokenFIFOs() {
     auto *tokenFifo = mainModule->addInstance(tokenFifoName, tokenFifoMod,
                                               {mainClk.getValue(), mainRst.getValue()});
     stageTokenFifos[currentSlot] = tokenFifo;
+    llvm::outs() << "[BBHandler] Created token FIFO for slot " << currentSlot << ": " << tokenFifoName << "\n";
   }
 
   return success();
@@ -298,8 +385,12 @@ LogicalResult BBHandler::generateSlotRules() {
             auto valueIt = localMap.find(result);
             if (valueIt != localMap.end()) {
               for (CrossSlotFIFO *fifo : fifoIt->second) {
-                llvm::SmallVector<mlir::Value> args = {valueIt->second};
-                fifo->fifoInstance->callMethod("enq", args, b);
+                if (fifo->fifoInstance) {
+                  // Build arguments for enq method
+                  llvm::SmallVector<mlir::Value> args;
+                  args.push_back(valueIt->second);
+                  fifo->fifoInstance->callMethod("enq", args, b);
+                }
               }
             }
           }
@@ -310,26 +401,18 @@ LogicalResult BBHandler::generateSlotRules() {
     });
 
     rule->finalize();
-
-    // Add precedence constraints - find previous slot in order
-    if (!slotOrder.empty() && slot != slotOrder[0]) {
-      auto it = std::find(slotOrder.begin(), slotOrder.end(), slot);
-      if (it != slotOrder.begin()) {
-        int64_t prevSlot = *(it - 1);
-        std::string from = std::to_string(opcode) + "_rule_s" + std::to_string(slot);
-        std::string to = std::to_string(opcode) + "_rule_s" + std::to_string(prevSlot);
-        precedencePairs.emplace_back(from, to);
-      }
-    }
   }
-
-  if (!precedencePairs.empty())
-    mainModule->setPrecedence(precedencePairs);
 
   return success();
 }
 
 LogicalResult BBHandler::handleRoCCCommandBundle(mlir::OpBuilder &b, Location loc) {
+  // Only handle RoCC commands if we have a function context
+  if (!funcOp) {
+    llvm::outs() << "[BBHandler] No function context, skipping RoCC command bundle\n";
+    return success();
+  }
+  
   // Call cmd_to_user once to get the RoCC command bundle
   std::string cmdMethod = "cmd_to_user_" + std::to_string(opcode);
   auto cmdResult = roccInstance->callMethod(cmdMethod, {}, b)[0];
@@ -363,11 +446,15 @@ LogicalResult BBHandler::handleTokenSynchronization(mlir::OpBuilder &b, Location
 LogicalResult BBHandler::writeTokenToNextStage(mlir::OpBuilder &b, Location loc, int64_t slot) {
   // Write token to next stage at the end (except for last stage)
   if (!slotOrder.empty() && slot != slotOrder.back()) {
-    auto tokenFifoIt = stageTokenFifos.find(slot);
-    if (tokenFifoIt != stageTokenFifos.end()) {
-      auto *tokenFifo = tokenFifoIt->second;
-      auto tokenValue = UInt::constant(1, 1, b, loc);
-      tokenFifo->callMethod("enq", {tokenValue.getValue()}, b);
+    auto it = std::find(slotOrder.begin(), slotOrder.end(), slot);
+    if (it != slotOrder.end() - 1) {
+      int64_t nextSlot = *(it + 1);
+      auto tokenFifoIt = stageTokenFifos.find(slot);
+      if (tokenFifoIt != stageTokenFifos.end()) {
+        auto *tokenFifo = tokenFifoIt->second;
+        auto tokenValue = UInt::constant(1, 1, b, loc);
+        tokenFifo->callMethod("enq", {tokenValue.getValue()}, b);
+      }
     }
   }
   return success();
@@ -397,33 +484,234 @@ std::optional<int64_t> BBHandler::getSlotForOp(Operation *op) {
   return {};
 }
 
+LogicalResult BBHandler::processBasicBlock(Block *mlirBlock, unsigned blockId,
+                                           llvm::DenseMap<Value, Instance*> &inputFIFOs,
+                                           llvm::DenseMap<Value, Instance*> &outputFIFOs,
+                                           Instance *readyFIFO, Instance *completeFIFO) {
+  llvm::outs() << "[BBHandler] Processing basic block " << blockId << " with " 
+               << mlirBlock->getOperations().size() << " operations\n";
+
+  // For single block processing, we need to collect only the regular operations
+  // from this block, excluding control flow operations that should be handled
+  // by specialized handlers (LoopHandler, ConditionalHandler, etc.)
+  llvm::SmallVector<Operation*> blockOperations;
+  
+  // Collect operations from this basic block, but skip control flow operations
+  // that should be handled by specialized handlers
+  for (Operation &op : mlirBlock->getOperations()) {
+    // Skip terminators and special operations
+    if (op.hasTrait<mlir::OpTrait::IsTerminator>()) {
+      continue;
+    }
+    
+    // Skip timegraph and return operations
+    if (isa<tor::TimeGraphOp>(&op) || isa<tor::ReturnOp>(&op)) {
+      continue;
+    }
+    
+    blockOperations.push_back(&op);
+  }
+  
+  llvm::outs() << "[BBHandler] Collected " << blockOperations.size() << " regular operations from basic block\n";
+
+  // If no regular operations, create a minimal rule for coordination only
+  if (blockOperations.empty()) {
+    llvm::outs() << "[BBHandler] No regular operations in block " << blockId << ", creating coordination-only rule\n";
+    
+    // Create a single rule that just handles coordination (ready -> complete)
+    auto *rule = mainModule->addRule("block_" + std::to_string(blockId) + "_coord_rule");
+    
+    rule->guard([](mlir::OpBuilder &b) {
+      auto loc = b.getUnknownLoc();
+      auto alwaysTrue = UInt::constant(1, 1, b, loc);
+      b.create<circt::cmt2::ReturnOp>(loc, alwaysTrue.getValue());
+    });
+    
+    rule->body([&](mlir::OpBuilder &b) {
+      auto loc = b.getUnknownLoc();
+
+      auto readyToken = readyFIFO->callMethod("deq", {}, b);
+      // Signal block completion
+      llvm::outs() << "[BBHandler] Enqueuing completion token for empty block " << blockId << "\n";
+      auto completeToken = UInt::constant(1, 1, b, loc);
+      completeFIFO->callMethod("enq", {completeToken.getValue()}, b);
+      
+      b.create<circt::cmt2::ReturnOp>(loc);
+    });
+    
+    rule->finalize();
+    
+    llvm::outs() << "[BBHandler] Successfully generated coordination rule for empty block " << blockId << "\n";
+    return success();
+  }
+
+  // Phase 2: Organize operations by time slots
+  if (failed(collectOperationsFromList(blockOperations))) {
+    llvm::outs() << "[BBHandler] Failed to organize operations by slot\n";
+    return failure();
+  }
+
+  // Phase 3: Set up infrastructure for this specific block
+  auto &builder = mainModule->getBuilder();
+  auto savedIPforRegRd = builder.saveInsertionPoint();
+  
+  // Create register instance for RoCC operations (if needed)
+  auto *regRdMod = STLLibrary::createRegModule(5, 0, circuit);
+  regRdInstance = mainModule->addInstance("reg_rd_block_" + std::to_string(blockId), regRdMod,
+                                          {mainClk.getValue(), mainRst.getValue()});
+  builder.restoreInsertionPoint(savedIPforRegRd);
+  
+  // Set up register generator with required instances
+  registerGen->setRegRdInstance(regRdInstance);
+
+  // Build cross-slot FIFOs for values that flow between slots within this block
+  if (failed(buildCrossSlotFIFOs()))
+    return failure();
+
+  // Create token FIFOs for stage synchronization
+  if (failed(createTokenFIFOs()))
+    return failure();
+
+  // Phase 4: Generate rules for each time slot with proper coordination
+  llvm::DenseMap<mlir::Value, mlir::Value> localMap;
+  
+  for (int64_t slot : slotOrder) {
+    auto *rule = mainModule->addRule("block_" + std::to_string(blockId) + "_slot_" + std::to_string(slot) + "_rule");
+
+    // Guard: use CMT pattern (1'b1) for all slots - coordination handled by FIFO availability
+    rule->guard([](mlir::OpBuilder &b) {
+      auto loc = b.getUnknownLoc();
+      auto one = UInt::constant(1, 1, b, loc);
+      b.create<circt::cmt2::ReturnOp>(loc, one.getValue());
+    });
+
+    // Body: implement the operations for this time slot with proper coordination
+    rule->body([&](mlir::OpBuilder &b) {
+      auto loc = b.getUnknownLoc();
+      localMap.clear();
+
+      llvm::outs() << "[BBHandler] Processing slot " << slot << " with " 
+                   << slotMap[slot].ops.size() << " operations\n";
+
+      // Handle block coordination at the beginning of the first slot
+      if (slot == slotOrder.front()) {
+        // Dequeue from input token FIFO (token from previous block in sequence)
+        if (readyFIFO) {
+          llvm::outs() << "[BBHandler] Dequeuing input token for block " << blockId << " from unified token FIFO\n";
+          auto inputToken = readyFIFO->callMethod("deq", {}, b);
+        }
+        
+        // Handle cross-block value consumption (data from other blocks)
+        for (auto &[value, fifo] : inputFIFOs) {
+          if (fifo) {
+            llvm::outs() << "[BBHandler] Dequeuing cross-block value from input FIFO\n";
+            auto dequeuedValue = fifo->callMethod("deq", {}, b);
+            if (!dequeuedValue.empty()) {
+              localMap[value] = dequeuedValue[0];
+              llvm::outs() << "[BBHandler] Stored cross-block value in localMap\n";
+            }
+          }
+        }
+      }
+
+      // Handle RoCC command bundle in slot 0 (if present)
+      if (slot == 0) {
+        if (failed(handleRoCCCommandBundle(b, loc)))
+          return;
+      }
+
+      // Handle token synchronization between stages (intra-block)
+      if (failed(handleTokenSynchronization(b, loc, slot)))
+        return;
+
+      // Process all operations in this time slot using existing operation generators
+      for (Operation *op : slotMap[slot].ops) {
+        if (failed(generateRuleForOperation(op, b, loc, slot, localMap))) {
+          llvm::outs() << "[BBHandler] Failed to process operation: " << *op << "\n";
+          return;
+        }
+      }
+
+      // Handle cross-slot FIFO writes for producer operations in this slot
+      for (Operation *op : slotMap[slot].ops) {
+        for (mlir::Value result : op->getResults()) {
+          if (!isa<mlir::IntegerType>(result.getType()))
+            continue;
+          auto fifoIt = crossSlotFIFOs.find(result);
+          if (fifoIt != crossSlotFIFOs.end()) {
+            auto valueIt = localMap.find(result);
+            if (valueIt != localMap.end()) {
+              for (CrossSlotFIFO *fifo : fifoIt->second) {
+                if (fifo->fifoInstance) {
+                  fifo->fifoInstance->callMethod("enq", {valueIt->second}, b);
+                  llvm::outs() << "[BBHandler] Enqueued value to cross-slot FIFO\n";
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Write token to next stage at the end (intra-block coordination)
+      if (failed(writeTokenToNextStage(b, loc, slot)))
+        return;
+
+      // Handle block coordination at the end of the last slot
+      if (slot == slotOrder.back()) {
+        // Enqueue cross-block values to output FIFOs (data to other blocks)
+        for (auto &[value, fifo] : outputFIFOs) {
+          if (fifo) {
+            auto valueIt = localMap.find(value);
+            if (valueIt != localMap.end()) {
+              llvm::outs() << "[BBHandler] Enqueuing cross-block value to output FIFO\n";
+              fifo->callMethod("enq", {valueIt->second}, b);
+            }
+          }
+        }
+        
+        // Enqueue output token to unified token FIFO (token to next block in sequence)
+        if (completeFIFO) {
+          llvm::outs() << "[BBHandler] Enqueuing output token for block " << blockId << " to unified token FIFO\n";
+          auto outputToken = UInt::constant(1, 1, b, loc);
+          completeFIFO->callMethod("enq", {outputToken.getValue()}, b);
+        }
+      }
+
+      b.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    rule->finalize();
+    
+    llvm::outs() << "[BBHandler] Generated rule for slot " << slot << " in block " << blockId << "\n";
+  }
+  
+  llvm::outs() << "[BBHandler] Successfully generated " << slotOrder.size() << " rules for basic block " << blockId << "\n";
+  return success();
+}
+
+// Implementation of missing BBHandler methods
+bool BBHandler::isControlFlowBoundary(Operation *op) {
+  return isa<tor::ForOp, tor::IfOp, tor::WhileOp>(op);
+}
+
 mlir::Type BBHandler::toFirrtlType(mlir::Type type, mlir::MLIRContext *ctx) {
   if (auto intType = dyn_cast<mlir::IntegerType>(type)) {
-    if (intType.isUnsigned())
-      return circt::firrtl::UIntType::get(ctx, intType.getWidth());
-    if (intType.isSigned())
-      return circt::firrtl::SIntType::get(ctx, intType.getWidth());
     return circt::firrtl::UIntType::get(ctx, intType.getWidth());
   }
-  return {};
+  return nullptr;
 }
 
-uint32_t BBHandler::roundUpToPowerOf2(uint32_t value) {
-  if (value <= 1)
-    return 1;
-  value--;
-  value |= value >> 1;
-  value |= value >> 2;
-  value |= value >> 4;
-  value |= value >> 8;
-  value |= value >> 16;
-  value++;
-  return value;
+unsigned int BBHandler::roundUpToPowerOf2(unsigned int n) {
+  if (n == 0) return 1;
+  n--;
+  n |= n >> 1;
+  n |= n >> 2;
+  n |= n >> 4;
+  n |= n >> 8;
+  n |= n >> 16;
+  n++;
+  return n;
 }
-
-//===----------------------------------------------------------------------===//
-// OperationGenerator Base Implementation
-//===----------------------------------------------------------------------===//
 
 FailureOr<mlir::Value> OperationGenerator::getValueInRule(mlir::Value v, Operation *currentOp,
                                                           unsigned operandIndex, mlir::OpBuilder &b,

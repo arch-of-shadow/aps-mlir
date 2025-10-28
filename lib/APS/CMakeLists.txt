@@ -8,7 +8,9 @@ add_mlir_library(APS
   APSSplitMemoryOpsPass.cpp
   APSToCMT2/APSToCMT2GenPass.cpp
   APSToCMT2/APSOpRuleGenerate.cpp
+  APSToCMT2/BlockHandler.cpp
   APSToCMT2/BBHandler.cpp
+  APSToCMT2/LoopHandler.cpp
   APSToCMT2/ArithmeticOpGenerator.cpp
   APSToCMT2/RegisterOpGenerator.cpp
   APSToCMT2/MemoryOpGenerator.cpp

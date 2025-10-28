@@ -82,6 +82,20 @@ public:
   const llvm::DenseMap<llvm::StringRef, MemoryEntryInfo> &
   getMemEntryMap() const { return pass->memEntryMap; };
 
+  /// Process a single basic block (for use by BlockHandler)
+  /// inputTokenFIFO: unified token FIFO from previous block (for cross-block coordination)
+  /// outputTokenFIFO: unified token FIFO to next block (for cross-block coordination)
+  LogicalResult processBasicBlock(Block *mlirBlock, unsigned blockId,
+                                  llvm::DenseMap<Value, Instance*> &inputFIFOs,
+                                  llvm::DenseMap<Value, Instance*> &outputFIFOs,
+                                  Instance *inputTokenFIFO, Instance *outputTokenFIFO);
+
+  /// Process a single operation within a basic block
+  LogicalResult processOperationInBlock(Operation *op, mlir::OpBuilder &b, 
+                                        mlir::Location loc,
+                                        llvm::DenseMap<Value, Instance*> &inputFIFOs,
+                                        llvm::DenseMap<Value, Instance*> &outputFIFOs);
+
 private:
   // Core components
   APSToCMT2GenPass *pass;
@@ -126,6 +140,9 @@ private:
 
   /// Collect operations by time slot from the function body
   LogicalResult collectOperationsBySlot();
+
+  /// Collect operations from a specific list by time slot (for single basic block)
+  LogicalResult collectOperationsFromList(llvm::SmallVector<Operation*> &operations);
 
   /// Validate that all operations are supported
   LogicalResult validateOperations();
@@ -182,14 +199,14 @@ private:
   /// Get slot for an operation
   std::optional<int64_t> getSlotForOp(Operation *op);
 
+  /// Check if an operation is a control flow boundary
+  bool isControlFlowBoundary(Operation *op);
+
   /// Convert MLIR type to FIRRTL type
   mlir::Type toFirrtlType(mlir::Type type, mlir::MLIRContext *ctx);
 
-  /// Convert MLIR type to FIRRTL type
-  mlir::Type toFirrtlType(mlir::Type type);
-
   /// Round up to power of 2
-  uint32_t roundUpToPowerOf2(uint32_t value);
+  unsigned int roundUpToPowerOf2(unsigned int n);
 };
 
 //===----------------------------------------------------------------------===//
