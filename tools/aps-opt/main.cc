@@ -196,6 +196,7 @@ int main(int argc, char **argv) {
     args.push_back("--new-array-partition");
     args.push_back("--canonicalize");
     args.push_back("--affine-mem-to-aps-mem");
+    args.push_back("--memref-to-aps-mem");
     args.push_back("--canonicalize");
 
     if (generateScheduleGraph) {

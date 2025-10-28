@@ -3,6 +3,7 @@ add_mlir_library(APS
   SCFForIndexCast.cpp
   APSMemToMemRef.cpp
   AffineMemToAPSMem.cpp
+  MemRefToAPSMem.cpp
   MemoryMapPass.cpp
   InferAffineMemAccess.cpp
   APSSplitMemoryOpsPass.cpp

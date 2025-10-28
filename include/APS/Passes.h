@@ -12,6 +12,7 @@ namespace mlir {
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createSCFForIndexCastPass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAPSMemToMemRefPass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAffineMemToAPSMemPass();
+std::unique_ptr<OperationPass<mlir::func::FuncOp>> createMemRefToAPSMemPass();
 std::unique_ptr<OperationPass<mlir::ModuleOp>> createMemoryMapPass();
 std::unique_ptr<Pass> createInferAffineMemAccessPass();
 std::unique_ptr<OperationPass<mlir::tor::DesignOp>> createAPSSplitMemoryOpsPass();
