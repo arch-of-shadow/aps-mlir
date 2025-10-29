@@ -152,6 +152,19 @@ protected:
   llvm::DenseMap<Value, Instance*> output_fifos;
 
   //===--------------------------------------------------------------------===//
+  // Input Distribution Infrastructure (for sub-blocks)
+  //===--------------------------------------------------------------------===//
+
+  // Maps: input_value -> sub_block_index -> dedicated FIFO for that sub-block
+  llvm::DenseMap<Value, llvm::DenseMap<unsigned, Instance*>> input_distribution_fifos;
+
+  // Flag: whether this block needs input distribution rule
+  bool needsInputDistribution = false;
+
+  // Token FIFO: parent -> distribution rule (only if distribution needed)
+  Instance* input_distribution_token_fifo = nullptr;
+
+  //===--------------------------------------------------------------------===//
   // Block Analysis
   //===--------------------------------------------------------------------===//
 
@@ -187,6 +200,19 @@ protected:
 
   /// Get unique FIFO name
   std::string getFIFOName(StringRef prefix, unsigned blockId, StringRef suffix = "");
+
+  //===--------------------------------------------------------------------===//
+  // Input Distribution (for sub-blocks with shared inputs)
+  //===--------------------------------------------------------------------===//
+
+  /// Analyze if input distribution is needed for sub-blocks
+  LogicalResult analyzeInputDistributionNeeds();
+
+  /// Create input distribution infrastructure (FIFOs and token coordination)
+  LogicalResult createInputDistributionInfrastructure();
+
+  /// Generate input distribution rule (dequeue once, enqueue to all sub-blocks)
+  LogicalResult generateInputDistributionRule();
 
   //===--------------------------------------------------------------------===//
   // Rule Generation
