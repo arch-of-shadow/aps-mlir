@@ -140,6 +140,10 @@ public:
   int getAmount(int id) { return Components[id].amount; }
 
   bool isCombLogic(int id, int bitwidth) {
+    // Normalize bitwidth to nearest power of 2 (round up)
+    if (bitwidth > 0 && __builtin_popcount(bitwidth) != 1) {
+      bitwidth = 1 << (32 - __builtin_clz(bitwidth - 1));
+    }
     int index = bitwidthIdx(bitwidth);
     return Components[id].latency[index] == 0;
   }

@@ -45,9 +45,6 @@ int main(int argc, char **argv) {
     program.add_argument("-i", "--input")
         .required()
         .help("Input CADL/MLIR file (e.g., examples/burst_demo.cadl or examples/zyy.mlir)");
-    program.add_argument("-f", "--function")
-        .required()
-        .help("Specify the target function");
     program.add_argument("-o", "--output")
         .required()
         .help("Output path (e.g., zyy_out)");
@@ -57,7 +54,7 @@ int main(int argc, char **argv) {
         .help("Clock period in ns (default: 10.0)");
     program.add_argument("--resource")
         .required()
-        .default_value(std::string("examples/resource.json"))
+        .default_value(std::string("examples/resource_ihp130.json"))
         .help("Path to resource.json for scheduling information");
     program.add_argument("--gensg")
         .default_value(false)
@@ -84,7 +81,6 @@ int main(int argc, char **argv) {
     const auto clockPeriod = program.get<std::string>("--clock");
     const auto resourceFile = program.get<std::string>("--resource");
     const auto outputPath = program.get<std::string>("--output");
-    const auto targetFunction = program.get<std::string>("--function");
     const auto generateScheduleGraph = program.get<bool>("--gensg");
     const auto generatePragmaReport = program.get<bool>("--genpr");
 
@@ -200,6 +196,7 @@ int main(int argc, char **argv) {
     args.push_back("--new-array-partition");
     args.push_back("--canonicalize");
     args.push_back("--affine-mem-to-aps-mem");
+    args.push_back("--memref-to-aps-mem");
     args.push_back("--canonicalize");
 
     if (generateScheduleGraph) {
@@ -212,8 +209,7 @@ int main(int argc, char **argv) {
     args.push_back("--expression-balance");
 
     // Convert input with top function, clock, and resource parameters
-    args.push_back("--convert-input=top-function=" + targetFunction +
-                               " clock=" + clockPeriod +
+    args.push_back("--convert-input=clock=" + clockPeriod +
                                " resource=" + resourceFile +
                                " output-path=" + outputPath + "/file");
 
