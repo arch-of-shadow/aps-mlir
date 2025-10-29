@@ -49,7 +49,7 @@ static dist_out: [u32; 16];
 #[funct7(7'b0101000)]
 rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
   let addr1: u32 = _irf[rs1];  // Base address for first point set
-  let addr2: u32 = _irf[rs2];  // Base address for second point set
+  let out_addr: u32 = _irf[rs2];  // Base address for second point set
   let vl: u32 = 16;             // Vector length
 
   // Burst read point coordinates from memory (SOA layout)
@@ -57,9 +57,9 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
   points1_y[0 +: ] = _burst_read[addr1 + 64 +: 16];   // 16 words × 4 bytes
   points1_z[0 +: ] = _burst_read[addr1 + 128 +: 16];  // 2 × 16 words × 4 bytes
 
-  points2_x[0 +: ] = _burst_read[addr2 +: 16];
-  points2_y[0 +: ] = _burst_read[addr2 + 64 +: 16];
-  points2_z[0 +: ] = _burst_read[addr2 + 128 +: 16];
+  points2_x[0 +: ] = _burst_read[addr1 + 192 +: 16];
+  points2_y[0 +: ] = _burst_read[addr1 + 256 +: 16];
+  points2_z[0 +: ] = _burst_read[addr2 + 320 +: 16];
 
   // Compute distances for all vector elements with partial unrolling
   [[unroll(4)]]
@@ -86,7 +86,6 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
   } while (i_ < vl);
 
   // Burst write results back to memory
-  let out_addr: u32 = _irf[rd];
   _burst_write[out_addr +: 16] = dist_out[0 +: ];
 
   _irf[rd] = 0;

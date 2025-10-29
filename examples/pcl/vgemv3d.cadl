@@ -24,14 +24,14 @@ static acc: i32;
 #[opcode(7'b0101011)]
 #[funct7(7'b0110001)]
 rtype vgemv3d_vv(rs1: u5, rs2: u5, rd: u5) {
-  let mat_addr: u32 = _irf[rs1];    // Address of matrix data
-  let vec_addr: u32 = _irf[rs2];    // Address of vector data
+  let addr: u32 = _irf[rs1];    // Address of matrix data and vector data
+  let out_addr: u32 = _irf[rs2];    // Address of output
 
   // Burst read for flattened matrix (16 elements)
-  matrix[0 +: ] = _burst_read[mat_addr +: 16];
+  matrix[0 +: ] = _burst_read[addr +: 16];
 
   // Burst read for vector (4 elements)
-  vec[0 +: ] = _burst_read[vec_addr +: 4];
+  vec[0 +: ] = _burst_read[addr + 64 +: 4];
 
   // Compute matrix-vector product: result[i] = Σⱼ matrix[i*4+j] * vec[j]
   // [[unroll(4)]]
@@ -47,7 +47,6 @@ rtype vgemv3d_vv(rs1: u5, rs2: u5, rd: u5) {
   } while (i_ < 4);
 
   // Burst write result vector
-  let out_addr: u32 = _irf[rd];
   _burst_write[out_addr +: 4] = result[0 +: ];
 
   _irf[rd] = 0;

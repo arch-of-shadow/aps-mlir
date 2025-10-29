@@ -12,6 +12,12 @@ fi
 
 # Generate APS MLIR and extract module, then lower to standard
 # Use pixi environment's Python which has all dependencies installed
+# Apply full standardization: aps-to-standard + comb-extract + select-to-if
+# Note: canonicalize before select-to-if to avoid reverting the transformation
 pixi run python aps-frontend mlir "$@" 2>&1 | \
   sed -n '/^module {/,/^}$/p' | \
-  ./build/tools/aps-opt/aps-opt --aps-to-standard
+  ./build/tools/aps-opt/aps-opt \
+    --aps-to-standard \
+    --comb-extract-to-arith-trunc \
+    --canonicalize \
+    --arith-select-to-scf-if

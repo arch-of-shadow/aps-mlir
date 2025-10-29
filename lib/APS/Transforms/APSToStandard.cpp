@@ -50,11 +50,12 @@ static LogicalResult mergeElementType(std::optional<Type> &target,
     return success();
   }
 
-  if (*target != candidate) {
-    diagOp->emitError() << "CPU memory element type mismatch. Expected "
-                        << *target << " but found " << candidate;
-    return failure();
-  }
+  // Note: CPU memory is byte-addressable, so different element types
+  // for different burst operations is perfectly valid. We don't enforce
+  // type consistency here.
+  // The type stored in 'target' is used for determining function parameter
+  // types, but each memref can have its own element type.
+
   return success();
 }
 

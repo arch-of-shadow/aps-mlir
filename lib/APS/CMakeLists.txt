@@ -18,6 +18,8 @@ add_mlir_library(APS
   APSToCMT2/APSInterfaceGenerate.cpp
   APSToCMT2/APSMemoryGenerate.cpp
   Transforms/APSToStandard.cpp
+  Transforms/CombExtractToArithTrunc.cpp
+  Transforms/ArithSelectToSCFIf.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/APS
@@ -25,6 +27,7 @@ add_mlir_library(APS
   DEPENDS
   MLIRAPSIncGen
   MLIRAPSPassIncGen
+  MLIRTORIncGen
 
   LINK_LIBS PUBLIC
   MLIRAffineDialect
