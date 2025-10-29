@@ -87,6 +87,30 @@ elseif (UNIX)
     find_library(LP_SOLVE_LIB NAMES liblpsolve55.a PATHS "${LP_SOLVE_PATH}/bin/ux64")
 endif ()
 
+set(_APS_PYTHON_INCLUDE "")
+if (Python3_INCLUDE_DIRS)
+    list(GET Python3_INCLUDE_DIRS 0 _APS_PYTHON_INCLUDE)
+endif ()
+
+if (_APS_PYTHON_INCLUDE)
+    get_filename_component(_APS_PYTHON_INCLUDE_PARENT "${_APS_PYTHON_INCLUDE}" DIRECTORY)
+    get_filename_component(_APS_PYTHON_ENV_PREFIX "${_APS_PYTHON_INCLUDE_PARENT}" DIRECTORY)
+endif ()
+
+if (NOT LP_SOLVE_LIB AND _APS_PYTHON_INCLUDE_PARENT AND EXISTS "${_APS_PYTHON_INCLUDE_PARENT}/lpsolve/lp_lib.h")
+    set(LP_SOLVE_INCLUDE_DIR "${_APS_PYTHON_INCLUDE_PARENT}")
+    find_library(
+        LP_SOLVE_LIB
+        NAMES lpsolve55 liblpsolve55
+        PATHS "${_APS_PYTHON_ENV_PREFIX}/lib" "${_APS_PYTHON_ENV_PREFIX}/lib64"
+        NO_DEFAULT_PATH
+    )
+endif ()
+
+if (NOT DEFINED LP_SOLVE_INCLUDE_DIR AND _APS_PYTHON_INCLUDE_PARENT AND EXISTS "${_APS_PYTHON_INCLUDE_PARENT}/lpsolve/lp_lib.h")
+    set(LP_SOLVE_INCLUDE_DIR "${_APS_PYTHON_INCLUDE_PARENT}")
+endif ()
+
 #-------------------------------------------------------------------------------
 # JSON configuration
 #-------------------------------------------------------------------------------

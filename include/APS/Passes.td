@@ -105,7 +105,8 @@ def APSMemoryPoolGen : Pass<"aps-memory-pool-gen", "::mlir::ModuleOp"> {
     Memory address translation (base + bank selection) is deferred to a later pass.
   }];
   let constructor = "mlir::createAPSMemoryPoolGenPass()";
-  
+}
+
 def APSToStandard : Pass<"aps-to-standard", "::mlir::ModuleOp"> {
   let summary = "Lower APS dialect operations to standard MLIR dialects";
   let description = [{
@@ -123,6 +124,55 @@ def APSToStandard : Pass<"aps-to-standard", "::mlir::ModuleOp"> {
   let constructor = "mlir::createAPSToStandardPass()";
   let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::func::FuncDialect",
                           "::mlir::memref::MemRefDialect", "::mlir::scf::SCFDialect"];
+}
+
+def CombExtractToArithTrunc : Pass<"comb-extract-to-arith-trunc"> {
+  let summary = "Convert comb.extract operations to arith.trunci";
+  let description = [{
+    This pass converts all comb.extract operations to equivalent arith.trunci
+    operations, optionally preceded by arith.shrui if extracting from non-zero bit.
+
+    Transformations:
+    - comb.extract %x from 0 : (iN) -> iM
+      => arith.trunci %x : iN to iM
+
+    - comb.extract %x from K : (iN) -> iM (K > 0)
+      => %shifted = arith.shrui %x, K : iN
+         %result = arith.trunci %shifted : iN to iM
+
+    This is useful for lowering to standard dialects that don't have comb dialect,
+    such as for CPU simulation or instruction matching with polygeist-generated MLIR.
+  }];
+  let constructor = "mlir::createCombExtractToArithTruncPass()";
+  let dependentDialects = ["::mlir::arith::ArithDialect"];
+}
+
+def ArithSelectToSCFIf : Pass<"arith-select-to-scf-if"> {
+  let summary = "Convert arith.select operations to scf.if";
+  let description = [{
+    This pass converts all arith.select operations to equivalent scf.if
+    operations with explicit then/else branches.
+
+    Transformation:
+    - arith.select %cond, %true_val, %false_val : T
+      =>
+      scf.if %cond -> T {
+        scf.yield %true_val : T
+      } else {
+        scf.yield %false_val : T
+      }
+
+    This is useful when:
+    - The backend prefers explicit control flow over conditional selection
+    - Pattern matching with control-flow heavy code (e.g., C code with if/else)
+    - Analyzing or optimizing control flow dependencies
+    - Matching with polygeist-generated MLIR from C code
+
+    Note: This transformation may increase code size and can make certain
+    optimizations (like vectorization) more difficult. Use with caution.
+  }];
+  let constructor = "mlir::createArithSelectToSCFIfPass()";
+  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect"];
 }
 
 #endif // APS_PASSES
