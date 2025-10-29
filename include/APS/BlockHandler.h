@@ -53,9 +53,12 @@ enum class BlockType {
 struct BlockInfo {
   unsigned blockId;
   std::string blockName;  // Hierarchical name for nested blocks
-  Block* mlirBlock;
+  Block* mlirBlock;       // Parent MLIR block (for context)
   BlockType type;
   int64_t startTime, endTime;
+
+  // Operations belonging to this specific block segment
+  llvm::SmallVector<Operation*> operations;
 
   // Values produced/consumed by this block
   llvm::SmallVector<Value> producedValues;
@@ -98,10 +101,11 @@ public:
                Instance *poolInstance, Instance *roccInstance,
                Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
                Circuit &circuit, Clock mainClk, Reset mainRst,
-               unsigned long opcode,
+               unsigned long opcode, Instance *regRdInstance,
                Instance *inputTokenFIFO, Instance *outputTokenFIFO,
               llvm::DenseMap<Value, Instance*> &input_fifos,
-              llvm::DenseMap<Value, Instance*> &output_fifos);
+              llvm::DenseMap<Value, Instance*> &output_fifos,
+              const std::string &namePrefix = "");
 
   /// Process all blocks in the function
   LogicalResult processFunctionAsBlocks();
@@ -111,8 +115,8 @@ public:
   /// Process a specific block (virtual for specialization)
   virtual LogicalResult processBlock(BlockInfo& block);
 
-  /// Create producer FIFO for a value
-  Instance* createProducerFIFO(Value value, unsigned producerBlockId);
+  /// Create producer FIFO for a value with def-use naming
+  Instance* createProducerFIFO(Value value, unsigned producerBlockId, unsigned consumerBlockId, unsigned counter);
 
   /// Find all consumers of a value
   llvm::SmallVector<BlockInfo*> findValueConsumers(Value value);
@@ -131,11 +135,15 @@ protected:
   Instance *poolInstance;
   Instance *roccInstance;
   Instance *hellaMemInstance;
+  Instance *regRdInstance;  // Shared reg_rd register for all blocks
   InterfaceDecl *dmaItfc;
   Circuit &circuit;
   Clock mainClk;
   Reset mainRst;
   unsigned long opcode;
+
+  // Name prefix for hierarchical naming (e.g., "43_" for opcode, "43_loop_1_" for nested)
+  std::string namePrefix;
 
   // External token FIFOs for top-level block coordination
   Instance *inputTokenFIFO;
@@ -161,7 +169,7 @@ protected:
   //===--------------------------------------------------------------------===//
 
   /// Identify all blocks in the function
-  LogicalResult identifyBlocks();
+  LogicalResult identifyBlocksByFuncOp();
 
   LogicalResult identifyBlocksByLoop(tor::ForOp loopOp);
 
@@ -221,6 +229,9 @@ protected:
 
   /// Check if value is used in target block
   bool isValueUsedInBlock(Value value, BlockInfo& targetBlock);
+
+  /// Check if value is used in a segment (list of operations)
+  bool isValueUsedInSegment(Value value, const llvm::SmallVector<Operation*, 8>& segment);
 
   /// Check if a value comes from a virtual operation (doesn't need FIFO)
   bool isVirtualValue(Value value);

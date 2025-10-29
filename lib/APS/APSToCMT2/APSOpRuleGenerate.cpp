@@ -40,14 +40,32 @@ void APSToCMT2GenPass::generateRulesForFunction(
   });
 
   // Unified entry point: Always use BlockHandler, regardless of whether there are loops
-  llvm::outs() << "[RuleGen] Function " << funcOp.getName() 
+  llvm::outs() << "[RuleGen] Function " << funcOp.getName()
                << " - using unified BlockHandler for all processing\n";
+
+  // Create reg_rd register instance (one per opcode, shared across all blocks)
+  auto &builder = mainModule->getBuilder();
+  auto savedIP = builder.saveInsertionPoint();
+  auto *regRdMod = STLLibrary::createRegModule(5, 0, circuit);
+  Instance *regRdInstance = mainModule->addInstance("reg_rd_" + std::to_string(opcode), regRdMod,
+                                                    {mainClk.getValue(), mainRst.getValue()});
+  builder.restoreInsertionPoint(savedIP);
+  llvm::outs() << "[RuleGen] Created shared reg_rd instance: reg_rd_" << opcode << "\n";
+
+  // For top-level function processing, we don't have external FIFOs
+  // Token FIFOs and value FIFOs will be created internally by BlockHandler
+  Instance *topLevelInputTokenFIFO = nullptr;
+  Instance *topLevelOutputTokenFIFO = nullptr;
+  llvm::DenseMap<Value, Instance*> topLevelInputFIFOs;  // Empty for top level
+  llvm::DenseMap<Value, Instance*> topLevelOutputFIFOs; // Empty for top level
 
   // Create BlockHandler to manage all blocks with FIFO coordination
   // BlockHandler will internally delegate to specialized handlers (LoopHandler, BBHandler) as needed
   BlockHandler blockHandler(this, mainModule, funcOp, poolInstance,
                            roccInstance, hellaMemInstance, dmaItfc, circuit,
-                           mainClk, mainRst, opcode);
+                           mainClk, mainRst, opcode, regRdInstance,
+                           topLevelInputTokenFIFO, topLevelOutputTokenFIFO,
+                           topLevelInputFIFOs, topLevelOutputFIFOs);
 
   // Process all blocks - BlockHandler will handle loops, basic blocks, conditionals, etc.
   if (failed(blockHandler.processFunctionAsBlocks())) {

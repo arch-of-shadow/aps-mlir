@@ -183,9 +183,146 @@ Analyze dependency using old method, if it's first slot, your data should be acq
 
 Remeber to add cross_slot_token_info, in first slot, deq from token_input_fifo, and enq to cross_slot_token_info_s0_s1, same for later, and at stage, enq to token_outpu_fifo.
 
-### TODO: 
+### TODO: BBHandler Refactoring Summary
 
-Please summarize
+**Inputs to BBHandler:**
+- `input_fifos`: Map of Value → FIFO for cross-block inputs
+- `output_fifos`: Map of Value → FIFO for cross-block outputs
+- `token_input_fifo`: Token from previous block (signals this block can start)
+- `token_output_fifo`: Token to next block (signals this block completed)
+- `operations`: List of operations in this basic block
+
+**BBHandler Responsibilities:**
+
+1. **Dependency Analysis** (intra-block):
+   - Analyze operation dependencies to create stages/slots
+   - Build `inBlockEdge`: (op, def_stage, use_stage) mapping
+   - Create `cross_slot_fifo` for values flowing between stages
+   - Named: `fifo_{stage_def}_{stage_use}_{value_name}`
+
+2. **First Slot Special Handling**:
+   - **Dequeue from `token_input_fifo`** (block can start)
+   - For each value in `input_fifos` that is used by this block:
+     - **Dequeue from block's input_fifo**
+     - **Enqueue to cross_slot_fifo(s)** to stage(s) where value is used
+   - Create `cross_slot_token_fifo_s0_s1` and enqueue token
+
+3. **Middle Slots**:
+   - **Dequeue from `cross_slot_token_fifo_s{i-1}_s{i}`** (previous stage done)
+   - Process operations in this stage
+   - Read from `cross_slot_fifo` for needed values from earlier stages
+   - Write to `cross_slot_fifo` for values used in later stages
+   - **Enqueue to `cross_slot_token_fifo_s{i}_s{i+1}`** (signal next stage)
+
+4. **Last Slot**:
+   - **Dequeue from `cross_slot_token_fifo_s{n-1}_s{n}`**
+   - Process final operations
+   - For each value produced that is in `output_fifos`:
+     - **Enqueue to block's output_fifo**
+   - **Enqueue to `token_output_fifo`** (signal block completion)
+
+**Key Points:**
+- BBHandler handles ONE basic block (not whole function!)
+- Uses cross_slot_fifo for internal stage-to-stage communication
+- First slot: consume from input_fifos, distribute via cross_slot_fifo
+- Last slot: produce to output_fifos
+- Token propagation: token_input → cross_slot_tokens → token_output
+
+**Current Implementation Status:**
+
+✓ **WORKING:**
+- `processBasicBlock()` correctly receives `inputFIFOs`, `outputFIFOs`, `inputTokenFIFO`, `outputTokenFIFO`
+- **Processes only ONE basic block** (not whole function):
+  - Takes `Block *mlirBlock` parameter (line 490)
+  - Collects operations only from that block (line 501)
+  - Uses `collectOperationsFromList()` instead of `collectOperationsBySlot()` (line 549)
+- First slot dequeues from `inputTokenFIFO` ✓
+- Cross-slot token coordination via `handleTokenSynchronization()` and `writeTokenToNextStage()` ✓
+- Operations processed with `generateRuleForOperation()` using operation generators ✓
+- Values produced in slots enqueued to `crossSlotFIFOs` ✓
+- Last slot enqueues to `outputFIFOs` and `outputTokenFIFO` ✓
+- `getValueInRule()` correctly handles:
+  - Values from `localMap` (current slot)
+  - Constants (inline generation)
+  - Cross-slot FIFO reads (from earlier slots)
+
+❌ **NEEDS FIXING:**
+1. `buildCrossSlotFIFOs()` only creates FIFOs for values produced by operations within the block
+   - Missing: Create `cross_slot_fifo` for values from `inputFIFOs` to their consumer slots
+2. First slot (lines 604-614) incorrectly puts `inputFIFOs` values directly into `localMap`
+   - Should: Dequeue from `inputFIFOs`, enqueue to appropriate `cross_slot_fifo(s)`
+
+**Fix Plan:**
+1. ✅ Store `BlockInfo*` as member in BBHandler for easy access to blockName and FIFOs
+2. ✅ Extended `buildCrossSlotFIFOs()` to handle `inputFIFOs` values
+3. ✅ Update first slot to properly distribute input values:
+   - If used in slot 0: store in localMap
+   - If used in later slots: enqueue to cross_slot_fifos
+   - Same value can go to BOTH destinations
+4. ✅ Use `currentBlock->blockName` throughout for proper naming
+
+**Completed Fixes:**
+- BBHandler now uses `BlockInfo&` as the interface
+- All naming uses `currentBlock->blockName` instead of opcode
+- `buildCrossSlotFIFOs()` creates FIFOs for input values used in later slots
+- First slot correctly handles input values per BBHandler_DataFlow.md
+- Empty blocks now panic (should be handled by BlockHandler)
+
+## Naming Conventions
+
+**Note:** `opcode` is added as prefix at the outermost level automatically. BBHandler/LoopHandler only need to provide the hierarchical component names.
+
+**Hierarchical Block Naming:**
+- Blocks: `block_N` (regular), `loop_N` (loop), `if_then_N`, `if_else_N`
+- Nested blocks append: `{parent}_{child}` (e.g., `block_0_loop_1`)
+- LoopHandler: `{blockName}_loop` (e.g., `block_0_loop`)
+
+**BBHandler Instance Naming (blockName provided as parameter):**
+
+- **Rules**:
+  - `{blockName}_slot_{slotId}_rule` (per-slot rules)
+  - `{blockName}_coord_rule` (empty block coordination)
+
+- **FIFOs (cross-slot, within BB)**:
+  - `{blockName}_fifo_s{producer}_s{consumer}[_{count}]`
+  - Example: `block_0_fifo_s0_s2`, `block_0_fifo_s1_s3_1`
+
+- **Registers**:
+  - `reg_rd_{blockName}` (RoCC register per block)
+
+- **Token FIFOs (intra-block, slot-to-slot)**:
+  - `{blockName}_token_fifo_s{slot}` (between slots within BB)
+
+**LoopHandler Instance Naming (loopName = blockName + "_loop"):**
+
+- **Rules**:
+  - `{loopName}_entry_rule`
+  - `{loopName}_next_rule`
+
+- **FIFOs (loop coordination)**:
+  - `{loopName}_token_entry_to_body`
+  - `{loopName}_token_body_to_next`
+  - `{loopName}_token_next_to_exit`
+  - `{loopName}_state_fifo`
+  - `{loopName}_induction_var`
+
+- **Registers**:
+  - `{loopName}_input_state_reg_{index}` (loop input storage)
+
+**BBHandler Current Issues:**
+- ❌ Line 264: Cross-slot FIFO includes `opcode` prefix
+  - Has: `std::to_string(opcode) + "_fifo_s"`
+  - Should be: `blockName + "_fifo_s"` (opcode added at outer level)
+- ❌ Line 295: Token FIFO includes opcode and missing blockName
+  - Has: `std::to_string(opcode) + "_token_fifo_s"`
+  - Should be: `blockName + "_token_fifo_s"`
+- ❌ Line 311: reg_rd uses opcode (old whole-function pattern)
+  - Has: `"reg_rd_" + std::to_string(opcode)`
+  - Should be: `"reg_rd_" + blockName`
+- ❌ Line 341: Rule name uses opcode only (old whole-function pattern)
+  - Has: `std::to_string(opcode) + "_rule_s" + std::to_string(slot)`
+  - Should be: `blockName + "_slot_" + std::to_string(slot) + "_rule"`
+- ✓ Line 522, 560, 579: Already correct for `processBasicBlock()` single-BB path
 
 ## LoopHandler
 

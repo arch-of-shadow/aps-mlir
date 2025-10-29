@@ -10,6 +10,7 @@
 
 #include "APS/APSOps.h"
 #include "APS/APSToCMT2.h"
+#include "APS/BlockHandler.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
@@ -42,8 +43,8 @@ class BBHandler {
 public:
   BBHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp funcOp,
             Instance *poolInstance, Instance *roccInstance,
-            Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
-            Circuit &circuit, Clock mainClk, Reset mainRst,
+            Instance *hellaMemInstance, Instance *regRdInstance,
+            InterfaceDecl *dmaItfc, Circuit &circuit, Clock mainClk, Reset mainRst,
             unsigned long opcode);
 
   /// Main entry point - analyze and generate rules for all basic blocks
@@ -82,13 +83,8 @@ public:
   const llvm::DenseMap<llvm::StringRef, MemoryEntryInfo> &
   getMemEntryMap() const { return pass->memEntryMap; };
 
-  /// Process a single basic block (for use by BlockHandler)
-  /// inputTokenFIFO: unified token FIFO from previous block (for cross-block coordination)
-  /// outputTokenFIFO: unified token FIFO to next block (for cross-block coordination)
-  LogicalResult processBasicBlock(Block *mlirBlock, unsigned blockId,
-                                  llvm::DenseMap<Value, Instance*> &inputFIFOs,
-                                  llvm::DenseMap<Value, Instance*> &outputFIFOs,
-                                  Instance *inputTokenFIFO, Instance *outputTokenFIFO);
+  /// Process a single basic block using BlockInfo
+  LogicalResult processBasicBlock(BlockInfo& block);
 
   /// Process a single operation within a basic block
   LogicalResult processOperationInBlock(Operation *op, mlir::OpBuilder &b, 
@@ -109,6 +105,9 @@ private:
   Clock mainClk;
   Reset mainRst;
   unsigned long opcode;
+
+  // Current block being processed (set by processBasicBlock)
+  BlockInfo* currentBlock = nullptr;
 
   // Basic block analysis data
   llvm::DenseMap<int64_t, SlotInfo> slotMap;
@@ -147,11 +146,14 @@ private:
   /// Validate that all operations are supported
   LogicalResult validateOperations();
 
-  /// Build cross-slot FIFO mapping for value communication
+  /// Build cross-slot FIFO mapping for value communication (old interface)
   LogicalResult buildCrossSlotFIFOs();
 
-  /// Create token FIFOs for stage synchronization
+  /// Create token FIFOs for stage synchronization (old interface)
   LogicalResult createTokenFIFOs();
+
+  /// Instantiate cross-slot FIFO hardware modules
+  LogicalResult instantiateCrossSlotFIFOs();
 
   //===--------------------------------------------------------------------===//
   // Rule Generation Phase

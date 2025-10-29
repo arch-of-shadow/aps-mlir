@@ -10,6 +10,7 @@
 
 #include "APS/APSOps.h"
 #include "APS/BlockHandler.h"
+#include "circt/Dialect/Cmt2/ECMT2/Instance.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
@@ -62,6 +63,15 @@ struct LoopInfo {
   Instance *loop_result_fifo; // Final iter_args results
   llvm::SmallVector<Instance *, 4> iter_arg_fifos; // Individual iter_arg FIFOs
 
+  // State registers: persistent storage for input values that need to be accessed by both entry and next rules
+  // Maps input Value to Register instance for consistent storage across iterations
+  llvm::DenseMap<Value, Instance *> input_state_registers;
+
+  // Loop-to-body FIFOs: separate FIFOs for cross-block values that loop body consumes from
+  // Entry rule and next rule enqueue to these; loop body dequeues from these
+  // This hides the external input_fifos from the loop body subblocks
+  llvm::DenseMap<Value, Instance *> loop_to_body_fifos;
+
   LoopInfo() : loopName("uninitialized"),
         token_fifos{nullptr, nullptr, nullptr},
         loop_state_fifo(nullptr), loop_result_fifo(nullptr) {}
@@ -86,10 +96,11 @@ public:
               Instance *poolInstance, Instance *roccInstance,
               Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
               Circuit &circuit, Clock mainClk, Reset mainRst,
-              unsigned long opcode, Instance *input_token_fifo,
+              unsigned long opcode, Instance *regRdInstance, Instance *input_token_fifo,
               Instance *output_token_fifo,
               llvm::DenseMap<Value, Instance *> &input_fifos,
-              llvm::DenseMap<Value, Instance *> &output_fifos);
+              llvm::DenseMap<Value, Instance *> &output_fifos,
+              const std::string &namePrefix = "");
 
   /// Process a loop block within the unified block system
   LogicalResult processLoopBlock(BlockInfo &loopBlock);

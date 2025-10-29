@@ -64,7 +64,7 @@ LogicalResult MemoryOpGenerator::generateGlobalMemLoad(
   StringRef globalName = op.getGlobalName();
 
   // Build the rule name: convert @count -> count_read
-  std::string memoryBankRule = (globalName + "_bank0_read").str();
+  std::string memoryBankRule = (globalName + "_0_read").str();
 
   llvm::outs() << "DEBUG: Global load from scalar global " << globalName
                << " using rule " << memoryBankRule << "\n";
@@ -107,7 +107,7 @@ LogicalResult MemoryOpGenerator::generateGlobalMemStore(
   StringRef globalName = op.getGlobalName();
 
   // Build the rule name: convert @count -> count_read
-  std::string memoryBankRule = (globalName + "_bank0_write").str();
+  std::string memoryBankRule = (globalName + "_0_write").str();
 
   llvm::outs() << "DEBUG: Global load from scalar global " << globalName
                << " using rule " << memoryBankRule << "\n";
@@ -152,7 +152,7 @@ LogicalResult MemoryOpGenerator::generateMemLoad(
     llvm::report_fatal_error("Memory load requires address indices");
   }
 
-  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), 0, b,
+  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), 1, b,
                              localMap, loc);
   if (failed(addr)) {
     op.emitError("Failed to get address for memory load");
@@ -174,10 +174,42 @@ LogicalResult MemoryOpGenerator::generateMemLoad(
                  << " using rule " << memoryBankRule << "\n";
   }
 
-  // Call the appropriate scratchpad pool bank read method
+  // Get the memref type to determine array size and element type
+  auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
+  if (!memrefType) {
+    op.emitError("Memory reference is not memref type");
+    llvm::report_fatal_error("MemLoad: invalid memref type");
+  }
+
+  // Get element type for result width
+  Type elementType = memrefType.getElementType();
+  auto intType = dyn_cast<mlir::IntegerType>(elementType);
+  if (!intType) {
+    op.emitError("Memref element type is not integer");
+    llvm::report_fatal_error("MemLoad: memref element must be integer type");
+  }
+  unsigned resultWidth = intType.getWidth();
+
+  // Calculate required address bit width from array size: ceil(log2(size))
+  auto shape = memrefType.getShape();
+  if (shape.empty() || shape[0] <= 0) {
+    op.emitError("Memref must have valid array size");
+    llvm::report_fatal_error("MemLoad: invalid memref shape");
+  }
+  int64_t arraySize = shape[0];
+  unsigned addrWidth = arraySize <= 1 ? 1 : (unsigned)std::ceil(std::log2(arraySize));
+
+  llvm::outs() << "DEBUG: Memory load - array size: " << arraySize
+               << ", addr width: " << addrWidth
+               << ", result width: " << resultWidth << "\n";
+
+  // Truncate address to required bit width using Signal
+  auto addrSignal = Signal(*addr, &b, loc).bits(addrWidth - 1, 0);
+
+  // Call the appropriate scratchpad pool bank read method with correct return width
   auto callResult = b.create<circt::cmt2::CallOp>(
-      loc, circt::firrtl::UIntType::get(b.getContext(), 64),
-      mlir::ValueRange{*addr},
+      loc, circt::firrtl::UIntType::get(b.getContext(), resultWidth),
+      mlir::ValueRange{addrSignal.getValue()},
       mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
       mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
       mlir::ArrayAttr(), mlir::ArrayAttr());
@@ -189,9 +221,83 @@ LogicalResult MemoryOpGenerator::generateMemLoad(
 LogicalResult MemoryOpGenerator::generateMemStore(
     aps::MemStore op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  // Handle memory store operations - implementation needed
-  // This would be similar to memload but for writes
-  return failure();
+  // PANIC if no indices provided
+  if (op.getIndices().empty()) {
+    op.emitError("Memory store operation must have at least one index");
+    llvm::report_fatal_error("Memory store requires address indices");
+  }
+
+  // Get the value to store
+  auto value = getValueInRule(op.getValue(), op.getOperation(), 0, b,
+                              localMap, loc);
+  if (failed(value)) {
+    op.emitError("Failed to get value for memory store");
+    llvm::report_fatal_error("Memory store value resolution failed");
+  }
+
+  // Get the address
+  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), 2, b,
+                             localMap, loc);
+  if (failed(addr)) {
+    op.emitError("Failed to get address for memory store");
+    llvm::report_fatal_error("Memory store address resolution failed");
+  }
+
+  // Get the memory reference and check if it comes from memref.get_global
+  Value memRef = op.getMemref();
+  Operation *defOp = memRef.getDefiningOp();
+
+  std::string memoryBankRule;
+  if (auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(defOp)) {
+    // Extract the global symbol name and build the rule name
+    StringRef globalName = getGlobalOp.getName();
+    // Convert @mem_a_0 -> mem_a_0_write
+    memoryBankRule = (globalName + "_write").str();
+    llvm::outs() << "DEBUG: Memory store to global " << globalName
+                 << " using rule " << memoryBankRule << "\n";
+  }
+
+  // Get the memref type to determine array size and element type
+  auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
+  if (!memrefType) {
+    op.emitError("Memory reference is not memref type");
+    llvm::report_fatal_error("MemStore: invalid memref type");
+  }
+
+  // Get element type for data width
+  Type elementType = memrefType.getElementType();
+  auto intType = dyn_cast<mlir::IntegerType>(elementType);
+  if (!intType) {
+    op.emitError("Memref element type is not integer");
+    llvm::report_fatal_error("MemStore: memref element must be integer type");
+  }
+  unsigned dataWidth = intType.getWidth();
+
+  // Calculate required address bit width from array size: ceil(log2(size))
+  auto shape = memrefType.getShape();
+  if (shape.empty() || shape[0] <= 0) {
+    op.emitError("Memref must have valid array size");
+    llvm::report_fatal_error("MemStore: invalid memref shape");
+  }
+  int64_t arraySize = shape[0];
+  unsigned addrWidth = arraySize <= 1 ? 1 : (unsigned)std::ceil(std::log2(arraySize));
+
+  llvm::outs() << "DEBUG: Memory store - array size: " << arraySize
+               << ", addr width: " << addrWidth
+               << ", data width: " << dataWidth << "\n";
+
+  // Truncate address to required bit width using Signal
+  auto addrSignal = Signal(*addr, &b, loc).bits(addrWidth - 1, 0);
+
+  // Call the appropriate scratchpad pool bank write method
+  b.create<circt::cmt2::CallOp>(
+      loc, TypeRange{}, // No return value for write
+      mlir::ValueRange{addrSignal.getValue(), *value},
+      mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
+      mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
+      mlir::ArrayAttr(), mlir::ArrayAttr());
+
+  return success();
 }
 
 LogicalResult MemoryOpGenerator::generateBurstLoadReq(
@@ -202,6 +308,13 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   Value start = op.getStart();
   llvm::outs() << start.getType();
   Value numOfElements = op.getLength();
+
+  // Calculate operand indices accounting for variadic memrefs
+  // BurstLoadReq: cpu_addr(0), memrefs(1..N), start(1+N), length(2+N)
+  unsigned numMemrefs = op.getMemrefs().size();
+  unsigned cpuAddrOperandId = 0;
+  unsigned startOperandId = 1 + numMemrefs;
+  unsigned lengthOperandId = 2 + numMemrefs;
 
   // Get the global memory reference name
   auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(memRef.getDefiningOp());
@@ -250,18 +363,14 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   // Calculate offset: start * numOfElements * elementSizeBytes
   auto baseAddrConst = UInt::constant(baseAddress, 32, b, loc);
 
-  // Convert start value to FIRRTL type - if it's not already FIRRTL, we need to handle it
-  mlir::Value startValue = start;
-
-  // Check if start is a constant that we can convert properly
-  if (auto constOp = start.getDefiningOp<arith::ConstantOp>()) {
-    auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
-    unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
-    startValue = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
+  // Use getValueInRule to get start with proper FIRRTL conversion
+  auto startValue = getValueInRule(start, op.getOperation(), startOperandId, b, localMap, loc);
+  if (failed(startValue)) {
+    op.emitError("Failed to get start for burst load");
+    llvm::report_fatal_error("Burst load start resolution failed");
   }
-  // Note: If start is not a constant and not FIRRTL type, Signal constructor should handle it
 
-  auto startSig = Signal(startValue, &b, loc).bits(31, 0);
+  auto startSig = Signal(*startValue, &b, loc).bits(31, 0);
   auto elementSizeBytesConst = UInt::constant(elementSizeBytes, 32, b, loc);
   Signal localAddr = baseAddrConst + startSig * elementSizeBytesConst;
 
@@ -281,32 +390,11 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
       bbHandler->roundUpToPowerOf2((uint32_t)totalBurstLength);
   auto realCpuLength = UInt::constant(32, roundedTotalBurstLength, b, loc);
 
-  // Convert cpuAddr to FIRRTL type if needed
-  mlir::Value cpuAddrValue = cpuAddr;
-
-  llvm::outs() << "DEBUG: Converting cpuAddr value, type: " << cpuAddr.getType() << "\n";
-
-  // Check if cpuAddr is a constant that we can convert properly
-  if (auto constOp = cpuAddr.getDefiningOp<arith::ConstantOp>()) {
-    llvm::outs() << "DEBUG: cpuAddr is a constant, converting to FIRRTL\n";
-    auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
-    unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
-    cpuAddrValue = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
-  } else {
-    llvm::outs() << "DEBUG: cpuAddr is not a constant, checking if FIRRTL type\n";
-    // Check if it's already a FIRRTL type
-    if (isa<circt::firrtl::FIRRTLBaseType>(cpuAddr.getType())) {
-      llvm::outs() << "DEBUG: cpuAddr is already FIRRTL type\n";
-    } else {
-      llvm::outs() << "DEBUG: cpuAddr is standard MLIR type, need conversion\n";
-      // For non-constant standard types, we need to create a proper conversion
-      if (auto intType = dyn_cast<mlir::IntegerType>(cpuAddr.getType())) {
-        unsigned width = intType.getWidth();
-        llvm::outs() << "DEBUG: Creating FIRRTL constant for non-constant i" << width << " value\n";
-        // For now, create a 0 constant of the appropriate width - this needs proper handling
-        cpuAddrValue = UInt::constant(0, width, b, loc).getValue();
-      }
-    }
+  // Use getValueInRule to get cpuAddr with proper FIRRTL conversion
+  auto cpuAddrValue = getValueInRule(cpuAddr, op.getOperation(), cpuAddrOperandId, b, localMap, loc);
+  if (failed(cpuAddrValue)) {
+    op.emitError("Failed to get cpuAddr for burst load");
+    llvm::report_fatal_error("Burst load cpuAddr resolution failed");
   }
 
   // Call DMA interface
@@ -317,7 +405,7 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   }
 
   dmaItfc->callMethod("cpu_to_isax",
-                      {cpuAddrValue, localAddr.bits(31, 0).getValue(),
+                      {*cpuAddrValue, localAddr.bits(31, 0).getValue(),
                        realCpuLength.bits(3, 0).getValue()},
                       b);
 
@@ -343,6 +431,13 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   Value memRef = op.getMemrefs()[0];
   Value start = op.getStart();
   Value numOfElements = op.getLength();
+
+  // Calculate operand indices accounting for variadic memrefs
+  // BurstStoreReq: memrefs(0..N-1), start(N), cpu_addr(N+1), length(N+2)
+  unsigned numMemrefs = op.getMemrefs().size();
+  unsigned startOperandId = numMemrefs;
+  unsigned cpuAddrOperandId = numMemrefs + 1;
+  unsigned lengthOperandId = numMemrefs + 2;
 
   // Get the global memory reference name
   auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(memRef.getDefiningOp());
@@ -388,37 +483,16 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   // elementSizeBytes)
   uint32_t baseAddress = targetMemEntry->baseAddress;
 
-  // Convert start value to FIRRTL type - if it's not already FIRRTL, we need to handle it
-  mlir::Value startValue = start;
-
-  llvm::outs() << "DEBUG: Converting start value, type: " << start.getType() << "\n";
-
-  // Check if start is a constant that we can convert properly
-  if (auto constOp = start.getDefiningOp<arith::ConstantOp>()) {
-    llvm::outs() << "DEBUG: start is a constant, converting to FIRRTL\n";
-    auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
-    unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
-    startValue = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
-  } else {
-    llvm::outs() << "DEBUG: start is not a constant, checking if FIRRTL type\n";
-    // Check if it's already a FIRRTL type
-    if (isa<circt::firrtl::FIRRTLBaseType>(start.getType())) {
-      llvm::outs() << "DEBUG: start is already FIRRTL type\n";
-    } else {
-      llvm::outs() << "DEBUG: start is standard MLIR type, need conversion\n";
-      // For non-constant standard types, we need to create a proper conversion
-      if (auto intType = dyn_cast<mlir::IntegerType>(start.getType())) {
-        unsigned width = intType.getWidth();
-        llvm::outs() << "DEBUG: Creating FIRRTL constant for non-constant i" << width << " value\n";
-        // For now, create a 0 constant of the appropriate width - this needs proper handling
-        startValue = UInt::constant(0, width, b, loc).getValue();
-      }
-    }
+  // Use getValueInRule to get start with proper FIRRTL conversion
+  auto startValue = getValueInRule(start, op.getOperation(), startOperandId, b, localMap, loc);
+  if (failed(startValue)) {
+    op.emitError("Failed to get start for burst store");
+    llvm::report_fatal_error("Burst store start resolution failed");
   }
 
   // Calculate offset: start * numOfElements * elementSizeBytes
   auto baseAddrConst = UInt::constant(baseAddress, 32, b, loc);
-  auto startSig = Signal(startValue, &b, loc);
+  auto startSig = Signal(*startValue, &b, loc);
   auto elementSizeBytesConst = UInt::constant(elementSizeBytes, 32, b, loc);
   Signal localAddr = baseAddrConst + startSig * elementSizeBytesConst;
 
@@ -438,32 +512,11 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
       bbHandler->roundUpToPowerOf2((uint32_t)totalBurstLength);
   auto realCpuLength = UInt::constant(32, roundedTotalBurstLength, b, loc);
 
-  // Convert cpuAddr to FIRRTL type if needed
-  mlir::Value cpuAddrValue = cpuAddr;
-
-  llvm::outs() << "DEBUG: Converting cpuAddr value, type: " << cpuAddr.getType() << "\n";
-
-  // Check if cpuAddr is a constant that we can convert properly
-  if (auto constOp = cpuAddr.getDefiningOp<arith::ConstantOp>()) {
-    llvm::outs() << "DEBUG: cpuAddr is a constant, converting to FIRRTL\n";
-    auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
-    unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
-    cpuAddrValue = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
-  } else {
-    llvm::outs() << "DEBUG: cpuAddr is not a constant, checking if FIRRTL type\n";
-    // Check if it's already a FIRRTL type
-    if (isa<circt::firrtl::FIRRTLBaseType>(cpuAddr.getType())) {
-      llvm::outs() << "DEBUG: cpuAddr is already FIRRTL type\n";
-    } else {
-      llvm::outs() << "DEBUG: cpuAddr is standard MLIR type, need conversion\n";
-      // For non-constant standard types, we need to create a proper conversion
-      if (auto intType = dyn_cast<mlir::IntegerType>(cpuAddr.getType())) {
-        unsigned width = intType.getWidth();
-        llvm::outs() << "DEBUG: Creating FIRRTL constant for non-constant i" << width << " value\n";
-        // For now, create a 0 constant of the appropriate width - this needs proper handling
-        cpuAddrValue = UInt::constant(0, width, b, loc).getValue();
-      }
-    }
+  // Use getValueInRule to get cpuAddr with proper FIRRTL conversion
+  auto cpuAddrValue = getValueInRule(cpuAddr, op.getOperation(), cpuAddrOperandId, b, localMap, loc);
+  if (failed(cpuAddrValue)) {
+    op.emitError("Failed to get cpuAddr for burst store");
+    llvm::report_fatal_error("Burst store cpuAddr resolution failed");
   }
 
   // Call DMA interface
@@ -474,7 +527,7 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   }
 
   dmaItfc->callMethod("isax_to_cpu",
-                      {cpuAddrValue, localAddr.bits(31, 0).getValue(),
+                      {*cpuAddrValue, localAddr.bits(31, 0).getValue(),
                        realCpuLength.bits(3, 0).getValue()},
                       b);
 

@@ -819,9 +819,9 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
 
     for (size_t bankIdx = 0; bankIdx < entryInfo.numBanks; ++bankIdx) {
       std::string topReadName =
-          entryInfo.name + "_bank" + std::to_string(bankIdx) + "_read";
+          entryInfo.name + "_" + std::to_string(bankIdx) + "_read";
       std::string topWriteName =
-          entryInfo.name + "_bank" + std::to_string(bankIdx) + "_write";
+          entryInfo.name + "_" + std::to_string(bankIdx) + "_write";
       std::string entryReadName = "bank_read_" + std::to_string(bankIdx);
       std::string entryWriteName = "bank_write_" + std::to_string(bankIdx);
 

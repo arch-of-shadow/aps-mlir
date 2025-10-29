@@ -29,11 +29,12 @@ using namespace circt::firrtl;
 
 BBHandler::BBHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp funcOp,
                     Instance *poolInstance, Instance *roccInstance,
-                    Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
-                    Circuit &circuit, Clock mainClk, Reset mainRst, unsigned long opcode)
+                    Instance *hellaMemInstance, Instance *regRdInstance,
+                    InterfaceDecl *dmaItfc, Circuit &circuit, Clock mainClk, Reset mainRst,
+                    unsigned long opcode)
     : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
-      roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), dmaItfc(dmaItfc),
-      circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode) {
+      roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), regRdInstance(regRdInstance),
+      dmaItfc(dmaItfc), circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode) {
 
   // Initialize operation generators
   arithmeticGen = std::make_unique<ArithmeticOpGenerator>(this);
@@ -41,7 +42,7 @@ BBHandler::BBHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp fun
   interfaceGen = std::make_unique<InterfaceOpGenerator>(this);
   registerGen = std::make_unique<RegisterOpGenerator>(this);
 
-  // Set up register generator with required instances
+  // Set up register generator with required instances (shared across all blocks)
   registerGen->setRegRdInstance(regRdInstance);
 }
 
@@ -261,7 +262,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
           // Generate FIFO name based on producer-consumer slot pair
           auto key = std::make_pair(slot, consumerSlot);
           unsigned count = fifoCounts[key]++;
-          fifo->instanceName = std::to_string(opcode) + "_fifo_s" + std::to_string(slot) + "_s" +
+          fifo->instanceName = currentBlock->blockName + "_fifo_s" + std::to_string(slot) + "_s" +
                                std::to_string(consumerSlot);
           if (count > 0)
             fifo->instanceName += "_" + std::to_string(count);
@@ -279,6 +280,69 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
     }
   }
 
+  // Handle cross-block input values (from inputFIFOs)
+  // These need cross-slot FIFOs from slot 0 to their consumer slots
+  if (currentBlock && !currentBlock->input_fifos.empty()) {
+    llvm::outs() << "[FIFO DEBUG] Processing " << currentBlock->input_fifos.size()
+                 << " input FIFO values for cross-slot distribution\n";
+
+    for (auto &[inputValue, inputFIFO] : currentBlock->input_fifos) {
+      if (!inputFIFO)
+        continue;
+
+      if (!isa<mlir::IntegerType>(inputValue.getType()))
+        continue;
+
+      // Find all operations that use this input value and group by slot
+      llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<Operation*, unsigned>>> consumersByStage;
+
+      for (OpOperand &use : inputValue.getUses()) {
+        Operation *user = use.getOwner();
+        auto maybeConsumerSlot = getSlotForOp(user);
+        if (!maybeConsumerSlot)
+          continue;
+        int64_t consumerSlot = *maybeConsumerSlot;
+        consumersByStage[consumerSlot].push_back({user, use.getOperandNumber()});
+      }
+
+      if (consumersByStage.empty()) {
+        llvm::outs() << "[FIFO DEBUG] Input value has no consumers in this block\n";
+        continue;
+      }
+
+      auto firType = toFirrtlType(inputValue.getType(), ctx);
+      if (!firType) {
+        llvm::outs() << "[FIFO DEBUG] Input value type unsupported for FIFO\n";
+        continue;
+      }
+
+      // Create cross-slot FIFO from slot 0 to each consumer slot
+      for (auto &[consumerSlot, consumers] : consumersByStage) {
+        auto fifo = std::make_unique<CrossSlotFIFO>();
+        fifo->producerValue = inputValue;
+        fifo->producerSlot = 0;  // Input values are available at slot 0
+        fifo->consumerSlot = consumerSlot;
+        fifo->firType = firType;
+        fifo->consumers = std::move(consumers);
+
+        // Generate FIFO name: {blockName}_fifo_s0_s{consumer}_input_{count}
+        auto key = std::make_pair(0, consumerSlot);
+        unsigned count = fifoCounts[key]++;
+        fifo->instanceName = currentBlock->blockName + "_fifo_s0_s" +
+                             std::to_string(consumerSlot) + "_input";
+        if (count > 0)
+          fifo->instanceName += "_" + std::to_string(count);
+
+        llvm::outs() << "[FIFO DEBUG] Creating input cross-slot FIFO: " << fifo->instanceName
+                     << " for input value to consumers in slot " << consumerSlot
+                     << " with " << fifo->consumers.size() << " consumers\n";
+
+        crossSlotFIFOs[inputValue].push_back(fifo.get());
+        fifoStorage.push_back(std::move(fifo));
+      }
+    }
+  }
+
   return success();
 }
 
@@ -292,11 +356,41 @@ LogicalResult BBHandler::createTokenFIFOs() {
     // Create 1-bit FIFO for token passing to next stage
     auto *tokenFifoMod = STLLibrary::createFIFO1PushModule(1, circuit);
     mainModule->getBuilder().restoreInsertionPoint(savedIP);
-    std::string tokenFifoName = std::to_string(opcode) + "_token_fifo_s" + std::to_string(currentSlot);
+    std::string tokenFifoName = currentBlock->blockName + "_token_fifo_s" + std::to_string(currentSlot);
     auto *tokenFifo = mainModule->addInstance(tokenFifoName, tokenFifoMod,
                                               {mainClk.getValue(), mainRst.getValue()});
     stageTokenFifos[currentSlot] = tokenFifo;
     llvm::outs() << "[BBHandler] Created token FIFO for slot " << currentSlot << ": " << tokenFifoName << "\n";
+  }
+
+  return success();
+}
+
+LogicalResult BBHandler::instantiateCrossSlotFIFOs() {
+  // Instantiate FIFO modules for cross-slot data communication
+  // This must be called AFTER buildCrossSlotFIFOs() creates the metadata
+  // and BEFORE rules try to use the FIFOs
+
+  auto &builder = mainModule->getBuilder();
+  auto savedIP = builder.saveInsertionPoint();
+
+  llvm::outs() << "[BBHandler] Instantiating " << fifoStorage.size() << " cross-slot FIFO modules\n";
+
+  for (auto &fifoPtr : fifoStorage) {
+    auto *fifo = fifoPtr.get();
+    int64_t width = cast<circt::firrtl::UIntType>(fifo->firType).getWidthOrSentinel();
+    if (width < 0)
+      width = 1;
+
+    // Debug info: log FIFO instantiation
+    llvm::outs() << "[BBHandler] Instantiating FIFO: " << fifo->instanceName
+                 << " (width=" << width << ")\n";
+
+    // Create FIFO module with proper clock and reset
+    auto *fifoMod = STLLibrary::createFIFO1PushModule(width, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    fifo->fifoInstance = mainModule->addInstance(fifo->instanceName, fifoMod,
+                                                 {mainClk.getValue(), mainRst.getValue()});
   }
 
   return success();
@@ -315,24 +409,8 @@ LogicalResult BBHandler::generateSlotRules() {
   // Set up register generator with required instances
   registerGen->setRegRdInstance(regRdInstance);
 
-  // Instantiate FIFO modules for cross-slot communication
-  llvm::outs() << "[FIFO DEBUG] Instantiating " << fifoStorage.size() << " FIFO modules\n";
-  for (auto &fifoPtr : fifoStorage) {
-    auto *fifo = fifoPtr.get();
-    int64_t width = cast<circt::firrtl::UIntType>(fifo->firType).getWidthOrSentinel();
-    if (width < 0)
-      width = 1;
-
-    // Debug info: log FIFO instantiation
-    llvm::outs() << "[FIFO DEBUG] Instantiating FIFO: " << fifo->instanceName
-                 << " (width=" << width << ")\n";
-
-    // Create FIFO module with proper clock and reset
-    auto *fifoMod = STLLibrary::createFIFO1PushModule(width, circuit);
-    builder.restoreInsertionPoint(savedIPforRegRd);
-    fifo->fifoInstance = mainModule->addInstance(fifo->instanceName, fifoMod,
-                                                 {mainClk.getValue(), mainRst.getValue()});
-  }
+  // Note: instantiateCrossSlotFIFOs() is called by processBasicBlock() before rule generation
+  // This old code path (generateSlotRules) is deprecated in favor of processBasicBlock()
 
   // Generate rules for each time slot
   llvm::DenseMap<mlir::Value, mlir::Value> localMap;
@@ -484,65 +562,44 @@ std::optional<int64_t> BBHandler::getSlotForOp(Operation *op) {
   return {};
 }
 
-LogicalResult BBHandler::processBasicBlock(Block *mlirBlock, unsigned blockId,
-                                           llvm::DenseMap<Value, Instance*> &inputFIFOs,
-                                           llvm::DenseMap<Value, Instance*> &outputFIFOs,
-                                           Instance *readyFIFO, Instance *completeFIFO) {
-  llvm::outs() << "[BBHandler] Processing basic block " << blockId << " with " 
-               << mlirBlock->getOperations().size() << " operations\n";
+LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
+  llvm::outs() << "[BBHandler] Processing basic block " << block.blockId
+               << " (" << block.blockName << ") with "
+               << block.mlirBlock->getOperations().size() << " operations\n";
 
-  // For single block processing, we need to collect only the regular operations
-  // from this block, excluding control flow operations that should be handled
-  // by specialized handlers (LoopHandler, ConditionalHandler, etc.)
+  // Store block reference for use throughout the handler
+  currentBlock = &block;
+
+  unsigned blockId = block.blockId;
+  llvm::DenseMap<Value, Instance*> &inputFIFOs = block.input_fifos;
+  llvm::DenseMap<Value, Instance*> &outputFIFOs = block.output_fifos;
+  Instance *readyFIFO = block.input_token_fifo;
+  Instance *completeFIFO = block.output_token_fifo;
+
+  // Use the operations specifically assigned to this block segment
+  // BlockHandler has already filtered out control flow operations
   llvm::SmallVector<Operation*> blockOperations;
-  
-  // Collect operations from this basic block, but skip control flow operations
-  // that should be handled by specialized handlers
-  for (Operation &op : mlirBlock->getOperations()) {
+
+  for (Operation *op : block.operations) {
     // Skip terminators and special operations
-    if (op.hasTrait<mlir::OpTrait::IsTerminator>()) {
+    if (op->hasTrait<mlir::OpTrait::IsTerminator>()) {
       continue;
     }
-    
+
     // Skip timegraph and return operations
-    if (isa<tor::TimeGraphOp>(&op) || isa<tor::ReturnOp>(&op)) {
+    if (isa<tor::TimeGraphOp>(op) || isa<tor::ReturnOp>(op)) {
       continue;
     }
-    
-    blockOperations.push_back(&op);
+
+    blockOperations.push_back(op);
   }
-  
-  llvm::outs() << "[BBHandler] Collected " << blockOperations.size() << " regular operations from basic block\n";
 
-  // If no regular operations, create a minimal rule for coordination only
+  llvm::outs() << "[BBHandler] Collected " << blockOperations.size() << " operations from block segment (out of "
+               << block.operations.size() << " total in segment)\n";
+
+  // PANIC: Empty blocks should not reach BBHandler
   if (blockOperations.empty()) {
-    llvm::outs() << "[BBHandler] No regular operations in block " << blockId << ", creating coordination-only rule\n";
-    
-    // Create a single rule that just handles coordination (ready -> complete)
-    auto *rule = mainModule->addRule("block_" + std::to_string(blockId) + "_coord_rule");
-    
-    rule->guard([](mlir::OpBuilder &b) {
-      auto loc = b.getUnknownLoc();
-      auto alwaysTrue = UInt::constant(1, 1, b, loc);
-      b.create<circt::cmt2::ReturnOp>(loc, alwaysTrue.getValue());
-    });
-    
-    rule->body([&](mlir::OpBuilder &b) {
-      auto loc = b.getUnknownLoc();
-
-      auto readyToken = readyFIFO->callMethod("deq", {}, b);
-      // Signal block completion
-      llvm::outs() << "[BBHandler] Enqueuing completion token for empty block " << blockId << "\n";
-      auto completeToken = UInt::constant(1, 1, b, loc);
-      completeFIFO->callMethod("enq", {completeToken.getValue()}, b);
-      
-      b.create<circt::cmt2::ReturnOp>(loc);
-    });
-    
-    rule->finalize();
-    
-    llvm::outs() << "[BBHandler] Successfully generated coordination rule for empty block " << blockId << "\n";
-    return success();
+    llvm::report_fatal_error("BBHandler received empty block - this should have been handled by BlockHandler");
   }
 
   // Phase 2: Organize operations by time slots
@@ -552,18 +609,6 @@ LogicalResult BBHandler::processBasicBlock(Block *mlirBlock, unsigned blockId,
   }
 
   // Phase 3: Set up infrastructure for this specific block
-  auto &builder = mainModule->getBuilder();
-  auto savedIPforRegRd = builder.saveInsertionPoint();
-  
-  // Create register instance for RoCC operations (if needed)
-  auto *regRdMod = STLLibrary::createRegModule(5, 0, circuit);
-  regRdInstance = mainModule->addInstance("reg_rd_block_" + std::to_string(blockId), regRdMod,
-                                          {mainClk.getValue(), mainRst.getValue()});
-  builder.restoreInsertionPoint(savedIPforRegRd);
-  
-  // Set up register generator with required instances
-  registerGen->setRegRdInstance(regRdInstance);
-
   // Build cross-slot FIFOs for values that flow between slots within this block
   if (failed(buildCrossSlotFIFOs()))
     return failure();
@@ -572,11 +617,15 @@ LogicalResult BBHandler::processBasicBlock(Block *mlirBlock, unsigned blockId,
   if (failed(createTokenFIFOs()))
     return failure();
 
+  // Instantiate FIFO modules for cross-slot communication
+  if (failed(instantiateCrossSlotFIFOs()))
+    return failure();
+
   // Phase 4: Generate rules for each time slot with proper coordination
   llvm::DenseMap<mlir::Value, mlir::Value> localMap;
   
   for (int64_t slot : slotOrder) {
-    auto *rule = mainModule->addRule("block_" + std::to_string(blockId) + "_slot_" + std::to_string(slot) + "_rule");
+    auto *rule = mainModule->addRule(currentBlock->blockName + "_slot_" + std::to_string(slot) + "_rule");
 
     // Guard: use CMT pattern (1'b1) for all slots - coordination handled by FIFO availability
     rule->guard([](mlir::OpBuilder &b) {
@@ -602,13 +651,54 @@ LogicalResult BBHandler::processBasicBlock(Block *mlirBlock, unsigned blockId,
         }
         
         // Handle cross-block value consumption (data from other blocks)
+        // Per BBHandler_DataFlow.md: dequeue from input_fifos and distribute to:
+        // 1. localMap if used in slot 0 (for immediate use by slot 0 operations)
+        // 2. cross_slot_fifos if used in later slots (for deferred use)
+        // Same dequeued value can go to BOTH destinations
         for (auto &[value, fifo] : inputFIFOs) {
           if (fifo) {
             llvm::outs() << "[BBHandler] Dequeuing cross-block value from input FIFO\n";
             auto dequeuedValue = fifo->callMethod("deq", {}, b);
             if (!dequeuedValue.empty()) {
-              localMap[value] = dequeuedValue[0];
-              llvm::outs() << "[BBHandler] Stored cross-block value in localMap\n";
+              bool usedInSlot0 = false;
+              bool usedInLaterSlots = false;
+
+              // Check if value is used in slot 0 operations
+              if (slotMap.count(slot)) {
+                for (Operation *op : slotMap[slot].ops) {
+                  for (Value operand : op->getOperands()) {
+                    if (operand == value) {
+                      usedInSlot0 = true;
+                      break;
+                    }
+                  }
+                  if (usedInSlot0) break;
+                }
+              }
+
+              // If used in slot 0, store in localMap for immediate use
+              if (usedInSlot0) {
+                localMap[value] = dequeuedValue[0];
+                llvm::outs() << "[BBHandler] Stored input value in localMap for slot 0 use\n";
+              }
+
+              // Check if value has cross-slot FIFOs (means used in later slots)
+              auto it = crossSlotFIFOs.find(value);
+              if (it != crossSlotFIFOs.end()) {
+                usedInLaterSlots = true;
+                // Enqueue to all cross-slot FIFOs for this value (one per consumer slot)
+                for (CrossSlotFIFO *crossSlotFifo : it->second) {
+                  if (crossSlotFifo->fifoInstance) {
+                    crossSlotFifo->fifoInstance->callMethod("enq", {dequeuedValue[0]}, b);
+                    llvm::outs() << "[BBHandler] Enqueued input value to cross-slot FIFO: "
+                                 << crossSlotFifo->instanceName << " for later slot use\n";
+                  }
+                }
+              }
+
+              if (!usedInSlot0 && !usedInLaterSlots) {
+                llvm::outs() << "[BBHandler] WARNING: Input value not used in any slot of this block\n";
+              }
             }
           }
         }
@@ -736,12 +826,20 @@ FailureOr<mlir::Value> OperationGenerator::getValueInRule(mlir::Value v, Operati
   // Check if this is a cross-slot FIFO read (only if operandIndex is valid)
   if (operandIndex != static_cast<unsigned>(-1)) {
     auto &crossSlotFIFOs = bbHandler->getCrossSlotFIFOs();
-    llvm::outs() << "crossSlotFIFO size: " << crossSlotFIFOs.size() << "\n";
     auto it = crossSlotFIFOs.find(v);
     if (it != crossSlotFIFOs.end()) {
       // Check all FIFOs for this value to find the right one for this consumer
       for (CrossSlotFIFO *fifo : it->second) {
+        // Check if FIFO instance is valid (should have been created in generateSlotRules)
+        if (!fifo->fifoInstance) {
+          currentOp->emitError("cross-slot FIFO instance is null - FIFO not instantiated");
+          return failure();
+        }
+
         for (auto [consumerOp, opIndex] : fifo->consumers) {
+          if (consumerOp == currentOp) {
+            llvm::outs() << "Index available: " << opIndex << '\n';
+          }
           if (consumerOp == currentOp && opIndex == operandIndex) {
             auto result = fifo->fifoInstance->callValue("deq", b);
             assert(result.size() == 1);

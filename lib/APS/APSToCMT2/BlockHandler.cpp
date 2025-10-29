@@ -36,13 +36,15 @@ BlockHandler::BlockHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::Func
                           Instance *poolInstance, Instance *roccInstance,
                           Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
                           Circuit &circuit, Clock mainClk, Reset mainRst,
-                          unsigned long opcode,
+                          unsigned long opcode, Instance *regRdInstance,
                           Instance *inputTokenFIFO, Instance *outputTokenFIFO,
                           llvm::DenseMap<Value, Instance*> &input_fifos,
-                          llvm::DenseMap<Value, Instance*> &output_fifos)
+                          llvm::DenseMap<Value, Instance*> &output_fifos,
+                          const std::string &namePrefix)
     : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
-      roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), dmaItfc(dmaItfc),
-      circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode),
+      roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), regRdInstance(regRdInstance),
+      dmaItfc(dmaItfc), circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode),
+      namePrefix(namePrefix.empty() ? "inst" + std::to_string(opcode) + "_" : namePrefix),
       inputTokenFIFO(inputTokenFIFO), outputTokenFIFO(outputTokenFIFO), input_fifos(input_fifos),
       output_fifos(output_fifos) {
 }
@@ -51,7 +53,7 @@ LogicalResult BlockHandler::processFunctionAsBlocks() {
   llvm::outs() << "[BlockHandler] Processing function as unified blocks\n";
 
   // Phase 1: Block Analysis
-  if (failed(identifyBlocks()))
+  if (failed(identifyBlocksByFuncOp()))
     return failure();
 
   if (blocks.empty()) {
@@ -156,8 +158,8 @@ LogicalResult BlockHandler::createBlockTokenFIFOs() {
     auto *tokenMod = STLLibrary::createFIFO1PushModule(1, circuit);
     builder.restoreInsertionPoint(savedIP);
 
-    // Follow Blockgen.md naming: token_fifo_b{i}_b{i+1}
-    std::string tokenName = "token_fifo_b" + std::to_string(currentBlock.blockId) +
+    // Follow Blockgen.md naming: {prefix}token_fifo_b{i}_b{i+1}
+    std::string tokenName = namePrefix + "token_fifo_b" + std::to_string(currentBlock.blockId) +
                            "_b" + std::to_string(nextBlock.blockId);
     auto *tokenFIFO = mainModule->addInstance(tokenName, tokenMod,
                                               {mainClk.getValue(), mainRst.getValue()});
@@ -169,10 +171,13 @@ LogicalResult BlockHandler::createBlockTokenFIFOs() {
     nextBlock.input_token_fifo = tokenFIFO;
   }
 
+  blocks[0].input_token_fifo = inputTokenFIFO; // the whole block's
+  blocks[blocks.size() - 1].output_token_fifo = outputTokenFIFO; // same
+
   return success();
 }
 
-LogicalResult BlockHandler::identifyBlocks() {
+LogicalResult BlockHandler::identifyBlocksByFuncOp() {
   llvm::outs() << "[BlockHandler] Identifying blocks in function\n";
 
   unsigned blockId = 0;
@@ -185,7 +190,6 @@ LogicalResult BlockHandler::identifyBlocks() {
   for (Block &mlirBlock : funcOp.getBody().getBlocks()) {
     llvm::outs() << "[BlockHandler] Processing top-level block with " << mlirBlock.getNumArguments()
                  << " arguments and " << mlirBlock.getOperations().size() << " operations\n";
-
     // Now properly segment the block based on control flow operations
     if (failed(segmentBlockIntoBlocks(&mlirBlock, blockId))) {
       return failure();
@@ -283,32 +287,43 @@ LogicalResult BlockHandler::segmentBlockIntoBlocks(Block *mlirBlock, unsigned &b
   
   // First pass: segment operations based on control flow boundaries
   for (Operation &op : mlirBlock->getOperations()) {
-    if (isa<tor::YieldOp>(&op) || isa<mlir::func::ReturnOp>(&op)) {
+    if (isa<tor::YieldOp>(&op) || isa<mlir::func::ReturnOp>(&op) || isa<tor::ReturnOp>(&op)) {
       continue; // Skip terminator operations
     }
-    
+
     // Check if this operation is a control flow boundary
     if (isa<tor::ForOp>(&op) || isa<tor::IfOp>(&op) || isa<tor::WhileOp>(&op)) {
-      // End current segment if not empty
+      llvm::outs() << "[BlockHandler] Found control flow op: " << op.getName() << ", currentSegment has "
+                   << currentSegment.size() << " ops\n";
+      // End current segment if not empty (operations BEFORE control flow)
       if (!currentSegment.empty()) {
         blockSegments.push_back(std::move(currentSegment));
         currentSegment.clear();
+        llvm::outs() << "[BlockHandler] Created segment for ops before control flow\n";
       }
       // Control flow operations get their own segment
-      currentSegment.push_back(&op);
-      blockSegments.push_back(std::move(currentSegment));
-      currentSegment.clear();
+      llvm::SmallVector<Operation*, 8> controlFlowSegment;
+      controlFlowSegment.push_back(&op);
+      blockSegments.push_back(std::move(controlFlowSegment));
+      llvm::outs() << "[BlockHandler] Created segment for control flow op\n";
+      // Start new segment for operations AFTER control flow
+      // (currentSegment is already empty)
     } else {
       // Regular operation - add to current segment
       currentSegment.push_back(&op);
     }
   }
+
+  llvm::outs() << "[BlockHandler] After loop: currentSegment has " << currentSegment.size() << " ops\n";
   
   // Add final segment if not empty
   if (!currentSegment.empty()) {
     blockSegments.push_back(std::move(currentSegment));
+    llvm::outs() << "[BlockHandler] Created final segment for ops after control flow\n";
   }
-  
+
+  llvm::outs() << "[BlockHandler] Total segments created: " << blockSegments.size() << "\n";
+
   // If no segments found, treat entire block as single block
   if (blockSegments.empty()) {
     std::string blockName = generateBlockName(blockId, BlockType::REGULAR);
@@ -341,17 +356,34 @@ LogicalResult BlockHandler::segmentBlockIntoBlocks(Block *mlirBlock, unsigned &b
     std::string blockName = generateBlockName(blockId, type);
     BlockInfo block(blockId, blockName, mlirBlock, type);
 
-    // Propagate FIFOs according to Blockgen.md:
-    for (const auto &pair : input_fifos) {
-        block.input_fifos[pair.first] = pair.second;
-    }
-    for (const auto &pair : output_fifos) {
-        block.output_fifos[pair.first] = pair.second;
+    // Store the operations belonging to this segment
+    for (Operation *op : segment) {
+      block.operations.push_back(op);
     }
 
-    // Analyze all operations in this segment
+    // Analyze all operations in this segment first to populate block's operations
     for (Operation *op : segment) {
       analyzeOperationInBlock(op, block);
+    }
+
+    // Propagate input FIFOs only if the value is actually used in this segment
+    // Per Blockgen.md: only pass input FIFOs that are consumed by this segment
+    for (const auto &pair : input_fifos) {
+        Value value = pair.first;
+        Instance *fifo = pair.second;
+
+        // Check if this value is actually used in this segment
+        if (isValueUsedInBlock(value, block)) {
+            block.input_fifos[value] = fifo;
+            llvm::outs() << "[BlockHandler] Segment " << blockId << " uses input value, adding to input_fifos\n";
+        } else {
+            llvm::outs() << "[BlockHandler] Segment " << blockId << " does NOT use input value, skipping\n";
+        }
+    }
+
+    // Propagate output FIFOs (these are for values this segment may produce)
+    for (const auto &pair : output_fifos) {
+        block.output_fifos[pair.first] = pair.second;
     }
 
     // Mark special block types
@@ -391,17 +423,19 @@ LogicalResult BlockHandler::processBlock(BlockInfo& block) {
 
   // Check if this is a loop block and handle it with LoopHandler
   if (block.is_loop_block || block.type == BlockType::LOOP_HEADER) {
-    // PANIC: Ensure loop blocks have proper infrastructure
-    if (!block.input_token_fifo || !block.output_token_fifo) {
-      llvm::report_fatal_error("Loop block missing required token FIFOs");
-    }
+    // Token FIFOs may be nullptr for top-level blocks (handled gracefully in LoopHandler)
+    llvm::outs() << "[BlockHandler] Processing loop block with token FIFOs: "
+                 << "input=" << (block.input_token_fifo ? "present" : "null")
+                 << ", output=" << (block.output_token_fifo ? "present" : "null") << "\n";
 
     // Create a LoopHandler to process this loop block with proper FIFO arguments
+    // Pass block's name with trailing "_" as prefix for nested components
+    std::string loopPrefix = block.blockName + "_";
     LoopHandler loopHandler(pass, mainModule, funcOp, poolInstance,
                            roccInstance, hellaMemInstance, dmaItfc, circuit,
-                           mainClk, mainRst, opcode,
+                           mainClk, mainRst, opcode, regRdInstance,
                            block.input_token_fifo, block.output_token_fifo,
-                           block.input_fifos, block.output_fifos);
+                           block.input_fifos, block.output_fifos, loopPrefix);
 
     // Process the loop block with the LoopHandler
     if (failed(loopHandler.processLoopBlock(block))) {
@@ -413,19 +447,19 @@ LogicalResult BlockHandler::processBlock(BlockInfo& block) {
 
   if (block.is_conditional_block || block.type == BlockType::CONDITIONAL_THEN ||
       block.type == BlockType::CONDITIONAL_ELSE) {
-    // PANIC: Conditional blocks should have proper infrastructure
-    if (!block.input_token_fifo || !block.output_token_fifo) {
-      llvm::report_fatal_error("Conditional block missing required token FIFOs");
-    }
+    // Token FIFOs may be nullptr for top-level blocks (handled gracefully in handlers)
+    llvm::outs() << "[BlockHandler] Processing conditional block with token FIFOs: "
+                 << "input=" << (block.input_token_fifo ? "present" : "null")
+                 << ", output=" << (block.output_token_fifo ? "present" : "null") << "\n";
 
     // TODO: Create ConditionalHandler for conditional blocks
     return processRegularBlockWithBBHandler(block);
   }
 
-  // Regular block - PANIC: Ensure basic infrastructure exists
-  if (!block.input_token_fifo || !block.output_token_fifo) {
-    llvm::report_fatal_error("Regular block missing required token FIFOs");
-  }
+  // Regular block - Token FIFOs may be nullptr for top-level blocks (handled gracefully in BBHandler)
+  llvm::outs() << "[BlockHandler] Processing regular block with token FIFOs: "
+               << "input=" << (block.input_token_fifo ? "present" : "null")
+               << ", output=" << (block.output_token_fifo ? "present" : "null") << "\n";
 
   return processRegularBlockWithBBHandler(block);
 }
@@ -439,6 +473,9 @@ LogicalResult BlockHandler::createProducerFIFOs() {
     return success(); // No flows to process
   }
 
+  // Counter per (producer, consumer) pair to ensure unique FIFO names for each def-use relationship
+  llvm::DenseMap<std::pair<unsigned, unsigned>, unsigned> fifoCounterPerPair;
+
   for (CrossBlockValueFlow &flow : crossBlockFlows) {
     // PANIC: Ensure flow has valid producer and consumer blocks
     if (!flow.producer_block || !flow.consumer_block) {
@@ -446,6 +483,7 @@ LogicalResult BlockHandler::createProducerFIFOs() {
     }
 
     BlockInfo *producerBlock = flow.producer_block;
+    BlockInfo *consumerBlock = flow.consumer_block;
     Value value = flow.value;
 
     // PANIC: Ensure producer block exists in our block list
@@ -453,8 +491,12 @@ LogicalResult BlockHandler::createProducerFIFOs() {
       llvm::report_fatal_error("Producer block ID out of range");
     }
 
-    // Producer creates FIFO for this value
-    Instance* fifo = createProducerFIFO(value, producerBlock->blockId);
+    // Get and increment counter for this (producer, consumer) pair
+    auto blockPair = std::make_pair(producerBlock->blockId, consumerBlock->blockId);
+    unsigned counter = fifoCounterPerPair[blockPair]++;
+
+    // Producer creates FIFO for this value with def-use naming (producer -> consumer)
+    Instance* fifo = createProducerFIFO(value, producerBlock->blockId, consumerBlock->blockId, counter);
 
     // PANIC: Ensure FIFO creation succeeded
     if (!fifo) {
@@ -477,7 +519,7 @@ LogicalResult BlockHandler::createProducerFIFOs() {
   return success();
 }
 
-Instance* BlockHandler::createProducerFIFO(Value value, unsigned producerBlockId) {
+Instance* BlockHandler::createProducerFIFO(Value value, unsigned producerBlockId, unsigned consumerBlockId, unsigned counter) {
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
 
@@ -488,8 +530,11 @@ Instance* BlockHandler::createProducerFIFO(Value value, unsigned producerBlockId
   auto *fifoMod = STLLibrary::createFIFO1PushModule(bitWidth, circuit);
   builder.restoreInsertionPoint(savedIP);
 
-  // Create FIFO instance with unique name
-  std::string fifoName = getFIFOName("fifo", producerBlockId, "value");
+  // Create FIFO instance with unique name reflecting def-use relationship
+  // Format: {prefix}fifo_b{producer}_b{consumer}_v{counter}
+  std::string fifoName = namePrefix + "fifo_b" + std::to_string(producerBlockId) +
+                         "_b" + std::to_string(consumerBlockId) +
+                         "_v" + std::to_string(counter);
   auto *fifoInstance = mainModule->addInstance(fifoName, fifoMod,
                                                {mainClk.getValue(), mainRst.getValue()});
 
@@ -571,16 +616,11 @@ LogicalResult BlockHandler::processRegularBlockWithBBHandler(BlockInfo& block) {
   // Following Blockgen.md: input_fifos and output_fifos are passed as arguments
 
   BBHandler bbHandler(pass, mainModule, funcOp, poolInstance, roccInstance,
-                     hellaMemInstance, dmaItfc, circuit, mainClk, mainRst,
+                     hellaMemInstance, regRdInstance, dmaItfc, circuit, mainClk, mainRst,
                      opcode);
 
-  // Use the unified naming convention for FIFOs
-  // block.input_fifos and block.output_fifos contain the cross-block value FIFOs
-  // block.input_token_fifo and block.output_token_fifo contain the token coordination FIFOs
-
-  return bbHandler.processBasicBlock(block.mlirBlock, block.blockId,
-                                     block.input_fifos, block.output_fifos,
-                                     block.input_token_fifo, block.output_token_fifo);
+  // Use the new BlockInfo interface for cleaner API and proper blockName access
+  return bbHandler.processBasicBlock(block);
 }
 
 
@@ -671,10 +711,11 @@ std::string BlockHandler::generateBlockName(unsigned blockId, BlockType type, co
 
   // If parent name is provided, create hierarchical name
   if (!parentName.empty()) {
-    return parentName + "_" + baseName;
+    return parentName + baseName;
   }
 
-  return baseName;
+  // Use namePrefix from constructor (includes opcode)
+  return namePrefix + baseName;
 }
 
 } // namespace mlir
