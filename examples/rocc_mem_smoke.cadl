@@ -3,16 +3,13 @@
 
 #[opcode(7'b0101011)]
 #[funct7(7'b0000100)]
-rtype scalar_math(rs1: u5, rs2: u5, rd: u5) {
+rtype rocc_mem_test(rs1: u5, rs2: u5, rd: u5) {
     // Read scalar values
     let a: u32 = _irf[rs1];
     let b: u32 = _irf[rs2];
 
-    // Compute: (a + b) * (a - b)
-    let sum: u32 = a + b;
-    let diff: u32 = a - b;
-    let result: u32 = sum * diff;
+    let m: u32 = _mem[a];
 
     // Return result
-    _irf[rd] = result;
+    _irf[rd] = m * b * b;
 }

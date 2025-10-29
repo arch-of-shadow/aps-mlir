@@ -9,7 +9,14 @@
 // Memory Buffers
 // ============================================================================
 
+// Bitmask: 32 bits stored as 4 bytes (u8)
+// Compatible with APSToStandard pass (requires uniform element types)
+static bitmask: u32;
+
 // Sparse values: up to 32 INT8 values (input)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
 static values: [i64; 8];
 
 // Dense values: 32 INT8 values (intermediate - expanded from sparse)
@@ -35,13 +42,17 @@ static vidx: u32 = 0;
 rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
     let base_addr: u32 = _irf[rs1];
 
-    let out_addr: u32 = _irf[rs2];
+    // Read global scale factor directly from rs2 (Q8.8 format i16)
+    let global_scale: i16 = _irf[rs2];
+
+    // Calculate output address from base_addr
+    // Compressed data size: 4 bytes (bitmask) + 32 bytes (values) = 36 bytes
+    let out_addr: u32 = _irf[rd];
 
     // Burst read compressed data
     // Memory layout: [bitmask (4 bytes u8), values (32 bytes i8)]
-    values[0 +: ] = _burst_read[base_addr +: 8];
-    let bitmask: u32 = _mem[base_addr + 64];
-    let global_scale: i16 = _mem[base_addr + 68];
+    bitmask = _mem[base_addr];
+    values[0 +: ] = _burst_read[base_addr + 64 +: 8];
 
     // ========================================================================
     // Stage 1: Sparse-to-Dense Expansion (bitmask-driven)
@@ -62,14 +73,13 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
 
         // Conditionally read from sparse values
         let zero_i8: i8 = 0;
-        let value_idx: u32 = vidx >> 3; // Divide by 8 to get index in values array
-        let value_offset: u32 = vidx & 7; // Modulo 8 to get offset within i64
+        let value_idx: u32 = vidx / 8; // Divide by 8 to get index in values array
+        let value_offset: u8 = vidx & 8'b00000111; // Modulo 8 to get offset within i64
         
         let val_double_word: i64 = values[value_idx];
-        let val: i8 = val_double_word >> (value_offset * 8) [7:0];
         
         // Then use if expression to select between extracted value and zero
-        let sparse_val: i8 = if is_nonzero { val } else { zero_i8 };
+        let sparse_val: i8 = if is_nonzero { val_double_word[value_offset + 7: value_offset] } else { zero_i8 };
 
         // Write to dense array (affine access)
         dense_values[idx] = sparse_val;  // ✅ Affine: dense_values[idx]

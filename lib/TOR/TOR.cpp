@@ -14,6 +14,8 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/raw_ostream.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 using namespace mlir;
 using namespace tor;
@@ -701,6 +703,14 @@ static bool isOperationEquivalent(mlir::Operation* lhs, mlir::Operation* rhs) {
         getEndtimeAttr(lhs) != getEndtimeAttr(rhs)) {
         return false;
     }
+
+    if (isa<memref::GetGlobalOp>(lhs) || isa<memref::GetGlobalOp>(rhs)) {
+        return false;
+    }
+
+    if (lhs->getDialect()->getNamespace() == "aps" || rhs->getDialect()->getNamespace() == "aps") {
+        return false;
+    };
        
     return true;
 }

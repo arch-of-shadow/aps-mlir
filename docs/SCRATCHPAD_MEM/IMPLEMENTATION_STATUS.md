@@ -76,6 +76,12 @@ offset = (burst_idx - position) / num_banks
   - Writes enable/data/addr to internal wires
 - Conditional write rule fires when enable wire is high
 
+### ✅ Direct Bank Access Ports
+
+- Each bank wrapper now provides `bank_read`/`bank_write` methods that call the underlying `Mem1r1w` ports without burst address translation.
+- Memory entry submodules expose per-bank methods (`bank_read_i`, `bank_write_i`) with native data width and direct bank indexing.
+- The top-level `ScratchpadMemoryPool` module forwards these methods as `<entry>_bank<i>_{read,write}`, enabling external passes to drive individual banks directly.
+
 ## Known Issues
 
 ### 🐛 Critical Bug: CMT2 Instance.cpp

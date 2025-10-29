@@ -7,7 +7,17 @@ add_mlir_library(APS
   MemoryMapPass.cpp
   InferAffineMemAccess.cpp
   APSSplitMemoryOpsPass.cpp
-  APSMemoryPoolGenPass.cpp
+  APSToCMT2/APSToCMT2GenPass.cpp
+  APSToCMT2/APSOpRuleGenerate.cpp
+  APSToCMT2/BlockHandler.cpp
+  APSToCMT2/BBHandler.cpp
+  APSToCMT2/LoopHandler.cpp
+  APSToCMT2/ArithmeticOpGenerator.cpp
+  APSToCMT2/RegisterOpGenerator.cpp
+  APSToCMT2/MemoryOpGenerator.cpp
+  APSToCMT2/InterfaceOpGenerator.cpp
+  APSToCMT2/APSInterfaceGenerate.cpp
+  APSToCMT2/APSMemoryGenerate.cpp
   Transforms/APSToStandard.cpp
   Transforms/CombExtractToArithTrunc.cpp
   Transforms/ArithSelectToSCFIf.cpp
