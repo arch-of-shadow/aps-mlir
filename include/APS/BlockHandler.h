@@ -25,13 +25,6 @@ using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
 
 //===----------------------------------------------------------------------===//
-// Forward Declarations
-//===----------------------------------------------------------------------===//
-
-class APSToCMT2GenPass;
-class LoopHandler;
-
-//===----------------------------------------------------------------------===//
 // Block Types
 //===----------------------------------------------------------------------===//
 
@@ -121,12 +114,6 @@ public:
   /// Find all consumers of a value
   llvm::SmallVector<BlockInfo*> findValueConsumers(Value value);
 
-  /// Get block info by ID
-  BlockInfo* getBlockInfo(unsigned blockId) { return blockMap[blockId]; }
-
-  /// Get block info by MLIR block
-  BlockInfo* getBlockInfo(Block* block) { return mlirBlockMap[block]; }
-
 protected:
   // Core components
   APSToCMT2GenPass *pass;
@@ -198,9 +185,6 @@ protected:
   /// Create all producer FIFOs for cross-block communication
   LogicalResult createProducerFIFOs();
 
-  /// Create execution coordination FIFOs for blocks
-  LogicalResult createBlockCoordinationFIFOs();
-
   /// Get unique FIFO name
   std::string getFIFOName(StringRef prefix, unsigned blockId, StringRef suffix = "");
 
@@ -214,9 +198,6 @@ protected:
   /// Process a regular block using internal BB logic
   LogicalResult processRegularBlockWithBBHandler(BlockInfo& block);
 
-  /// Generate sequential coordination rules (unified token passing)
-  LogicalResult generateSequentialCoordinationRules();
-
   /// Create intra-block coordination FIFOs (ready/complete for slot-to-slot)
   LogicalResult createBlockTokenFIFOs();
 
@@ -229,9 +210,6 @@ protected:
 
   /// Check if value is used in target block
   bool isValueUsedInBlock(Value value, BlockInfo& targetBlock);
-
-  /// Check if value is used in a segment (list of operations)
-  bool isValueUsedInSegment(Value value, const llvm::SmallVector<Operation*, 8>& segment);
 
   /// Check if a value comes from a virtual operation (doesn't need FIFO)
   bool isVirtualValue(Value value);

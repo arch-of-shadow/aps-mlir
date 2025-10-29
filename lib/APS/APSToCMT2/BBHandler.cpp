@@ -33,8 +33,8 @@ BBHandler::BBHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp fun
                     InterfaceDecl *dmaItfc, Circuit &circuit, Clock mainClk, Reset mainRst,
                     unsigned long opcode)
     : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
-      roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), regRdInstance(regRdInstance),
-      dmaItfc(dmaItfc), circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode) {
+      roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), dmaItfc(dmaItfc),
+      circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode), regRdInstance(regRdInstance) {
 
   // Initialize operation generators
   arithmeticGen = std::make_unique<ArithmeticOpGenerator>(this);
@@ -228,6 +228,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
           continue;
 
         // Group consumers by their target stage
+        // IMPORTANT: Only include consumers that are in THIS block's slotMap
         llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<Operation*, unsigned>>> consumersByStage;
 
         for (OpOperand &use : res.getUses()) {
@@ -236,8 +237,24 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
           if (!maybeConsumerSlot)
             continue;
           int64_t consumerSlot = *maybeConsumerSlot;
+
+          // Only consider consumers in later slots within the same block
           if (consumerSlot > slot) {
-            consumersByStage[consumerSlot].push_back({user, use.getOperandNumber()});
+            // Check if this consumer operation is actually in the current block
+            bool isInCurrentBlock = false;
+            if (slotMap.count(consumerSlot)) {
+              for (Operation *op : slotMap[consumerSlot].ops) {
+                if (op == user) {
+                  isInCurrentBlock = true;
+                  break;
+                }
+              }
+            }
+
+            // Only create FIFO if consumer is in current block
+            if (isInCurrentBlock) {
+              consumersByStage[consumerSlot].push_back({user, use.getOperandNumber()});
+            }
           }
         }
 
@@ -263,9 +280,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
           auto key = std::make_pair(slot, consumerSlot);
           unsigned count = fifoCounts[key]++;
           fifo->instanceName = currentBlock->blockName + "_fifo_s" + std::to_string(slot) + "_s" +
-                               std::to_string(consumerSlot);
-          if (count > 0)
-            fifo->instanceName += "_" + std::to_string(count);
+                              std::to_string(consumerSlot) + "_v" + std::to_string(count);
 
           // Debug info: log FIFO creation
           llvm::outs() << "[FIFO DEBUG] Creating FIFO: " << fifo->instanceName
@@ -281,10 +296,14 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
   }
 
   // Handle cross-block input values (from inputFIFOs)
-  // These need cross-slot FIFOs from slot 0 to their consumer slots
+  // These need cross-slot FIFOs from first slot to their consumer slots
   if (currentBlock && !currentBlock->input_fifos.empty()) {
+    // Determine the first slot in this block
+    int64_t firstSlot = slotOrder.empty() ? 0 : slotOrder.front();
+
     llvm::outs() << "[FIFO DEBUG] Processing " << currentBlock->input_fifos.size()
-                 << " input FIFO values for cross-slot distribution\n";
+                 << " input FIFO values for cross-slot distribution (first slot: "
+                 << firstSlot << ")\n";
 
     for (auto &[inputValue, inputFIFO] : currentBlock->input_fifos) {
       if (!inputFIFO)
@@ -294,6 +313,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
         continue;
 
       // Find all operations that use this input value and group by slot
+      // IMPORTANT: Only include consumers that are in THIS block's slotMap
       llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<Operation*, unsigned>>> consumersByStage;
 
       for (OpOperand &use : inputValue.getUses()) {
@@ -302,7 +322,25 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
         if (!maybeConsumerSlot)
           continue;
         int64_t consumerSlot = *maybeConsumerSlot;
-        consumersByStage[consumerSlot].push_back({user, use.getOperandNumber()});
+
+        // Check if this consumer operation is actually in the current block
+        bool isInCurrentBlock = false;
+        if (slotMap.count(consumerSlot)) {
+          for (Operation *op : slotMap[consumerSlot].ops) {
+            if (op == user) {
+              isInCurrentBlock = true;
+              break;
+            }
+          }
+        }
+
+        // Only create FIFO if consumer is in current block
+        if (isInCurrentBlock) {
+          consumersByStage[consumerSlot].push_back({user, use.getOperandNumber()});
+        } else {
+          llvm::outs() << "[FIFO DEBUG] Skipping consumer in slot " << consumerSlot
+                       << " (belongs to different block)\n";
+        }
       }
 
       if (consumersByStage.empty()) {
@@ -316,22 +354,28 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
         continue;
       }
 
-      // Create cross-slot FIFO from slot 0 to each consumer slot
+      // Create cross-slot FIFO from first slot to each consumer slot
+      // IMPORTANT: Skip if consumer is in the first slot (no cross-slot needed)
       for (auto &[consumerSlot, consumers] : consumersByStage) {
+        // If consumer is in the first slot, no cross-slot FIFO needed
+        if (consumerSlot == firstSlot) {
+          llvm::outs() << "[FIFO DEBUG] Skipping input cross-slot FIFO for consumer in first slot "
+                       << consumerSlot << " (no cross-slot needed)\n";
+          continue;
+        }
+
         auto fifo = std::make_unique<CrossSlotFIFO>();
         fifo->producerValue = inputValue;
-        fifo->producerSlot = 0;  // Input values are available at slot 0
+        fifo->producerSlot = firstSlot;  // Input values are available at first slot
         fifo->consumerSlot = consumerSlot;
         fifo->firType = firType;
         fifo->consumers = std::move(consumers);
 
-        // Generate FIFO name: {blockName}_fifo_s0_s{consumer}_input_{count}
-        auto key = std::make_pair(0, consumerSlot);
+        // Generate FIFO name: {blockName}_fifo_s{firstSlot}_s{consumer}_v{count}
+        auto key = std::make_pair(firstSlot, consumerSlot);
         unsigned count = fifoCounts[key]++;
-        fifo->instanceName = currentBlock->blockName + "_fifo_s0_s" +
-                             std::to_string(consumerSlot) + "_input";
-        if (count > 0)
-          fifo->instanceName += "_" + std::to_string(count);
+        fifo->instanceName = currentBlock->blockName + "_fifo_s" + std::to_string(firstSlot) + "_s" +
+                             std::to_string(consumerSlot) + "_v" + std::to_string(count);
 
         llvm::outs() << "[FIFO DEBUG] Creating input cross-slot FIFO: " << fifo->instanceName
                      << " for input value to consumers in slot " << consumerSlot
@@ -573,8 +617,8 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
   unsigned blockId = block.blockId;
   llvm::DenseMap<Value, Instance*> &inputFIFOs = block.input_fifos;
   llvm::DenseMap<Value, Instance*> &outputFIFOs = block.output_fifos;
-  Instance *readyFIFO = block.input_token_fifo;
-  Instance *completeFIFO = block.output_token_fifo;
+  Instance *block_input_token_fifo = block.input_token_fifo;
+  Instance *block_output_token_fifo = block.output_token_fifo;
 
   // Use the operations specifically assigned to this block segment
   // BlockHandler has already filtered out control flow operations
@@ -645,9 +689,9 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
       // Handle block coordination at the beginning of the first slot
       if (slot == slotOrder.front()) {
         // Dequeue from input token FIFO (token from previous block in sequence)
-        if (readyFIFO) {
+        if (block_input_token_fifo) {
           llvm::outs() << "[BBHandler] Dequeuing input token for block " << blockId << " from unified token FIFO\n";
-          auto inputToken = readyFIFO->callMethod("deq", {}, b);
+          auto inputToken = block_input_token_fifo->callMethod("deq", {}, b);
         }
         
         // Handle cross-block value consumption (data from other blocks)
@@ -722,22 +766,32 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
         }
       }
 
-      // Handle cross-slot FIFO writes for producer operations in this slot
+      // Handle cross-slot FIFO writes and cross-block output FIFO writes for producer operations in this slot
       for (Operation *op : slotMap[slot].ops) {
         for (mlir::Value result : op->getResults()) {
           if (!isa<mlir::IntegerType>(result.getType()))
             continue;
+
+          auto valueIt = localMap.find(result);
+          if (valueIt == localMap.end())
+            continue;
+
+          // Enqueue to cross-slot FIFOs (for later slots in same block)
           auto fifoIt = crossSlotFIFOs.find(result);
           if (fifoIt != crossSlotFIFOs.end()) {
-            auto valueIt = localMap.find(result);
-            if (valueIt != localMap.end()) {
-              for (CrossSlotFIFO *fifo : fifoIt->second) {
-                if (fifo->fifoInstance) {
-                  fifo->fifoInstance->callMethod("enq", {valueIt->second}, b);
-                  llvm::outs() << "[BBHandler] Enqueued value to cross-slot FIFO\n";
-                }
+            for (CrossSlotFIFO *fifo : fifoIt->second) {
+              if (fifo->fifoInstance) {
+                fifo->fifoInstance->callMethod("enq", {valueIt->second}, b);
+                llvm::outs() << "[BBHandler] Enqueued value to cross-slot FIFO\n";
               }
             }
+          }
+
+          // Enqueue to cross-block output FIFOs (for other blocks)
+          auto outputIt = outputFIFOs.find(result);
+          if (outputIt != outputFIFOs.end() && outputIt->second) {
+            outputIt->second->callMethod("enq", {valueIt->second}, b);
+            llvm::outs() << "[BBHandler] Enqueued value to cross-block output FIFO\n";
           }
         }
       }
@@ -748,22 +802,14 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
 
       // Handle block coordination at the end of the last slot
       if (slot == slotOrder.back()) {
-        // Enqueue cross-block values to output FIFOs (data to other blocks)
-        for (auto &[value, fifo] : outputFIFOs) {
-          if (fifo) {
-            auto valueIt = localMap.find(value);
-            if (valueIt != localMap.end()) {
-              llvm::outs() << "[BBHandler] Enqueuing cross-block value to output FIFO\n";
-              fifo->callMethod("enq", {valueIt->second}, b);
-            }
-          }
-        }
-        
+        // Note: Cross-block output values are now enqueued immediately when produced (see above)
+        // Only need to enqueue the completion token here
+
         // Enqueue output token to unified token FIFO (token to next block in sequence)
-        if (completeFIFO) {
+        if (block_output_token_fifo) {
           llvm::outs() << "[BBHandler] Enqueuing output token for block " << blockId << " to unified token FIFO\n";
           auto outputToken = UInt::constant(1, 1, b, loc);
-          completeFIFO->callMethod("enq", {outputToken.getValue()}, b);
+          block_output_token_fifo->callMethod("enq", {outputToken.getValue()}, b);
         }
       }
 

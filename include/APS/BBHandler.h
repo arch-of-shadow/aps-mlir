@@ -8,8 +8,8 @@
 #ifndef APS_BBHANDLER_H
 #define APS_BBHANDLER_H
 
-#include "APS/APSOps.h"
 #include "APS/APSToCMT2.h"
+#include "APS/APSOps.h"
 #include "APS/BlockHandler.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Operation.h"
@@ -162,9 +162,6 @@ private:
   /// Generate rules for each time slot
   LogicalResult generateSlotRules();
 
-  /// Generate rule for a specific slot
-  LogicalResult generateRuleForSlot(int64_t slot, Rule *rule);
-
   /// Handle RoCC command bundle in slot 0
   LogicalResult handleRoCCCommandBundle(mlir::OpBuilder &b, Location loc);
 
@@ -180,18 +177,6 @@ private:
   generateRuleForOperation(Operation *op, mlir::OpBuilder &b, Location loc,
                            int64_t slot,
                            llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
-                           
-  // Try each operation generator in order
-  /// Get precedence pairs for rule ordering
-  const llvm::SmallVector<std::pair<std::string, std::string>, 4> &
-  getPrecedencePairs() const {
-    return precedencePairs;
-  }
-
-  /// Get stage token FIFOs
-  const llvm::DenseMap<int64_t, Instance *> &getStageTokenFifos() const {
-    return stageTokenFifos;
-  }
 
   //===--------------------------------------------------------------------===//
   // Utility Methods

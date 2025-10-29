@@ -8,6 +8,7 @@
 #ifndef APS_LOOPHANDLER_H
 #define APS_LOOPHANDLER_H
 
+#include "APSToCMT2.h"
 #include "APS/APSOps.h"
 #include "APS/BlockHandler.h"
 #include "circt/Dialect/Cmt2/ECMT2/Instance.h"
@@ -23,13 +24,6 @@ using namespace mlir::tor;
 using namespace circt::cmt2::ecmt2;
 using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
-
-//===----------------------------------------------------------------------===//
-// Forward Declarations
-//===----------------------------------------------------------------------===//
-
-struct APSToCMT2GenPass;
-class BBHandler;
 
 //===----------------------------------------------------------------------===//
 // Loop Data Structures
@@ -117,23 +111,6 @@ private:
   LoopInfo loop;
 
   //===--------------------------------------------------------------------===//
-  // Loop Analysis
-  //===--------------------------------------------------------------------===//
-
-  /// Extract blocks from loop body using BlockHandler segmentation
-  LogicalResult extractLoopBlocks();
-
-  /// Analyze data flow between loop blocks
-  LogicalResult analyzeCrossBlockDataflow();
-
-  //===--------------------------------------------------------------------===//
-  // FIFO Infrastructure
-  //===--------------------------------------------------------------------===//
-
-  /// Simplified canonical loop infrastructure - no complex FIFOs needed
-  /// The canonical entry/next rule pattern handles loop coordination directly
-
-  //===--------------------------------------------------------------------===//
   // Rule Generation
   //===--------------------------------------------------------------------===//
 
@@ -153,38 +130,11 @@ private:
   // Utility Methods
   //===--------------------------------------------------------------------===//
 
-  /// Get unique FIFO name
-  std::string getFIFOName(StringRef prefix, unsigned loopId,
-                          unsigned blockId = 0, StringRef suffix = "");
-
-  /// Generate hierarchical block name for nested blocks
-  std::string generateBlockName(unsigned loopId, unsigned blockId,
-                                const std::string &parentName = "");
-
-  /// Find all values flowing between blocks
-  llvm::SmallVector<CrossBlockValueFlow>
-  findCrossBlockValues(BlockInfo &producerBlock, BlockInfo &consumerBlock);
-
-  /// Check if value is used in target block
-  bool isValueUsedInBlock(Value value, BlockInfo &targetBlock);
-
-  /// Check if value is used in target loop
-  bool isValueUsedInLoop(Value value, LoopInfo &targetLoop);
-
-  /// Get loop for a given block
-  LoopInfo *getLoopForBlock(Block *block);
-
-  /// Analyze a single operation within a loop block
-  void analyzeOperationInLoopBlock(Operation *op, BlockInfo &block);
-
   /// Get bit width for a type
   unsigned getBitWidth(mlir::Type type);
 
   /// Process loop body operations using BlockHandler with token coordination
   LogicalResult processLoopBodyOperations(tor::ForOp forOp, BlockInfo &loopBlock);
-
-  /// Process loop body as blocks using proper segmentation (similar to processFunctionAsBlocks)
-  LogicalResult processLoopBodyAsBlocks(tor::ForOp forOp, Block *loopBody);
 
   /// Check if a value is used in the loop body
   bool isValueUsedInLoopBody(Value value, Block *loopBody);

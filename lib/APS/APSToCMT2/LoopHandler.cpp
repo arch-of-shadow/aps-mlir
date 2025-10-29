@@ -153,25 +153,38 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
     }
 
     // 2. Handle cross-block value consumption from input fifos
-    // Dequeue from input_fifos, write to state registers, and enqueue to loop-to-body FIFOs
+    // IMPORTANT: Only dequeue values that are actually used by this loop
+    // (either by the loop operations themselves or by the loop body via loop-to-body FIFOs)
     for (auto &[value, fifo] : input_fifos) {
-      if (fifo) {
-        auto dequeuedValue = fifo->callMethod("deq", {}, b)[0];
-        llvm::outs() << "[LoopHandler] Dequeued cross-block value from input FIFO\n";
+      if (!fifo)
+        continue;
 
-        // Write to state register for persistent storage (used by next rule)
-        if (loop.input_state_registers.count(value)) {
-          Instance *stateReg = loop.input_state_registers[value];
-          stateReg->callMethod("write", {dequeuedValue}, b);
-          llvm::outs() << "[LoopHandler] Wrote dequeued value to state register\n";
-        }
+      // Check if this value has a corresponding loop-to-body FIFO or state register
+      // If not, it means this value is NOT used by the loop - skip dequeuing
+      bool hasLoopToBodyFifo = loop.loop_to_body_fifos.count(value) > 0;
+      bool hasStateRegister = loop.input_state_registers.count(value) > 0;
 
-        // Enqueue to loop-to-body FIFO for first iteration
-        if (loop.loop_to_body_fifos.count(value)) {
-          Instance *loopToBodyFifo = loop.loop_to_body_fifos[value];
-          loopToBodyFifo->callMethod("enq", {dequeuedValue}, b);
-          llvm::outs() << "[LoopHandler] Enqueued value to loop-to-body FIFO for first iteration\n";
-        }
+      if (!hasLoopToBodyFifo && !hasStateRegister) {
+        llvm::outs() << "[LoopHandler] Skipping input FIFO - value not used by loop\n";
+        continue;
+      }
+
+      // Dequeue only if value is actually used by the loop
+      auto dequeuedValue = fifo->callMethod("deq", {}, b)[0];
+      llvm::outs() << "[LoopHandler] Dequeued cross-block value from input FIFO\n";
+
+      // Write to state register for persistent storage (used by next rule)
+      if (hasStateRegister) {
+        Instance *stateReg = loop.input_state_registers[value];
+        stateReg->callMethod("write", {dequeuedValue}, b);
+        llvm::outs() << "[LoopHandler] Wrote dequeued value to state register\n";
+      }
+
+      // Enqueue to loop-to-body FIFO for first iteration
+      if (hasLoopToBodyFifo) {
+        Instance *loopToBodyFifo = loop.loop_to_body_fifos[value];
+        loopToBodyFifo->callMethod("enq", {dequeuedValue}, b);
+        llvm::outs() << "[LoopHandler] Enqueued value to loop-to-body FIFO for first iteration\n";
       }
     }
 
