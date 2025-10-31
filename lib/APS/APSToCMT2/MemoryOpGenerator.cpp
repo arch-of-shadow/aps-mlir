@@ -388,7 +388,12 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   uint64_t totalBurstLength = (uint64_t)elementSizeBytes * numElements;
   uint32_t roundedTotalBurstLength =
       bbHandler->roundUpToPowerOf2((uint32_t)totalBurstLength);
-  auto realCpuLength = UInt::constant(32, roundedTotalBurstLength, b, loc);
+  // TileLink size field expects log2 of transfer size (N where size = 2^N)
+  uint32_t tlSizeField = bbHandler->log2Floor(roundedTotalBurstLength);
+  if (tlSizeField == 0) {
+    op->emitError("Got 0 when attempt to call burst load!");
+  }
+  auto realCpuLength = UInt::constant(tlSizeField, 32, b, loc);
 
   // Use getValueInRule to get cpuAddr with proper FIRRTL conversion
   auto cpuAddrValue = getValueInRule(cpuAddr, op.getOperation(), cpuAddrOperandId, b, localMap, loc);
@@ -510,7 +515,12 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   uint64_t totalBurstLength = (uint64_t)elementSizeBytes * numElements;
   uint32_t roundedTotalBurstLength =
       bbHandler->roundUpToPowerOf2((uint32_t)totalBurstLength);
-  auto realCpuLength = UInt::constant(32, roundedTotalBurstLength, b, loc);
+  // TileLink size field expects log2 of transfer size (N where size = 2^N)
+  uint32_t tlSizeField = bbHandler->log2Floor(roundedTotalBurstLength);
+  if (tlSizeField == 0) {
+    op->emitError("Got 0 when attempt to call burst store!");
+  }
+  auto realCpuLength = UInt::constant(tlSizeField, 32, b, loc);
 
   // Use getValueInRule to get cpuAddr with proper FIRRTL conversion
   auto cpuAddrValue = getValueInRule(cpuAddr, op.getOperation(), cpuAddrOperandId, b, localMap, loc);

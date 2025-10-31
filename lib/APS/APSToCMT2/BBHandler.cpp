@@ -849,6 +849,16 @@ unsigned int BBHandler::roundUpToPowerOf2(unsigned int n) {
   return n;
 }
 
+unsigned int BBHandler::log2Floor(unsigned int n) {
+  if (n == 0) return 0;
+  unsigned int log = 0;
+  while (n > 1) {
+    n >>= 1;
+    log++;
+  }
+  return log;
+}
+
 FailureOr<mlir::Value> OperationGenerator::getValueInRule(mlir::Value v, Operation *currentOp,
                                                           unsigned operandIndex, mlir::OpBuilder &b,
                                                           llvm::DenseMap<mlir::Value, mlir::Value> &localMap,

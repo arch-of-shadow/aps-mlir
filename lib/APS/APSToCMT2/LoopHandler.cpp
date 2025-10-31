@@ -203,6 +203,8 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
       llvm::report_fatal_error("LoopHandler: Cannot convert non-constant MLIR type to FIRRTL");
     };
 
+    // high: lowerBound (start), medium: upperBound (stop), low: step
+    // TODO: we only handle increment bound here...
     Signal loopState(convertToFIRRTL(loop.lowerBound), &b, loc);
     loopState = loopState.cat(Signal(convertToFIRRTL(loop.upperBound), &b, loc));
     loopState = loopState.cat(Signal(convertToFIRRTL(loop.step), &b, loc));
@@ -220,7 +222,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
     if (loop.inductionVar && inductionVarFIFO) {
       // Extract induction variable from loop state (first 32 bits)
       Signal stateSig(loopState.getValue(), &b, loc);
-      auto inductionVar = stateSig.bits(31, 0);
+      auto inductionVar = stateSig.bits(95, 64);
       inductionVarFIFO->callMethod("enq", {inductionVar.getValue()}, b);
       llvm::outs() << "[LoopHandler] Enqueued induction variable to its FIFO\n";
     }
@@ -276,9 +278,9 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
       // [counter:32][bound:32][step:32][iter_arg0...]
       Signal stateSig(loopState, &b, loc);
 
-      auto currentCounter = stateSig.bits(31, 0); // Extract counter (bits 31:0)
+      auto currentCounter = stateSig.bits(95, 64); // Extract counter (bits 31:0)
       auto upperBound = stateSig.bits(63, 32);    // Extract bound (bits 63:32)
-      auto step = stateSig.bits(95, 64);          // Extract step (bits 95:64)
+      auto step = stateSig.bits(31, 0);          // Extract step (bits 95:64)
 
       // Extract iter_args
       llvm::SmallVector<mlir::Value> iterArgs;
@@ -291,15 +293,15 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
         stateOffset += width;
       }
 
-      // 3. Check if loop should continue: counter < upper_bound
-      auto shouldContinue = currentCounter < upperBound;
-      llvm::outs()
-          << "[LoopHandler] Next rule: checking if counter < upper_bound\n";
-
       // 4. Canonical loop decision:
       // If shouldContinue: increment counter and continue loop
       // If not shouldContinue: exit loop and pass control to next block
       auto nextCounter = currentCounter + step;
+
+      // 3. Check if loop should continue: counter <= upper_bound
+      auto shouldContinue = nextCounter <= upperBound;
+      llvm::outs()
+          << "[LoopHandler] Next rule: checking if counter < upper_bound\n";
 
       // 5. Update loop state and either continue or exit using ECMT2 If
       // construct for proper signal-based conditional execution
@@ -339,7 +341,7 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
             if (loop.inductionVar && inductionVarFIFO) {
               // Extract induction variable from loop state (first 32 bits)
               Signal stateSig(updatedState.getValue(), &b, loc);
-              auto inductionVar = stateSig.bits(31, 0);
+              auto inductionVar = nextCounter.bits(31, 0);
               inductionVarFIFO->callMethod("enq", {inductionVar.getValue()}, b);
               llvm::outs() << "[LoopHandler] Enqueued induction variable to its FIFO\n";
             }

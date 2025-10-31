@@ -194,6 +194,9 @@ private:
 
   /// Round up to power of 2
   unsigned int roundUpToPowerOf2(unsigned int n);
+
+  /// Calculate log2 (floor) of a number
+  unsigned int log2Floor(unsigned int n);
 };
 
 //===----------------------------------------------------------------------===//
