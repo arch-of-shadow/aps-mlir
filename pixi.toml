@@ -25,13 +25,22 @@ python = { cmd = "python" }
 pytest = { cmd = "python -m pytest -s -v" }
 silicon = { cmd = "python dev_scripts/silicon.py" }
 
-# CADL Frontend - APS Frontend Tool
+# APS Tools
 aps-frontend = { cmd = "python aps-frontend" }
 parse = { cmd = "python aps-frontend parse" }
 parse-summary = { cmd = "python aps-frontend parse --summary" }
 mlir = { cmd = "python aps-frontend mlir" }
 mlir-std = { cmd = "bash scripts/mlir-std.sh" }
 cadl2c = { cmd = "python aps-frontend cadl2c" }
+
+[tasks.opt]
+args = ["cadl", "apsir"]
+cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e -i {{ cadl }} -o outputs/ > {{ apsir }}"
+
+[tasks.sv]
+args = ["apsir", "sv"]
+cmd = "./build/tools/aps-opt/aps-opt {{ apsir }} --aps-to-cmt2-gen --mlir-print-ir-after-failure | sed -n '/^module {$/,/^}$/p' | sed '/tor.design @aps_isaxes {/,/^  }/d' | sed '/aps\\.memorymap {/,/^  }/d' > {{ sv }}.mlir && sed -n '/cmt2\\.module @main(%clk: !firrtl\\.clock, %rst: !firrtl\\.uint<1>)/,/^}/p' burst_cmt.mlir | sed '/cmt2\\.module @.*main(/!{/cmt2\\.module @/,/^}/d}' > {{ sv }}_main.mlir && ./circt/build/bin/circt-opt {{ sv }}.mlir --lower-cmt2-to-firrtl --mlir-print-ir-after-failure | ./circt/build/bin/firtool -format=mlir -o {{ sv }}"
+
 
 
 [dependencies]

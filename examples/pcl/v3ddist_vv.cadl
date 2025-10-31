@@ -59,7 +59,7 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
 
   points2_x[0 +: ] = _burst_read[addr1 + 192 +: 16];
   points2_y[0 +: ] = _burst_read[addr1 + 256 +: 16];
-  points2_z[0 +: ] = _burst_read[addr2 + 320 +: 16];
+  points2_z[0 +: ] = _burst_read[addr1 + 320 +: 16];
 
   // Compute distances for all vector elements with partial unrolling
   [[unroll(4)]]

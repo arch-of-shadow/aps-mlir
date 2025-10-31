@@ -199,7 +199,7 @@ public:
         continue;
       auto &e = redge[i][0];
       if (e.ds == "static" && e.length == 0) {
-        llvm::outs() << i << " " << e.ds << " " << e.length << "\n";
+        llvm::dbgs() << i << " " << e.ds << " " << e.length << "\n";
         dset.merge(i, e.from);
       }
     }
@@ -216,7 +216,7 @@ public:
       if (dset.find(i) != i)
         newId[i] = newId[dset.find(i)];
 
-    llvm::outs() << numNode << " " << reducedNum << "\n";
+    llvm::dbgs() << numNode << " " << reducedNum << "\n";
 
     std::vector<std::vector<Edge>> oldedges(std::move(edge));
     std::vector<std::vector<Edge>> oldredges(std::move(redge));
@@ -698,10 +698,10 @@ std::pair<int, int> queryAllOps(mlir::Block &block, scheduling::ScheduleBase *sc
 mlir::LogicalResult scheduleOps(mlir::tor::FuncOp funcOp,
                                 mlir::PatternRewriter &rewriter,
                                 scheduling::ResourceDB &RDB) {
-  LLVM_DEBUG( llvm::outs() << "===============================\n";
-    llvm::outs() << "Scheduling function: ";
-    llvm::outs() << funcOp.getName() << "\n";
-    llvm::outs() << "===============================\n";
+  LLVM_DEBUG( llvm::dbgs() << "===============================\n";
+    llvm::dbgs() << "Scheduling function: ";
+    llvm::dbgs() << funcOp.getName() << "\n";
+    llvm::dbgs() << "===============================\n";
   );
   using namespace scheduling;
   auto name =
@@ -723,16 +723,16 @@ mlir::LogicalResult scheduleOps(mlir::tor::FuncOp funcOp,
   }
 
   // Debug: print scheduled times for all operations
-  llvm::outs() << "\n=== Scheduled times after runSchedule() ===\n";
+  llvm::dbgs() << "\n=== Scheduled times after runSchedule() ===\n";
   funcOp.walk([&](Operation *op) {
     if (op->hasAttr("dump")) {
       auto dumpId = op->getAttr("dump");
       auto interval = scheduler->queryOp(op);
-      llvm::outs() << "Op " << dumpId << " (" << op->getName() << "): startTime = " 
+      llvm::dbgs() << "Op " << dumpId << " (" << op->getName() << "): startTime = " 
                    << interval.first << ", endTime = " << interval.second << "\n";
     }
   });
-  llvm::outs() << "=========================================\n\n";
+  llvm::dbgs() << "=========================================\n\n";
 
   bool isDataflow = false;
   if (auto flag = funcOp->getAttrOfType<IntegerAttr>("dataflow")) {

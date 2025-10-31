@@ -233,13 +233,24 @@ LogicalResult BlockHandler::analyzeCrossBlockDataflow() {
 
   crossBlockFlows.clear();
 
+  llvm::errs() << "\n========== analyzeCrossBlockDataflow ==========\n";
+
   for (BlockInfo &producerBlock : blocks) {
     // PANIC: Ensure producer block is valid
     if (producerBlock.blockId >= blocks.size()) {
       llvm::report_fatal_error("Invalid producer block ID during dataflow analysis");
     }
 
+    llvm::errs() << "\n--- Block " << producerBlock.blockId << " (" << producerBlock.blockName
+                 << ") has " << producerBlock.producedValues.size() << " produced values ---\n";
+
     for (Value producedValue : producerBlock.producedValues) {
+      if (auto *defOp = producedValue.getDefiningOp()) {
+        llvm::errs() << "  Produced value from op: " << defOp->getName() << "\n";
+      } else {
+        llvm::errs() << "  Produced value (block arg)\n";
+      }
+
       // PANIC: Ensure value is valid
       if (!producedValue) {
         llvm::report_fatal_error("Null value in producer block");
@@ -247,6 +258,7 @@ LogicalResult BlockHandler::analyzeCrossBlockDataflow() {
 
       // Skip virtual values that don't need FIFOs
       if (isVirtualValue(producedValue)) {
+        llvm::errs() << "    Skipping virtual value\n";
         continue;
       }
 
@@ -570,22 +582,44 @@ Instance* BlockHandler::createProducerFIFO(Value value, unsigned producerBlockId
 llvm::SmallVector<BlockInfo*> BlockHandler::findValueConsumers(Value value) {
   llvm::SmallVector<BlockInfo*> consumers;
 
+  llvm::errs() << "\n=== findValueConsumers ===\n";
+  if (auto *defOp = value.getDefiningOp()) {
+    llvm::errs() << "Finding consumers for value from: " << defOp->getName() << "\n";
+  } else {
+    llvm::errs() << "Finding consumers for block argument\n";
+  }
+
   for (BlockInfo &block : blocks) {
     if (isValueUsedInBlock(value, block)) {
       consumers.push_back(&block);
     }
   }
 
+  llvm::errs() << "Found " << consumers.size() << " consumer blocks\n";
   return consumers;
 }
 
 bool BlockHandler::isValueUsedInBlock(Value value, BlockInfo& targetBlock) {
   // Check if value is used in any operation in this block
   for (Operation *user : value.getUsers()) {
+    // Direct use: user is in the same block
     if (user->getBlock() == targetBlock.mlirBlock) {
+      llvm::errs() << "    ✓ MATCH (direct)\n";
       return true;
     }
+
+    // Nested use: user is inside a control flow operation that belongs to this block
+    // Check if any operation in targetBlock.operations contains this user
+    for (Operation *blockOp : targetBlock.operations) {
+      // Check if user is nested within blockOp's regions (handles arbitrary nesting depth)
+      if (blockOp->isAncestor(user)) {
+        llvm::errs() << "    ✓ MATCH (nested)\n";
+        return true;
+      }
+    }
   }
+
+  llvm::errs() << "  ✗ NO MATCH\n";
   return false;
 }
 
@@ -749,7 +783,7 @@ void BlockHandler::analyzeOperationInBlock(Operation *op, BlockInfo &block) {
   }
 
   // Special handling for interface collect operations - they don't produce values for cross-block flow
-  if (isa<aps::ItfcBurstLoadCollect, aps::ItfcBurstStoreCollect, aps::ItfcLoadCollect, aps::ItfcStoreCollect>(op)) {
+  if (isa<aps::ItfcBurstLoadCollect, aps::ItfcBurstStoreCollect>(op)) {
     // Collect operations don't produce values that flow to other blocks
     return;
   }

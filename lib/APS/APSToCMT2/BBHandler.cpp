@@ -220,6 +220,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
   // Build cross-slot FIFO mapping - group consumers by target stage
   for (int64_t slot : slotOrder) {
     for (Operation *op : slotMap[slot].ops) {
+      // op->emitWarning("considering building fifo for this!");
       if (isa<arith::ConstantOp>(op))
         continue;
 
@@ -253,6 +254,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
 
             // Only create FIFO if consumer is in current block
             if (isInCurrentBlock) {
+              // user->emitWarning("we build that for this use, arg " + std::to_string(use.getOperandNumber()) );
               consumersByStage[consumerSlot].push_back({user, use.getOperandNumber()});
             }
           }
@@ -267,6 +269,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
           return failure();
         }
 
+        // op->emitWarning("we should build fifo for this, now building!");
         // Create separate FIFO for each consumer stage
         for (auto &[consumerSlot, consumers] : consumersByStage) {
           auto fifo = std::make_unique<CrossSlotFIFO>();
@@ -817,10 +820,33 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
     });
 
     rule->finalize();
-    
+
     llvm::outs() << "[BBHandler] Generated rule for slot " << slot << " in block " << blockId << "\n";
   }
-  
+
+  // Set precedence for rules: later slots have higher priority
+  // Build precedence pairs: each later slot has higher priority than all earlier slots
+  if (slotOrder.size() > 1) {
+    std::vector<std::pair<std::string, std::string>> precedencePairs;
+
+    for (size_t i = slotOrder.size(); i > 1; i--) {
+      int64_t laterSlot = slotOrder[i - 1];
+      for (size_t j = 0; j < i - 1; j++) {
+        int64_t earlierSlot = slotOrder[j];
+        std::string laterRuleName = currentBlock->blockName + "_slot_" + std::to_string(laterSlot) + "_rule";
+        std::string earlierRuleName = currentBlock->blockName + "_slot_" + std::to_string(earlierSlot) + "_rule";
+        // Higher priority first in the pair
+        precedencePairs.push_back({laterRuleName, earlierRuleName});
+      }
+    }
+
+    if (!precedencePairs.empty()) {
+      mainModule->setPrecedence(precedencePairs);
+      llvm::outs() << "[BBHandler] Set precedence for " << precedencePairs.size()
+                   << " rule pairs (later slots have higher priority)\n";
+    }
+  }
+
   llvm::outs() << "[BBHandler] Successfully generated " << slotOrder.size() << " rules for basic block " << blockId << "\n";
   return success();
 }

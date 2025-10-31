@@ -68,6 +68,10 @@ int main(int argc, char **argv) {
         .default_value(false)
         .implicit_value(true)
         .help("Generate resource report");
+    program.add_argument("--print-ir-after-all")
+        .default_value(false)
+        .implicit_value(true)
+        .help("Print MLIR after each pass");
 
     try {
         program.parse_args(argc, argv);
@@ -83,6 +87,7 @@ int main(int argc, char **argv) {
     const auto outputPath = program.get<std::string>("--output");
     const auto generateScheduleGraph = program.get<bool>("--gensg");
     const auto generatePragmaReport = program.get<bool>("--genpr");
+    const auto printIrAfterAll = program.get<bool>("--print-ir-after-all");
 
     // Validate input file exists
     if (access(inputFile.c_str(), F_OK) != 0) {
@@ -103,7 +108,7 @@ int main(int argc, char **argv) {
 
     // Check file extension
     if (inputFile.size() >= 5 && inputFile.substr(inputFile.size() - 5) == ".cadl") {
-        std::cout << "[INFO] Detected CADL input, converting to MLIR..." << std::endl;
+        std::cerr << "[INFO] Detected CADL input, converting to MLIR..." << std::endl;
 
         // Create output directory if it doesn't exist
         std::filesystem::create_directories(outputPath);
@@ -164,7 +169,7 @@ int main(int argc, char **argv) {
         mlirFile.close();
 
         mlirInput = mlirFilePath;
-        std::cout << "[INFO] CADL converted to MLIR and saved to: " << mlirFilePath << std::endl;
+        std::cerr << "[INFO] CADL converted to MLIR and saved to: " << mlirFilePath << std::endl;
     } else {
         // Input is already MLIR
         mlirInput = inputFile;
@@ -177,7 +182,9 @@ int main(int argc, char **argv) {
     args.push_back(argv[0]);
     args.push_back(mlirInput);
     args.push_back("--allow-unregistered-dialect");
-    args.push_back("--mlir-print-ir-after-all");
+    if (printIrAfterAll) {
+        args.push_back("--mlir-print-ir-after-all");
+    }
     args.push_back("--convert-math-to-call=resource=" + resourceFile);
     args.push_back("--demangle-func-name");
     args.push_back("--memory-map");
