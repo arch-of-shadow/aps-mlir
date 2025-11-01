@@ -181,4 +181,43 @@ def ArithSelectToSCFIf : Pass<"arith-select-to-scf-if"> {
   let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect"];
 }
 
+def APSHoistReadRF : Pass<"aps-hoist-readrf", "::mlir::func::FuncOp"> {
+  let summary = "Hoist all aps.readrf operations to function entry block";
+  let description = [{
+    This pass moves all aps.readrf operations to the entry block of their
+    containing function. This ensures they can be scheduled at cycle 0,
+    since readrf operations only depend on function arguments which are
+    available at function entry.
+
+    This transformation is safe because:
+    - aps.readrf only reads from function arguments (register file indices)
+    - Function arguments are available throughout the function
+    - There are no side effects or dependencies on control flow
+
+    This pass should run before SCF to TOR conversion and scheduling to avoid
+    control-flow constraints preventing readrf from being scheduled early.
+
+    Example transformation:
+      func.func @foo(%arg0: i5, %arg1: i5) {
+        // some operations
+        scf.for ... {
+          // loop body
+        }
+        %0 = aps.readrf %arg1 : i5 -> i32  // readrf after loop
+        // use %0
+      }
+    becomes:
+      func.func @foo(%arg0: i5, %arg1: i5) {
+        %0 = aps.readrf %arg1 : i5 -> i32  // readrf at entry
+        // some operations
+        scf.for ... {
+          // loop body
+        }
+        // use %0
+      }
+  }];
+  let constructor = "mlir::createAPSHoistReadRFPass()";
+  let dependentDialects = ["aps::APSDialect"];
+}
+
 #endif // APS_PASSES

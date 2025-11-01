@@ -187,6 +187,7 @@ int main(int argc, char **argv) {
     }
     args.push_back("--convert-math-to-call=resource=" + resourceFile);
     args.push_back("--demangle-func-name");
+    args.push_back("--aps-hoist-readrf");
     args.push_back("--memory-map");
     args.push_back("--scf-for-index-cast");
     args.push_back("--aps-mem-to-memref");
