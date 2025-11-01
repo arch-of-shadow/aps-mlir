@@ -70,6 +70,10 @@ namespace {
             (void) converter->convertTypes(op->getOperandTypes(), newOperandTypes);
             return llvm::to_vector(llvm::map_range(llvm::zip(operands, newOperandTypes), [&](auto it) {
                 auto [operand, tpe] = it;
+                // If types already match, don't insert conversion cast
+                if (operand.getType() == tpe) {
+                    return operand;
+                }
                 return converter->materializeSourceConversion(rewriter, op->getLoc(), tpe, ValueRange(operand));
             }));
         }
@@ -642,6 +646,10 @@ namespace {
             addConversion([](Type type) { return type; });
             addConversion(convertIndexType);
             auto addUnrealizedCast = [](OpBuilder &builder, Type type, ValueRange inputs, Location loc) {
+                // Don't insert unrealized cast if types already match
+                if (inputs.size() == 1 && inputs[0].getType() == type) {
+                    return inputs[0];
+                }
                 auto cast = builder.create<UnrealizedConversionCastOp>(loc, type, inputs);
                 return cast.getResult(0);
             };
@@ -811,10 +819,105 @@ namespace {
         }
     };
 
+    struct CleanupIndexCastChain : public OpRewritePattern<IndexCastOp> {
+        using OpRewritePattern<IndexCastOp>::OpRewritePattern;
+
+        LogicalResult matchAndRewrite(IndexCastOp indexCast, PatternRewriter &rewriter) const override {
+            // Pattern 1: i32 -> unrealized_cast -> index -> index_cast -> i32
+            if (isa<IndexType>(indexCast.getIn().getType()) &&
+                indexCast.getResult().getType().isInteger(32)) {
+
+                auto unrealizedCast = indexCast.getIn().getDefiningOp<UnrealizedConversionCastOp>();
+                if (unrealizedCast &&
+                    unrealizedCast.getInputs().size() == 1 &&
+                    unrealizedCast.getResults().size() == 1) {
+
+                    auto originalValue = unrealizedCast.getInputs()[0];
+                    if (originalValue.getType().isInteger(32)) {
+                        // Found the pattern! Replace index_cast with the original i32 value
+                        rewriter.replaceOp(indexCast, originalValue);
+
+                        // Clean up the unrealized cast if it's now unused
+                        if (unrealizedCast.getResult(0).use_empty()) {
+                            rewriter.eraseOp(unrealizedCast);
+                        }
+                        return success();
+                    }
+                }
+            }
+
+            // Pattern 2: index -> unrealized_cast -> i32 -> index_cast -> index
+            if (indexCast.getIn().getType().isInteger(32) &&
+                isa<IndexType>(indexCast.getResult().getType())) {
+
+                auto unrealizedCast = indexCast.getIn().getDefiningOp<UnrealizedConversionCastOp>();
+                if (unrealizedCast &&
+                    unrealizedCast.getInputs().size() == 1 &&
+                    unrealizedCast.getResults().size() == 1) {
+
+                    auto originalValue = unrealizedCast.getInputs()[0];
+                    if (isa<IndexType>(originalValue.getType())) {
+                        // Found the reverse pattern! Replace index_cast with original index value
+                        rewriter.replaceOp(indexCast, originalValue);
+
+                        if (unrealizedCast.getResult(0).use_empty()) {
+                            rewriter.eraseOp(unrealizedCast);
+                        }
+                        return success();
+                    }
+                }
+            }
+
+            // Pattern 3: Identity cast (same input and output type)
+            if (indexCast.getIn().getType() == indexCast.getResult().getType()) {
+                rewriter.replaceOp(indexCast, indexCast.getIn());
+                return success();
+            }
+
+            return failure();
+        }
+    };
+
+    struct CleanupUnrealizedCasts : public OpRewritePattern<UnrealizedConversionCastOp> {
+        using OpRewritePattern<UnrealizedConversionCastOp>::OpRewritePattern;
+
+        LogicalResult matchAndRewrite(UnrealizedConversionCastOp castOp, PatternRewriter &rewriter) const override {
+            if (castOp.getInputs().size() != 1 || castOp.getResults().size() != 1) {
+                return failure();
+            }
+
+            auto input = castOp.getInputs()[0];
+            auto output = castOp.getResults()[0];
+
+            // Pattern 1: Identity cast (i32 -> i32 or index -> index)
+            if (input.getType() == output.getType()) {
+                rewriter.replaceOp(castOp, input);
+                return success();
+            }
+
+            // Pattern 2: Chained unrealized casts (A -> B -> A)
+            if (auto prevCast = input.getDefiningOp<UnrealizedConversionCastOp>()) {
+                if (prevCast.getInputs().size() == 1 && prevCast.getResults().size() == 1) {
+                    auto originalValue = prevCast.getInputs()[0];
+                    // If we're converting back to the original type, bypass both casts
+                    if (originalValue.getType() == output.getType()) {
+                        rewriter.replaceOp(castOp, originalValue);
+                        if (prevCast.getResult(0).use_empty()) {
+                            rewriter.eraseOp(prevCast);
+                        }
+                        return success();
+                    }
+                }
+            }
+
+            return failure();
+        }
+    };
+
     struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
         void runOnOperation() override {
             auto designOp = getOperation();
-            
+
             {
                 RewritePatternSet Patterns(&getContext());
                 Patterns.add<GenerateGuardedStore>(&getContext());
@@ -868,7 +971,8 @@ namespace {
                             return false;
                     return true;
                 });
-//                target.addIllegalOp<IndexCastOp>();
+                // Keep IndexCastOp legal - don't convert it
+                target.addLegalOp<IndexCastOp>();
 
                 patterns.add<AddIOpConversion, ConstIndexConversion, MulIOpConversion,
                         SubIOpConversion, CmpIOpConversion, MulFOpConversion,
@@ -879,7 +983,7 @@ namespace {
                         DivUIOpConversion, DivSIOpConversion, RemUIOpConversion, RemSIOpConversion, SIToFPOpConversion,
                         ShRSIOpConversion, ShRUIOpConversion,
                         ShiftLeftConversionPattern, OrIConversionPattern, SelectConversionPattern,
-                        LoadOpConversion, StoreOpConversion, GuardedStoreOpConversion, IndexCastOpConversion, IndexCastOpRemoval,
+                        LoadOpConversion, StoreOpConversion, GuardedStoreOpConversion,
                         CpuRfReadConversion, CpuRfWriteConversion
                         /*MoveConstantUp, CallOpConversion*/>(converter, &getContext());
 
@@ -942,6 +1046,15 @@ namespace {
 
                 if (failed(applyPartialConversion(designOp, target, std::move(patterns))))
                     signalPassFailure();
+            }
+
+            {
+                // Clean up unrealized conversion casts and redundant index_cast chains
+                RewritePatternSet Patterns(&getContext());
+                Patterns.add<CleanupIndexCastChain, CleanupUnrealizedCasts>(&getContext());
+                GreedyRewriteConfig config;
+                config.setStrictness(GreedyRewriteStrictness::ExistingOps);
+                (void)applyPatternsAndFoldGreedily(designOp.getOperation(), std::move(Patterns), config);
             }
         }
     };
