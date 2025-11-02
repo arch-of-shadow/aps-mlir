@@ -74,6 +74,15 @@ struct FoldGlobalLoadAfterStore : public OpRewritePattern<GlobalLoad> {
     while (true) {
       Operation *prevOp = &*it;
 
+      // IMPORTANT: Stop at operations with regions (loops, conditionals, etc.)
+      // We cannot fold across region boundaries because the control flow
+      // means the store might not dominate the load
+      if (prevOp->getNumRegions() > 0) {
+        // Found a region-bearing operation (loop, conditional, etc.)
+        // Cannot safely fold across this boundary
+        return failure();
+      }
+
       // Check if this is a GlobalStore to the same global
       if (auto storeOp = dyn_cast<GlobalStore>(prevOp)) {
         if (storeOp.getGlobalName() == loadSymbol) {
@@ -139,6 +148,15 @@ struct RemoveDeadGlobalStore : public OpRewritePattern<GlobalStore> {
     // Scan forward to find the next GlobalStore to the same global
     while (it != block->end()) {
       Operation *nextOp = &*it;
+
+      // IMPORTANT: Stop at operations with regions (loops, conditionals, etc.)
+      // We cannot remove stores if a region exists between this store and the next,
+      // because the region might read the value before it's overwritten
+      if (nextOp->getNumRegions() > 0) {
+        // Found a region-bearing operation (loop, conditional, etc.)
+        // Cannot safely remove this store
+        return failure();
+      }
 
       // Check if this is a GlobalStore to the same global
       if (auto nextStoreOp = dyn_cast<GlobalStore>(nextOp)) {
