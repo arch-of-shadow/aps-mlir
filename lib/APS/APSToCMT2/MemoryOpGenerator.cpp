@@ -64,7 +64,7 @@ LogicalResult MemoryOpGenerator::generateGlobalMemLoad(
   StringRef globalName = op.getGlobalName();
 
   // Build the rule name: convert @count -> count_read
-  std::string memoryBankRule = (globalName + "_0_read").str();
+  std::string memoryBankRule = (globalName + "_read").str();
 
   llvm::outs() << "DEBUG: Global load from scalar global " << globalName
                << " using rule " << memoryBankRule << "\n";
@@ -107,7 +107,7 @@ LogicalResult MemoryOpGenerator::generateGlobalMemStore(
   StringRef globalName = op.getGlobalName();
 
   // Build the rule name: convert @count -> count_read
-  std::string memoryBankRule = (globalName + "_0_write").str();
+  std::string memoryBankRule = (globalName + "_write").str();
 
   llvm::outs() << "DEBUG: Global load from scalar global " << globalName
                << " using rule " << memoryBankRule << "\n";

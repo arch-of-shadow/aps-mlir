@@ -249,6 +249,56 @@ private:
   performArithmeticOp(mlir::OpBuilder &b, Location loc, mlir::Value lhs,
                       mlir::Value rhs, mlir::Value result, StringRef opName,
                       llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform comparison operation using Signal abstraction
+  LogicalResult
+  performComparisonOp(mlir::OpBuilder &b, Location loc, mlir::Value lhs,
+                      mlir::Value rhs, mlir::Value result,
+                      mlir::tor::CmpIPredicate predicate,
+                      llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform select operation using Signal abstraction (mux)
+  LogicalResult
+  performSelectOp(mlir::OpBuilder &b, Location loc, mlir::Value condition,
+                  mlir::Value trueValue, mlir::Value falseValue,
+                  mlir::Value result,
+                  llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform unsigned extension operation using Signal abstraction (pad)
+  LogicalResult
+  performExtUIOp(mlir::OpBuilder &b, Location loc, mlir::Value input,
+                 mlir::Value result,
+                 llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform truncation operation using Signal abstraction (bits)
+  LogicalResult
+  performTruncIOp(mlir::OpBuilder &b, Location loc, mlir::Value input,
+                  mlir::Value result,
+                  llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform bit extraction operation using Signal abstraction (bits)
+  LogicalResult
+  performExtractOp(mlir::OpBuilder &b, Location loc, mlir::Value input,
+                   unsigned lowBit, mlir::Value result,
+                   llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform shift operation using Signal abstraction (<<, >>, dshr)
+  LogicalResult
+  performShiftOp(mlir::OpBuilder &b, Location loc, mlir::Value lhs,
+                 mlir::Value rhs, mlir::Value result, StringRef opName,
+                 llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform bitwise operation using Signal abstraction (&, |, ^)
+  LogicalResult
+  performBitwiseOp(mlir::OpBuilder &b, Location loc, mlir::Value lhs,
+                   mlir::Value rhs, mlir::Value result, StringRef opName,
+                   llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform signed extension operation using FIRRTL asSInt/pad/asUInt
+  LogicalResult
+  performExtSIOp(mlir::OpBuilder &b, Location loc, mlir::Value input,
+                 mlir::Value result,
+                 llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 };
 
 //===----------------------------------------------------------------------===//

@@ -46,8 +46,8 @@ bool APSToCMT2GenPass::extractMemoryParameters(memref::GlobalOp globalOp,
 
   depth = memrefType.getShape()[0];
 
-  // Calculate address width: ceil(log2(depth))
-  addrWidth = depth == 0 ? 1 : llvm::Log2_32_Ceil(depth);
+  // Calculate address width: ceil(log2(depth)), make sure addrWidth are positive
+  addrWidth = (depth <= 1) ? 1 : llvm::Log2_32_Ceil(depth);
 
   return true;
 }
@@ -822,6 +822,11 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
           entryInfo.name + "_" + std::to_string(bankIdx) + "_read";
       std::string topWriteName =
           entryInfo.name + "_" + std::to_string(bankIdx) + "_write";
+      if (entryInfo.numBanks == 1) {
+        // Not array_partitioned, we should not add a bandIdx on it
+        topReadName = entryInfo.name + "_read";
+        topWriteName = entryInfo.name + "_write";
+      }
       std::string entryReadName = "bank_read_" + std::to_string(bankIdx);
       std::string entryWriteName = "bank_write_" + std::to_string(bankIdx);
 

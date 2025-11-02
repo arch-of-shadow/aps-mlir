@@ -38,6 +38,7 @@ static reduction_idxs_out: [u32; 16];
 #[funct7(7'b0101010)]
 rtype vfpsmax_v(rs1: u5, rs2: u5, rd: u5) {
   let addr: u32 = _irf[rs1];  // Base address of distance array
+  let out_addr: u32 = _irf[rs2];
   let vl: u32 = 16;            // Vector length
 
   // Burst read distances from memory into input buffer
@@ -137,7 +138,6 @@ rtype vfpsmax_v(rs1: u5, rs2: u5, rd: u5) {
   _irf[rd] = final_idx;
 
   // Write max value and index to memory for further processing
-  let out_addr: u32 = _irf[rs2];
   _mem[out_addr] = final_max;
   _mem[out_addr + 4] = final_idx;
 }
