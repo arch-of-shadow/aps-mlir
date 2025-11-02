@@ -197,6 +197,12 @@ def UnificationIndexCast: Pass<"unification-index-cast", "mlir::func::FuncOp"> {
 //   let dependentDialects = ["mlir::tor::TORDialect"];
 // }
 
+def NormalizeMemrefIndices : Pass<"normalize-memref-indices", "mlir::func::FuncOp"> {
+  let summary = "Normalize memref indices for affine-raise-from-memref compatibility";
+  let constructor = "mlir::createNormalizeMemrefIndicesPass()";
+  let dependentDialects = ["mlir::arith::ArithDialect", "memref::MemRefDialect"];
+}
+
 def NewArrayPartition : Pass<"new-array-partition", "mlir::ModuleOp"> {
   let summary = "New Array partition";
   let constructor = "mlir::createNewArrayPartitionPass()";

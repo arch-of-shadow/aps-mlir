@@ -113,6 +113,19 @@ bool hasSymbolic(AffineExpr expr) {
   }
 }
 
+// Check if an access can be partitioned (bank may be runtime-computed)
+bool canBankPartition(AffineMap map, int rank, MLIRContext *ctx, int factor,
+                      bool cyclic) {
+  auto expr = map.getResult(rank);
+  if (!expr || hasSymbolic(expr)) {
+    return false;
+  }
+  // The key insight: for cyclic partition, any valid affine expression
+  // (e.g., %i, %i*4, %i*4+1) can be partitioned as long as it's affine
+  // We don't require the bank to be compile-time constant
+  return true;
+}
+
 int getMemBank(AffineMap map, int rank, MLIRContext *ctx, int factor,
                bool cyclic) {
   auto expr = map.getResult(rank);
@@ -199,19 +212,65 @@ bool checkValueUsers(Value val, int64_t rankNum) {
   return true;
 }
 
+// Helper to check if memref.load/store indices can form affine expressions
+bool canFormAffineExpr(Value index) {
+  // Check if this is a constant
+  if (index.getDefiningOp<arith::ConstantOp>() ||
+      index.getDefiningOp<arith::ConstantIndexOp>())
+    return true;
+
+  // Check if this is an index_cast - look through it
+  if (auto cast = index.getDefiningOp<arith::IndexCastOp>())
+    return canFormAffineExpr(cast.getIn());
+
+  // Check if this is an arithmetic operation on affine-compatible values
+  if (auto addOp = index.getDefiningOp<arith::AddIOp>())
+    return canFormAffineExpr(addOp.getLhs()) && canFormAffineExpr(addOp.getRhs());
+
+  if (auto mulOp = index.getDefiningOp<arith::MulIOp>()) {
+    // For mul, one operand must be constant
+    return (canFormAffineExpr(mulOp.getLhs()) &&
+            (mulOp.getRhs().getDefiningOp<arith::ConstantOp>() ||
+             mulOp.getRhs().getDefiningOp<arith::ConstantIndexOp>())) ||
+           (canFormAffineExpr(mulOp.getRhs()) &&
+            (mulOp.getLhs().getDefiningOp<arith::ConstantOp>() ||
+             mulOp.getLhs().getDefiningOp<arith::ConstantIndexOp>()));
+  }
+
+  // Check if this is a block argument (loop induction variable)
+  if (auto blockArg = llvm::dyn_cast<BlockArgument>(index)) {
+    auto *parentOp = blockArg.getOwner()->getParentOp();
+    return llvm::isa<affine::AffineForOp, affine::AffineParallelOp>(parentOp);
+  }
+
+  return false;
+}
+
 bool rankCanBePartition(Value arg, size_t rank, unsigned bank_factor,
                         bool cyclic, MLIRContext *ctx) {
   for (auto *op : arg.getUsers()) {
     if (auto load = dyn_cast<AffineLoadOp>(op)) {
-      if (getMemBank(load.getAffineMap(), rank, ctx, bank_factor, cyclic) ==
-          -1) {
+      // For runtime bank computation, we just need valid affine access
+      if (!canBankPartition(load.getAffineMap(), rank, ctx, bank_factor, cyclic)) {
         LLVM_DEBUG(llvm::dbgs() << "Can not Partition " << load << "\n");
         return false;
       }
     } else if (auto store = dyn_cast<AffineStoreOp>(op)) {
-      if (getMemBank(store.getAffineMap(), rank, ctx, bank_factor, cyclic) ==
-          -1) {
+      // For runtime bank computation, we just need valid affine access
+      if (!canBankPartition(store.getAffineMap(), rank, ctx, bank_factor, cyclic)) {
         LLVM_DEBUG(llvm::dbgs() << "Can not Partition " << store << "\n");
+        return false;
+      }
+    } else if (auto load = dyn_cast<memref::LoadOp>(op)) {
+      // Check if memref.load indices can form affine expressions
+      if (load.getIndices().size() != 1 || !canFormAffineExpr(load.getIndices()[0])) {
+        LLVM_DEBUG(llvm::dbgs() << "Can not Partition memref.load " << load << "\n");
+        return false;
+      }
+    } else if (auto store = dyn_cast<memref::StoreOp>(op)) {
+      // Check if memref.store indices can form affine expressions
+      if (store.getIndices().size() != 1 || !canFormAffineExpr(store.getIndices()[0])) {
+        LLVM_DEBUG(llvm::dbgs() << "Can not Partition memref.store " << store << "\n");
         return false;
       }
     }
