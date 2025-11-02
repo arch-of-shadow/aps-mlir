@@ -200,6 +200,10 @@ LogicalResult BBHandler::validateOperations() {
       if (isa<aps::GlobalLoad, aps::GlobalStore>(op)) {
         continue;
       }
+      if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq,
+              aps::ItfcBurstLoadCollect, aps::ItfcBurstStoreCollect, aps::ItfcLoadCollect, aps::ItfcStoreCollect>(op)) {
+        continue;
+      }
       op->emitError("unsupported operation for rule generation");
       return failure();
     }
@@ -224,9 +228,21 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
       if (isa<arith::ConstantOp>(op))
         continue;
 
+      // Skip interface operations - their results are dummy tokens that don't need FIFOs
+      if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq>(op)) {
+        llvm::outs() << "[FIFO DEBUG] Skipping FIFO creation for interface operation\n";
+        continue;
+      }
+
       for (mlir::Value res : op->getResults()) {
         if (!isa<mlir::IntegerType>(res.getType()))
           continue;
+
+        // Skip constants - they don't need FIFOs since they have no readers
+        if (res.getDefiningOp<arith::ConstantOp>()) {
+          llvm::outs() << "[FIFO DEBUG] Skipping FIFO creation for constant value\n";
+          continue;
+        }
 
         // Group consumers by their target stage
         // IMPORTANT: Only include consumers that are in THIS block's slotMap
@@ -314,6 +330,12 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
 
       if (!isa<mlir::IntegerType>(inputValue.getType()))
         continue;
+
+      // Skip constants - they don't need cross-slot FIFOs
+      if (inputValue.getDefiningOp<arith::ConstantOp>()) {
+        llvm::outs() << "[FIFO DEBUG] Skipping cross-slot FIFO for constant input value\n";
+        continue;
+      }
 
       // Find all operations that use this input value and group by slot
       // IMPORTANT: Only include consumers that are in THIS block's slotMap

@@ -524,6 +524,12 @@ LogicalResult BlockHandler::createProducerFIFOs() {
     BlockInfo *consumerBlock = flow.consumer_block;
     Value value = flow.value;
 
+    // Skip constants - they don't need FIFOs since there will be no readers
+    if (value.getDefiningOp<arith::ConstantOp>()) {
+      llvm::outs() << "[BlockHandler] Skipping FIFO creation for constant value\n";
+      continue;
+    }
+
     // PANIC: Ensure producer block exists in our block list
     if (producerBlock->blockId >= blocks.size()) {
       llvm::report_fatal_error("Producer block ID out of range");
@@ -638,6 +644,18 @@ bool BlockHandler::isVirtualValue(Value value) {
 
     // Memory allocation operations are virtual
     if (isa<memref::AllocOp, memref::AllocaOp>(defOp)) {
+      return true;
+    }
+
+    // Special handling for interface operations - don't track their tokens as cross-block values
+    if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq>(defOp)) {
+      // Don't track the request token as a produced value - it should only be consumed locally
+      return true;
+    }
+
+    // Special handling for interface collect operations - they don't produce values for cross-block flow
+    if (isa<aps::ItfcBurstLoadCollect, aps::ItfcBurstStoreCollect>(defOp)) {
+      // Collect operations don't produce values that flow to other blocks
       return true;
     }
   }

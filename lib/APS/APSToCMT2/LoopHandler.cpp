@@ -159,6 +159,12 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
       if (!fifo)
         continue;
 
+      // Skip constants - they don't need to be dequeued
+      if (value.getDefiningOp<arith::ConstantOp>()) {
+        llvm::outs() << "[LoopHandler] Skipping constant value in entry rule\n";
+        continue;
+      }
+
       // Check if this value has a corresponding loop-to-body FIFO or state register
       // If not, it means this value is NOT used by the loop - skip dequeuing
       bool hasLoopToBodyFifo = loop.loop_to_body_fifos.count(value) > 0;
@@ -329,6 +335,11 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
             // Read from state registers and enqueue to loop-to-body FIFOs
             // This provides the cross-block values for the next iteration
             for (auto &[value, fifo] : input_fifos) {
+              // Skip constants - they don't have state registers
+              if (value.getDefiningOp<arith::ConstantOp>()) {
+                continue;
+              }
+
               if (fifo && loop.input_state_registers.count(value) && loop.loop_to_body_fifos.count(value)) {
                 Instance *stateReg = loop.input_state_registers[value];
                 auto storedValue = stateReg->callMethod("read", {}, b)[0];
@@ -464,6 +475,12 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
   llvm::outs() << "[LoopHandler] Creating state registers and loop-to-body FIFOs for input values used in loop body\n";
   for (auto &[value, fifo] : input_fifos) {
     if (fifo) {
+      // Skip constants - they don't need FIFOs since there will be no readers
+      if (value.getDefiningOp<arith::ConstantOp>()) {
+        llvm::outs() << "[LoopHandler] Skipping constant value (constants don't need FIFOs)\n";
+        continue;
+      }
+
       // Check if this value is actually used in the loop body
       if (!isValueUsedInLoopBody(value, loopBody)) {
         llvm::outs() << "[LoopHandler] Skipping value (not used in loop body)\n";
