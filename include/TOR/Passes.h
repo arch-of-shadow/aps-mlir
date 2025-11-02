@@ -54,6 +54,8 @@ namespace mlir {
 
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createNewArrayPartitionPass();
 
+    std::unique_ptr<Pass> createNormalizeMemrefIndicesPass();
+
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createArrayOptPass();
 
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createCountCyclesPass();
