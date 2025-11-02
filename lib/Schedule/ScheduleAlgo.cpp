@@ -1050,8 +1050,31 @@ namespace scheduling {
                     op2->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP)
                     continue;
 
-                // no dependency if not the same memref
-                if (!isSameGlobalMemref(memop1->getMemRef(), maxiop2->getMemRef())) {
+                // Check if memrefs match
+                // For aps.memburstload/aps.memburststore, we need to check all variadic memrefs
+                bool memrefMatches = false;
+                if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op2->getOp())) {
+                    // Check if any of the burst load's memrefs match
+                    for (auto memref : memBurstLoadOp.getMemrefs()) {
+                        if (isSameGlobalMemref(memop1->getMemRef(), memref)) {
+                            memrefMatches = true;
+                            break;
+                        }
+                    }
+                } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op2->getOp())) {
+                    // Check if any of the burst store's memrefs match
+                    for (auto memref : memBurstStoreOp.getMemrefs()) {
+                        if (isSameGlobalMemref(memop1->getMemRef(), memref)) {
+                            memrefMatches = true;
+                            break;
+                        }
+                    }
+                } else {
+                    // For regular burst operations (tor::AXI*), use the single memref
+                    memrefMatches = isSameGlobalMemref(memop1->getMemRef(), maxiop2->getMemRef());
+                }
+
+                if (!memrefMatches) {
                     continue;
                 }
 
@@ -1130,19 +1153,61 @@ namespace scheduling {
                 if (memop2 == nullptr || op1.get() == op2.get())
                     continue;
 
-                // no dependency if not the same memref
-                if (!isSameGlobalMemref(maxiop1->getMemRef(), memop2->getMemRef()))
+                // Check if memrefs match
+                // For aps.memburstload/aps.memburststore, we need to check all variadic memrefs
+                bool memrefMatches = false;
+                if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op1->getOp())) {
+                    // Check if any of the burst load's memrefs match
+                    for (auto memref : memBurstLoadOp.getMemrefs()) {
+                        if (isSameGlobalMemref(memref, memop2->getMemRef())) {
+                            memrefMatches = true;
+                            break;
+                        }
+                    }
+                } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op1->getOp())) {
+                    // Check if any of the burst store's memrefs match
+                    for (auto memref : memBurstStoreOp.getMemrefs()) {
+                        if (isSameGlobalMemref(memref, memop2->getMemRef())) {
+                            memrefMatches = true;
+                            break;
+                        }
+                    }
+                } else {
+                    // For regular burst operations (tor::AXI*), use the single memref
+                    memrefMatches = isSameGlobalMemref(maxiop1->getMemRef(), memop2->getMemRef());
+                }
+
+                if (!memrefMatches)
                     continue;
+
+                // Debug: log when memrefs match
+                llvm::errs() << "DEBUG: Memref match found (reverse) between "
+                             << op1->getOp()->getName() << " and "
+                             << op2->getOp()->getName() << "\n";
+                llvm::errs() << "  maxiop1 ParentBB: " << maxiop1->getParentBB()
+                             << ", ParentLoop: " << maxiop1->getParentLoop() << "\n";
+                llvm::errs() << "  memop2 ParentBB: " << memop2->getParentBB()
+                             << ", ParentLoop: " << memop2->getParentLoop() << "\n";
 
                 // Check if maxiop1 can reach memop2
                 int Distance = -1;
-                if (canReach(maxiop1, memop2, false))
+                bool canReachDirect = canReach(maxiop1, memop2, false);
+                bool canReachLoop = canReach(maxiop1, memop2, true);
+
+                llvm::errs() << "  canReach(burst->mem, false): " << canReachDirect
+                             << ", canReach(burst->mem, true): " << canReachLoop << "\n";
+
+                if (canReachDirect)
                     Distance = 0;
-                else if (canReach(maxiop1, memop2, true))
+                else if (canReachLoop)
                     Distance = 1;
 
-                if (Distance == -1)
+                if (Distance == -1) {
+                    llvm::errs() << "  Distance == -1, skipping dependency\n";
                     continue;
+                }
+
+                llvm::errs() << "  Distance: " << Distance << ", adding dependency from burst to mem\n";
 
                 // Add appropriate dependencies
                 if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP &&
