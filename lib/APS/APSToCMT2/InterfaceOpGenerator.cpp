@@ -75,7 +75,7 @@ LogicalResult InterfaceOpGenerator::generateItfcLoadReq(aps::ItfcLoadReq op, mli
   auto size = UInt::constant(2, 2, b, loc);
   auto mask = UInt::constant(0, 4, b, loc);
   auto tagConst = UInt::constant(0x3f, 8, b, loc);
-  auto tag = (addrSignal ^ tagConst).bits(7, 0);
+  auto tag = (addrSignal & tagConst).bits(7, 0);
 
   llvm::SmallVector<mlir::Value> bundleFields = {
       *addr, readCmd.getValue(), size.getValue(),
@@ -151,7 +151,7 @@ LogicalResult InterfaceOpGenerator::generateItfcStoreReq(aps::ItfcStoreReq op, m
   auto size = UInt::constant(2, 2, b, loc);
   auto mask = UInt::constant(0, 4, b, loc);
   auto tagConst = UInt::constant(0x3f, 8, b, loc);
-  auto tag = (addrSignal ^ tagConst).bits(7, 0);
+  auto tag = (addrSignal & tagConst).bits(7, 0);
 
   llvm::SmallVector<mlir::Value> bundleFields = {
       *addr, WriteCmd.getValue(), size.getValue(),
