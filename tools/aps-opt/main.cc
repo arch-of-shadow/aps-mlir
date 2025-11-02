@@ -194,8 +194,6 @@ int main(int argc, char **argv) {
     args.push_back("--canonicalize");
     args.push_back("--raise-scf-to-affine");
     args.push_back("--canonicalize");
-    args.push_back("--normalize-memref-indices");
-    args.push_back("--canonicalize");
     args.push_back("--affine-raise-from-memref");
     args.push_back("--infer-affine-mem-access");
     args.push_back("--canonicalize");

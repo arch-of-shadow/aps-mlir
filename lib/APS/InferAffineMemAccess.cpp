@@ -53,19 +53,40 @@ struct AffineExprInfo {
   int64_t offset = 0;      // 'b' constant
 };
 
-// Helper to trace back through index_cast to find if a value comes from an IV
+// Helper to trace back through index_cast and type conversions to find if a value comes from an IV
 static Value findInductionVar(Value val) {
   // First check if val itself is an IV
   if (isAffineForInductionVar(val))
     return val;
 
-  // Trace through index_cast
+  // Trace through index_cast and other cast operations
   Value current = val;
-  while (auto castOp = current.getDefiningOp<arith::IndexCastOp>()) {
-    current = castOp.getIn();
-    if (isAffineForInductionVar(current))
-      return current;
+  while (true) {
+    if (auto castOp = current.getDefiningOp<arith::IndexCastOp>()) {
+      current = castOp.getIn();
+      if (isAffineForInductionVar(current))
+        return current;
+      continue;
+    }
+
+    // Also trace through ExtSI/ExtUI for sign/zero extension
+    if (auto extOp = current.getDefiningOp<arith::ExtSIOp>()) {
+      current = extOp.getIn();
+      if (isAffineForInductionVar(current))
+        return current;
+      continue;
+    }
+
+    if (auto extOp = current.getDefiningOp<arith::ExtUIOp>()) {
+      current = extOp.getIn();
+      if (isAffineForInductionVar(current))
+        return current;
+      continue;
+    }
+
+    break;
   }
+
   return Value();
 }
 
@@ -154,10 +175,26 @@ static MultiDimAffineInfo analyzeMultiDimIndex(Value index) {
 static AffineExprInfo analyzeIndex(Value index) {
   AffineExprInfo info;
 
-  // Trace through index_cast operations to find the computation
+  // Trace through index_cast and other cast operations to find the computation
   Value current = index;
-  while (auto castOp = current.getDefiningOp<arith::IndexCastOp>()) {
-    current = castOp.getIn();
+  while (true) {
+    if (auto castOp = current.getDefiningOp<arith::IndexCastOp>()) {
+      current = castOp.getIn();
+      continue;
+    }
+    if (auto extOp = current.getDefiningOp<arith::ExtSIOp>()) {
+      current = extOp.getIn();
+      continue;
+    }
+    if (auto extOp = current.getDefiningOp<arith::ExtUIOp>()) {
+      current = extOp.getIn();
+      continue;
+    }
+    if (auto truncOp = current.getDefiningOp<arith::TruncIOp>()) {
+      current = truncOp.getIn();
+      continue;
+    }
+    break;
   }
 
   // Check if it's directly an induction variable: x
@@ -230,29 +267,32 @@ static AffineExprInfo analyzeIndex(Value index) {
     Value lhs = mulOp.getLhs();
     Value rhs = mulOp.getRhs();
 
-    // Try lhs = x, rhs = a
+    // Try lhs = x, rhs = a (with potential casts on lhs)
     if (Value iv = findInductionVar(lhs)) {
       if (auto multiplier = getConstantIntValue(rhs)) {
         info.found = true;
         info.inductionVar = iv;
         info.multiplier = *multiplier;
         info.offset = 0;
+        LLVM_DEBUG(llvm::dbgs() << "Found pattern: " << *multiplier << " * IV (lhs)\n");
         return info;
       }
     }
 
-    // Try lhs = a, rhs = x
+    // Try lhs = a, rhs = x (with potential casts on rhs)
     if (Value iv = findInductionVar(rhs)) {
       if (auto multiplier = getConstantIntValue(lhs)) {
         info.found = true;
         info.inductionVar = iv;
         info.multiplier = *multiplier;
         info.offset = 0;
+        LLVM_DEBUG(llvm::dbgs() << "Found pattern: " << *multiplier << " * IV (rhs)\n");
         return info;
       }
     }
   }
 
+  LLVM_DEBUG(llvm::dbgs() << "Could not analyze index: " << index << "\n");
   return info;
 }
 
