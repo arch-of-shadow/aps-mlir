@@ -58,7 +58,9 @@ struct BlockInfo {
   llvm::SmallVector<Value> consumedValues;
 
   // Cross-block communication - producer creates these
-  llvm::DenseMap<Value, Instance*> output_fifos;  // Values this block produces
+  // For each produced value, map to list of (consumer_block, FIFO) pairs
+  // One value may have multiple consumers, each needs its own FIFO
+  llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> output_fifos;
   llvm::DenseMap<Value, Instance*> input_fifos;   // Values this block consumes
 
   // Block execution coordination - unified token system
@@ -97,7 +99,7 @@ public:
                unsigned long opcode, Instance *regRdInstance,
                Instance *inputTokenFIFO, Instance *outputTokenFIFO,
               llvm::DenseMap<Value, Instance*> &input_fifos,
-              llvm::DenseMap<Value, Instance*> &output_fifos,
+              llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> &output_fifos,
               const std::string &namePrefix = "");
 
   /// Process all blocks in the function
@@ -147,9 +149,10 @@ protected:
   // Unified token FIFOs for cross-block coordination (block i -> block i+1)
   llvm::DenseMap<std::pair<unsigned, unsigned>, Instance*> unifiedTokenFIFOs;
 
-  // Input and Output FIFOs of the blocks, via input
+  // Input and Output FIFOs of the blocks, via input from parent
   llvm::DenseMap<Value, Instance*> input_fifos;
-  llvm::DenseMap<Value, Instance*> output_fifos;
+  // Output FIFOs: for each value, list of (consumer_block, FIFO) pairs
+  llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> output_fifos;
 
   //===--------------------------------------------------------------------===//
   // Input Distribution Infrastructure (for sub-blocks)

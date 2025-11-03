@@ -39,7 +39,7 @@ BlockHandler::BlockHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::Func
                           unsigned long opcode, Instance *regRdInstance,
                           Instance *inputTokenFIFO, Instance *outputTokenFIFO,
                           llvm::DenseMap<Value, Instance*> &input_fifos,
-                          llvm::DenseMap<Value, Instance*> &output_fifos,
+                          llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> &output_fifos,
                           const std::string &namePrefix)
     : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
       roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), regRdInstance(regRdInstance),
@@ -420,8 +420,12 @@ LogicalResult BlockHandler::segmentBlockIntoBlocks(Block *mlirBlock, unsigned &b
     }
 
     // Propagate output FIFOs (these are for values this segment may produce)
-    for (const auto &pair : output_fifos) {
-        block.output_fifos[pair.first] = pair.second;
+    // Only copy the FIFOs that are actually for this block's consumers
+    for (const auto &[value, fifoList] : output_fifos) {
+        for (const auto &[consumerBlock, fifo] : fifoList) {
+            // Add this FIFO to the block's output_fifos
+            block.output_fifos[value].push_back(std::make_pair(consumerBlock, fifo));
+        }
     }
 
     // Mark special block types
@@ -547,15 +551,13 @@ LogicalResult BlockHandler::createProducerFIFOs() {
       llvm::report_fatal_error("Failed to create producer FIFO");
     }
 
-    // Store using unified naming convention
-    producerBlock->output_fifos[value] = fifo;
+    // Store in producer's output_fifos as (consumer_block, FIFO) pair
+    // This allows producer to enqueue to all consumer FIFOs
+    producerBlock->output_fifos[value].push_back(std::make_pair(consumerBlock, fifo));
 
-    // Also store in consumer's input FIFOs for easy access
-    for (BlockInfo *consumerBlock : findValueConsumers(value)) {
-      if (consumerBlock != producerBlock) {
-        consumerBlock->input_fifos[value] = fifo;
-      }
-    }
+    // Store in THIS specific consumer's input FIFOs (not all consumers!)
+    // Each consumer gets its own dedicated FIFO from the producer
+    consumerBlock->input_fifos[value] = fifo;
 
     flow.fifo = fifo;
   }
@@ -606,20 +608,21 @@ llvm::SmallVector<BlockInfo*> BlockHandler::findValueConsumers(Value value) {
 }
 
 bool BlockHandler::isValueUsedInBlock(Value value, BlockInfo& targetBlock) {
-  // Check if value is used in any operation in this block
+  // Check if value is used in any operation in this block's segment
   for (Operation *user : value.getUsers()) {
-    // Direct use: user is in the same block
-    if (user->getBlock() == targetBlock.mlirBlock) {
-      llvm::errs() << "    ✓ MATCH (direct)\n";
-      return true;
+    // Direct use: user is directly in this block's operation list
+    for (Operation *blockOp : targetBlock.operations) {
+      if (user == blockOp) {
+        llvm::errs() << "    ✓ MATCH (direct in segment)\n";
+        return true;
+      }
     }
 
-    // Nested use: user is inside a control flow operation that belongs to this block
-    // Check if any operation in targetBlock.operations contains this user
+    // Nested use: user is inside a control flow operation that belongs to this block's segment
     for (Operation *blockOp : targetBlock.operations) {
       // Check if user is nested within blockOp's regions (handles arbitrary nesting depth)
       if (blockOp->isAncestor(user)) {
-        llvm::errs() << "    ✓ MATCH (nested)\n";
+        llvm::errs() << "    ✓ MATCH (nested in segment)\n";
         return true;
       }
     }

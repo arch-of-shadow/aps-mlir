@@ -93,7 +93,7 @@ public:
               unsigned long opcode, Instance *regRdInstance, Instance *input_token_fifo,
               Instance *output_token_fifo,
               llvm::DenseMap<Value, Instance *> &input_fifos,
-              llvm::DenseMap<Value, Instance *> &output_fifos,
+              llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> &output_fifos,
               const std::string &namePrefix = "");
 
   /// Process a loop block within the unified block system

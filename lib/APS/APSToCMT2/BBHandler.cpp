@@ -641,7 +641,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
 
   unsigned blockId = block.blockId;
   llvm::DenseMap<Value, Instance*> &inputFIFOs = block.input_fifos;
-  llvm::DenseMap<Value, Instance*> &outputFIFOs = block.output_fifos;
+  llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> &outputFIFOs = block.output_fifos;
   Instance *block_input_token_fifo = block.input_token_fifo;
   Instance *block_output_token_fifo = block.output_token_fifo;
 
@@ -813,10 +813,16 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
           }
 
           // Enqueue to cross-block output FIFOs (for other blocks)
+          // A value may have multiple consumers, so enqueue to ALL their FIFOs
           auto outputIt = outputFIFOs.find(result);
-          if (outputIt != outputFIFOs.end() && outputIt->second) {
-            outputIt->second->callMethod("enq", {valueIt->second}, b);
-            llvm::outs() << "[BBHandler] Enqueued value to cross-block output FIFO\n";
+          if (outputIt != outputFIFOs.end()) {
+            for (const auto &[consumerBlock, fifo] : outputIt->second) {
+              if (fifo) {
+                fifo->callMethod("enq", {valueIt->second}, b);
+                llvm::outs() << "[BBHandler] Enqueued value to cross-block output FIFO for consumer block "
+                             << consumerBlock->blockId << "\n";
+              }
+            }
           }
         }
       }

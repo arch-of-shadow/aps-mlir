@@ -57,7 +57,7 @@ void APSToCMT2GenPass::generateRulesForFunction(
   Instance *topLevelInputTokenFIFO = nullptr;
   Instance *topLevelOutputTokenFIFO = nullptr;
   llvm::DenseMap<Value, Instance*> topLevelInputFIFOs;  // Empty for top level
-  llvm::DenseMap<Value, Instance*> topLevelOutputFIFOs; // Empty for top level
+  llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> topLevelOutputFIFOs; // Empty for top level
 
   // Create BlockHandler to manage all blocks with FIFO coordination
   // BlockHandler will internally delegate to specialized handlers (LoopHandler, BBHandler) as needed

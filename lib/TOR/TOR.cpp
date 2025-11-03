@@ -1,6 +1,7 @@
 #include "TOR/TOR.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
@@ -14,8 +15,11 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "circt/Dialect/Comb/CombOps.h"
 
 using namespace mlir;
 using namespace tor;
@@ -699,12 +703,29 @@ static bool isOperationEquivalent(mlir::Operation* lhs, mlir::Operation* rhs) {
         return false;
     }
 
+    if (auto lhsop = dyn_cast<circt::comb::ExtractOp>(lhs)) {
+        if (auto rhsop = dyn_cast<circt::comb::ExtractOp>(rhs)) {
+            auto lhsLowBit = lhsop.getLowBit();
+            auto rhsLowBit = rhsop.getLowBit();
+            llvm::dbgs() << lhsLowBit << rhsLowBit;
+            lhsop->dump();
+            rhsop->dump();
+            return lhsLowBit == rhsLowBit;
+            return false;
+        }
+        return false;
+    }
+
     if (getStarttimeAttr(lhs) != getStarttimeAttr(rhs) ||
         getEndtimeAttr(lhs) != getEndtimeAttr(rhs)) {
         return false;
     }
 
     if (isa<memref::GetGlobalOp>(lhs) || isa<memref::GetGlobalOp>(rhs)) {
+        return false;
+    }
+
+    if (lhs->getName().getStringRef().starts_with("arith.ext") || rhs->getName().getStringRef().starts_with("arith.ext")) {
         return false;
     }
 

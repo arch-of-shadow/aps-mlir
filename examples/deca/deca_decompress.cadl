@@ -105,7 +105,7 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
         // Update sparse index counter (counts non-zero elements)
         vidx = vidx_3;
 
-    } while idx < 8;
+    } while idx <= 8;
 
     // ========================================================================
     // Stage 2: Fully Affine Decompression
@@ -123,7 +123,7 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
         // Write result (affine access)
         decompressed_weights[idx] = dequant;  // ✅ Affine: decompressed_weights[idx]
 
-    } while idx < 32;
+    } while idx <= 32;
 
     // Burst write decompressed output (32 × i16 = 64 bytes)
     _burst_write[out_addr +: 64] = decompressed_weights[0 +: ];
