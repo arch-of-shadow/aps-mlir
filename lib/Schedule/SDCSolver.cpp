@@ -58,8 +58,21 @@ bool SDCSolver::initSolution() {
     NumIteration++;
   } while (NumIteration < NumVariable);
 
-  if (NumIteration == NumVariable)
+  if (NumIteration == NumVariable) {
+    llvm::errs() << "ERROR: SDC solver detected negative cycle (no solution exists)\n";
+    llvm::errs() << "NumVariable = " << NumVariable << ", NumIteration = " << NumIteration << "\n";
+    llvm::errs() << "Dumping constraint graph:\n";
+    for (int i = 0; i < NumVariable && i < 50; ++i) {
+      for (auto &edge : Edges[i]) {
+        llvm::errs() << "  Var" << i << " -> Var" << edge.to << " (distance: " << edge.length << ")\n";
+      }
+    }
+    llvm::errs() << "Current solution values:\n";
+    for (int i = 0; i < NumVariable && i < 50; ++i) {
+      llvm::errs() << "  Var" << i << " = " << Solution[i] << "\n";
+    }
     return ValidFlag = false;
+  }
   return ValidFlag = true;
 }
 

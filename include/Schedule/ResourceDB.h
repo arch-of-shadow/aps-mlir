@@ -271,16 +271,10 @@ public:
     int amount = 1;         // 1 means single port (one read or write per cycle)
     bool hasConstraint = true;  // All memories have resource constraints
 
-    // Set latency based on whether this is _cpu_memory
-    // _cpu_memory has 1 cycle latency, other memories have 0 cycle latency
-    std::vector<int> latency;
-    if (isCpuMemory) {
-      latency = std::vector<int>(BIT_WIDTH_TYPE, 1);  // 1 cycle latency for _cpu_memory
-      llvm::errs() << "  _cpu_memory detected: using latency=1\n";
-    } else {
-      latency = std::vector<int>(BIT_WIDTH_TYPE, 0);  // 0 cycle latency for other memories
-      llvm::errs() << "  Non-CPU memory: using latency=0\n";
-    }
+    // Keep base memport latency for all APS memories
+    // Special handling for load/store will be done at scheduling constraint generation level
+    std::vector<int> latency = baseMemport.latency;
+    llvm::errs() << "  Using base latency=" << baseMemport.latency[0] << " (isCpuMemory=" << isCpuMemory << ")\n";
 
     llvm::errs() << "  Creating new resource: " << memrefName
                  << " amount=" << amount << " hasConstraint=" << hasConstraint << "\n";
