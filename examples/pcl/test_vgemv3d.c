@@ -46,8 +46,11 @@ int main(void) {
   printf("Running on: %s\n\n", march);
 
   // Call custom instruction
-  uint32_t result = vgemv3d_vv((uint32_t)(unsigned long)input_data,
-                                (uint32_t)(unsigned long)output_data);
+  volatile uint32_t result = 0;
+  for (int i = 0; i < 10; i++) {
+    result = vgemv3d_vv((uint32_t)(unsigned long)input_data,
+               (uint32_t)(unsigned long)output_data);
+  }
 
   printf("Returned rd value: %u\n", result);
 

@@ -125,8 +125,12 @@ int main(void) {
   print_hex_array("Sparse values", input_data, 16);
 
   // Call custom instruction
-  uint32_t result1 = deca_decompress_u1((uint32_t)(unsigned long)input_data,
-                                         (uint32_t)(unsigned long)output_data);
+  // Call custom instruction
+  volatile uint32_t result1 = 0;
+  for (int i = 0; i < 10; i++) {
+    result1 = deca_decompress_u1((uint32_t)(unsigned long)input_data,
+               (uint32_t)(unsigned long)output_data);
+  }
 
   printf("\nReturned rd value: %u\n", result1);
   print_i16_array("Output", output_data, 32);
