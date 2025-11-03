@@ -455,7 +455,7 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
     Block *loopBody = loop.forOp ? loop.forOp.getBody() : nullptr;
     if (loopBody && isValueUsedInLoopBody(loop.inductionVar, loopBody)) {
       llvm::outs() << "[LoopHandler] Creating FIFO for induction variable (used in loop body)\n";
-      auto *indVarMod = STLLibrary::createFIFO1PushModule(
+      auto *indVarMod = STLLibrary::createFIFO2IModule(
           getBitWidth(loop.inductionVar.getType()), circuit);
       builder.restoreInsertionPoint(savedIP);
       std::string indVarName = loop.loopName + "_induction_var";
@@ -499,7 +499,7 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
       llvm::outs() << "[LoopHandler] Created state register: " << regName << " (width=" << bitWidth << ")\n";
 
       // Create loop-to-body FIFO for loop body to consume from
-      auto *loopToBodyFifoMod = STLLibrary::createFIFO1PushModule(bitWidth, circuit);
+      auto *loopToBodyFifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
       builder.restoreInsertionPoint(savedIP);
       std::string loopToBodyFifoName = loop.loopName + "_loop_to_body_fifo_" + std::to_string(loop.loop_to_body_fifos.size());
       Instance *loopToBodyFifo = mainModule->addInstance(

@@ -780,7 +780,7 @@ class CADLMLIRConverter:
             return cast_op.results[0]
         return value
 
-    def _promote_operands(self, left: ir.Value, right: ir.Value) -> tuple[ir.Value, ir.Value]:
+    def _promote_operands(self, left: ir.Value, right: ir.Value, expr: Optional[BinaryExpr] = None) -> tuple[ir.Value, ir.Value]:
         """
         Promote operands to same type for binary operations.
 
@@ -790,6 +790,7 @@ class CADLMLIRConverter:
         Args:
             left: Left operand value
             right: Right operand value
+            expr: Original BinaryExpr AST node (optional, for signedness checking)
 
         Returns:
             Tuple of (promoted_left, promoted_right) with matching types
@@ -800,11 +801,21 @@ class CADLMLIRConverter:
             right_width = right.type.width
 
             if left_width < right_width:
-                # Extend left to match right (unsigned extension for safety)
-                return (arith.ExtUIOp(right.type, left).result, right)
+                # Determine if left operand is signed from expression
+                is_left_signed = expr and self._get_expr_signedness(expr.left)
+                # Extend left to match right (use sign-aware extension)
+                if is_left_signed:
+                    return (arith.ExtSIOp(right.type, left).result, right)
+                else:
+                    return (arith.ExtUIOp(right.type, left).result, right)
             elif right_width < left_width:
-                # Extend right to match left (unsigned extension for safety)
-                return (left, arith.ExtUIOp(left.type, right).result)
+                # Determine if right operand is signed from expression
+                is_right_signed = expr and self._get_expr_signedness(expr.right)
+                # Extend right to match left (use sign-aware extension)
+                if is_right_signed:
+                    return (left, arith.ExtSIOp(left.type, right).result)
+                else:
+                    return (left, arith.ExtUIOp(left.type, right).result)
 
         # No promotion needed (same type or non-integer types)
         return (left, right)
@@ -837,7 +848,7 @@ class CADLMLIRConverter:
             expr: Original BinaryExpr AST node (optional, for type checking)
         """
         # Promote operands to same type if they have different integer widths
-        left, right = self._promote_operands(left, right)
+        left, right = self._promote_operands(left, right, expr)
 
         # Check if left operand is signed by checking the original expression's CADL type
         is_signed = expr and self._get_expr_signedness(expr.left)

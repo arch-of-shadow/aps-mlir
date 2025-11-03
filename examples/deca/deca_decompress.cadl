@@ -36,6 +36,7 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
     let base_addr: u32 = _irf[rs1];
 
     let out_addr: u32 = _irf[rs2];
+    vidx = 0;
 
     // Burst read compressed data
     // Memory layout: [bitmask (4 bytes u8), values (32 bytes i8)]
@@ -120,7 +121,10 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
         let val: i8 = dense_values[idx];  // ✅ Affine: dense_values[idx]
 
         // Q8.8 multiplication with global scale
-        let mul_result: i32 = val * global_scale;
+        // let mul_result: i32 = val * global_scale;
+        let val32: i32 = val;
+        let global_scale32: i32 = global_scale;
+        let mul_result: i32 = val32 * global_scale32;
         let dequant: i16 = (mul_result >> 8)[15:0];
 
         // Write result (affine access)
