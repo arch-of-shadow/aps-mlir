@@ -120,6 +120,13 @@ private:
   bool pipelineFunction();
 
   bool checkParallelCallOpResourceConstraints(SDCSolver *SDC, bool &needReschedule);
+
+  /// Get adjusted latency for APS memory operations
+  /// - aps.memload on _cpu_memory: 1 cycle
+  /// - aps.memload on other memories: 0 cycle
+  /// - aps.memstore on all memories: 1 cycle (use base latency)
+  int getAdjustedLatency(SDCOpWrapper *op);
+
 public:
   explicit SDCSchedule(Operation *op, ResourceDB &RDB) : ScheduleBase(op, RDB) {
     SDCOperations.clear();

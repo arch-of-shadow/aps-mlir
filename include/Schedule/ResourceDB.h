@@ -220,9 +220,12 @@ public:
   ///
   /// All memories are now treated as 1RW (one-read-one-write) with amount=1,
   /// meaning only one read or write operation can occur per cycle.
+  ///
+  /// Special handling for _cpu_memory: latency is 1 cycle, others have 0 latency
   int getOrCreateMemrefResource(mlir::Value memref) {
     // Generate a unique name for this memref resource
     std::string memrefName = "memport_unknown";
+    bool isCpuMemory = false;
 
     llvm::errs() << "getOrCreateMemrefResource called for memref\n";
     if (auto defOp = memref.getDefiningOp()) {
@@ -230,6 +233,8 @@ public:
       if (auto getGlobalOp = llvm::dyn_cast<mlir::memref::GetGlobalOp>(defOp)) {
         std::string globalName = getGlobalOp.getName().str();
         llvm::errs() << "  Found GetGlobalOp, globalName=" << globalName << "\n";
+        // Check if this is _cpu_memory
+        isCpuMemory = (globalName.find("_cpu_memory") != std::string::npos);
         // All memories are 1RW regardless of attributes
         memrefName = "memport_" + globalName + "_1rw";
       } else if (auto allocOp = llvm::dyn_cast<tor::AllocOp>(defOp)) {
@@ -239,6 +244,7 @@ public:
         os << defOp;
         size_t hash = std::hash<std::string>{}(os.str());
         memrefName = "memport_alloc_1rw_" + std::to_string(hash);
+        isCpuMemory = false; // tor.alloc is not _cpu_memory
       } else if (defOp->getName().getStringRef().str() == "aps.memdeclare") {
         // For aps.memdeclare, always treat as 1RW
         std::string opStr;
@@ -246,6 +252,7 @@ public:
         os << defOp;
         size_t hash = std::hash<std::string>{}(os.str());
         memrefName = "memport_aps_1rw_" + std::to_string(hash);
+        isCpuMemory = false; // aps.memdeclare is not _cpu_memory
       }
     }
 
@@ -264,11 +271,16 @@ public:
     int amount = 1;         // 1 means single port (one read or write per cycle)
     bool hasConstraint = true;  // All memories have resource constraints
 
+    // Keep base memport latency for all APS memories
+    // Special handling for load/store will be done at scheduling constraint generation level
+    std::vector<int> latency = baseMemport.latency;
+    llvm::errs() << "  Using base latency=" << baseMemport.latency[0] << " (isCpuMemory=" << isCpuMemory << ")\n";
+
     llvm::errs() << "  Creating new resource: " << memrefName
                  << " amount=" << amount << " hasConstraint=" << hasConstraint << "\n";
 
-    // Create a new component
-    Component newComp(memrefName, baseMemport.delay, baseMemport.latency,
+    // Create a new component with the appropriate latency
+    Component newComp(memrefName, baseMemport.delay, latency,
                       baseMemport.II, hasConstraint, amount);
     addComponent(newComp);
 
