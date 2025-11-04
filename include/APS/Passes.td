@@ -84,6 +84,22 @@ def InferAffineMemAccess : Pass<"infer-affine-mem-access"> {
   let dependentDialects = ["affine::AffineDialect", "arith::ArithDialect", "memref::MemRefDialect"];
 }
 
+def APSMemLoadDuplication : Pass<"aps-memload-duplication", "mlir::tor::FuncOp"> {
+  let summary = "Duplicate memory loads to reduce FIFO usage";
+  let description = [{
+    This pass duplicates aps.memload operations when they are used at different
+    cycles than when they are loaded. If there is no memory conflict at the
+    user's cycle, the memload is duplicated at that cycle to eliminate the need
+    for a FIFO buffer to hold the value across cycles.
+
+    For example, if a memload executes at cycle 7 but is used by an operation at
+    cycle 10, and there's no other access to that memory at cycle 10, the pass
+    will duplicate the memload at cycle 10, saving a FIFO.
+  }];
+  let constructor = "mlir::createAPSMemLoadDuplicationPass()";
+  let dependentDialects = ["mlir::tor::TORDialect", "aps::APSDialect"];
+}
+
 def APSSplitMemoryOps : Pass<"aps-split-memory-ops", "mlir::tor::DesignOp"> {
   let summary = "Split APS memory operations into request-collect pairs";
   let constructor = "mlir::createAPSSplitMemoryOpsPass()";

@@ -171,6 +171,47 @@ static MultiDimAffineInfo analyzeMultiDimIndex(Value index) {
   return info;
 }
 
+// Try to evaluate a value as a compile-time constant by tracing through arithmetic ops
+static std::optional<int64_t> tryEvaluateConstant(Value val) {
+  // Direct constant check
+  if (auto constVal = getConstantIntValue(val))
+    return constVal;
+
+  // Trace through casts
+  if (auto castOp = val.getDefiningOp<arith::IndexCastOp>())
+    return tryEvaluateConstant(castOp.getIn());
+  if (auto extOp = val.getDefiningOp<arith::ExtSIOp>())
+    return tryEvaluateConstant(extOp.getIn());
+  if (auto extOp = val.getDefiningOp<arith::ExtUIOp>())
+    return tryEvaluateConstant(extOp.getIn());
+  if (auto truncOp = val.getDefiningOp<arith::TruncIOp>())
+    return tryEvaluateConstant(truncOp.getIn());
+
+  // Evaluate binary operations
+  if (auto addOp = val.getDefiningOp<arith::AddIOp>()) {
+    auto lhs = tryEvaluateConstant(addOp.getLhs());
+    auto rhs = tryEvaluateConstant(addOp.getRhs());
+    if (lhs && rhs)
+      return *lhs + *rhs;
+  }
+
+  if (auto mulOp = val.getDefiningOp<arith::MulIOp>()) {
+    auto lhs = tryEvaluateConstant(mulOp.getLhs());
+    auto rhs = tryEvaluateConstant(mulOp.getRhs());
+    if (lhs && rhs)
+      return *lhs * *rhs;
+  }
+
+  if (auto subOp = val.getDefiningOp<arith::SubIOp>()) {
+    auto lhs = tryEvaluateConstant(subOp.getLhs());
+    auto rhs = tryEvaluateConstant(subOp.getRhs());
+    if (lhs && rhs)
+      return *lhs - *rhs;
+  }
+
+  return std::nullopt;
+}
+
 // Trace through index_cast, muli, addi to find affine pattern
 static AffineExprInfo analyzeIndex(Value index) {
   AffineExprInfo info;
@@ -341,6 +382,26 @@ struct InferAffineLoadPattern : public OpRewritePattern<memref::LoadOp> {
     // Fallback to single-dimensional analysis
     AffineExprInfo info = analyzeIndex(index);
     if (!info.found) {
+      // Last resort: check if index is a pure constant expression
+      if (auto constIndex = tryEvaluateConstant(index)) {
+        LLVM_DEBUG(llvm::dbgs() << "Found constant index " << *constIndex
+                                << " for: " << loadOp << "\n");
+
+        // Build affine map: () -> (constant)
+        AffineExpr affineExpr = rewriter.getAffineConstantExpr(*constIndex);
+        AffineMap map = AffineMap::get(0, 0, affineExpr);
+
+        // Create affine.load with constant index (no IV needed)
+        auto affineLoad = rewriter.create<AffineLoadOp>(
+            loadOp.getLoc(), loadOp.getMemRef(), map, ValueRange{});
+
+        rewriter.replaceOp(loadOp, affineLoad.getResult());
+
+        LLVM_DEBUG(llvm::dbgs() << "Replaced with affine.load using constant map: "
+                                << map << "\n");
+        return success();
+      }
+
       LLVM_DEBUG(llvm::dbgs() << "Could not infer affine pattern for: " << loadOp << "\n");
       return failure();
     }
@@ -409,8 +470,30 @@ struct InferAffineStorePattern : public OpRewritePattern<memref::StoreOp> {
 
     // Fallback to single-dimensional analysis
     AffineExprInfo info = analyzeIndex(index);
-    if (!info.found)
+    if (!info.found) {
+      // Last resort: check if index is a pure constant expression
+      if (auto constIndex = tryEvaluateConstant(index)) {
+        LLVM_DEBUG(llvm::dbgs() << "Found constant index " << *constIndex
+                                << " for: " << storeOp << "\n");
+
+        // Build affine map: () -> (constant)
+        AffineExpr affineExpr = rewriter.getAffineConstantExpr(*constIndex);
+        AffineMap map = AffineMap::get(0, 0, affineExpr);
+
+        // Create affine.store with constant index (no IV needed)
+        rewriter.create<AffineStoreOp>(
+            storeOp.getLoc(), storeOp.getValue(), storeOp.getMemRef(),
+            map, ValueRange{});
+
+        rewriter.eraseOp(storeOp);
+
+        LLVM_DEBUG(llvm::dbgs() << "Replaced with affine.store using constant map: "
+                                << map << "\n");
+        return success();
+      }
+
       return failure();
+    }
 
     LLVM_DEBUG(llvm::dbgs() << "Found affine pattern: " << info.multiplier
                             << "*x + " << info.offset << " for: " << storeOp << "\n");

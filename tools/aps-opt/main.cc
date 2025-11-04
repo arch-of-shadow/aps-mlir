@@ -231,6 +231,7 @@ int main(int argc, char **argv) {
     args.push_back("--schedule-tor");
     args.push_back("--aps-split-memory-ops");
     args.push_back("--tor-time-graph");
+    args.push_back("--aps-memload-duplication"); //
     args.push_back("--canonicalize");
 
     if (generatePragmaReport) {

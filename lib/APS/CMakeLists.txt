@@ -6,6 +6,7 @@ add_mlir_library(APS
   MemRefToAPSMem.cpp
   MemoryMapPass.cpp
   InferAffineMemAccess.cpp
+  MemLoadDuplication.cpp
   APSSplitMemoryOpsPass.cpp
   APSHoistReadRF.cpp
   APSToCMT2/APSToCMT2GenPass.cpp

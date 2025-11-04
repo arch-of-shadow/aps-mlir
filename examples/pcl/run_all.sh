@@ -5,3 +5,4 @@ pixi run opt examples/pcl/vfpsmax.cadl vfpsmax.mlir && pixi run sv vfpsmax.mlir 
 pixi run opt examples/pcl/vgemv3d.cadl vgemv3d.mlir && pixi run sv vgemv3d.mlir vgemv3d.sv
 
 pixi run opt examples/deca/deca_decompress.cadl deca.mlir && pixi run sv deca.mlir deca.sv
+pixi run opt examples/deca/gemm.cadl gemm.mlir && pixi run sv gemm.mlir gemm.sv

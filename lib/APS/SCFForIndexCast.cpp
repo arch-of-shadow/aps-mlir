@@ -99,7 +99,8 @@ struct SCFForIndexCastPass : SCFForIndexCastBase<SCFForIndexCastPass> {
     RewritePatternSet patterns(&getContext());
     patterns.add<SCFForIndexCastPattern>(&getContext());
     GreedyRewriteConfig config;
-    config.setStrictness(GreedyRewriteStrictness::ExistingOps);
+    // Use AnyOp to process nested loops created during rewriting
+    config.setStrictness(GreedyRewriteStrictness::AnyOp);
     if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns), config))) {
       signalPassFailure();
     }
