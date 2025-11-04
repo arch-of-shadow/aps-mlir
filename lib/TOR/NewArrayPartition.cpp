@@ -601,7 +601,56 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
     }
   }
   for (auto part : new_part) {
-    part.op->setOperand(isa<AffineStoreOp>(part.op), newArray[part.bank]);
+    // Determine the correct memref operand index:
+    // - AffineLoadOp: memref is operand 0
+    // - AffineStoreOp: memref is operand 1 (operand 0 is the value)
+    unsigned memrefOperandIdx = isa<AffineStoreOp>(part.op) ? 1 : 0;
+
+    // Check for invalid bank index (0xFFFFFFFF = -1 cast to unsigned)
+    // This indicates getDimBank returned -1 due to non-constant access pattern
+    if (part.bank == static_cast<unsigned>(-1)) {
+      llvm::errs() << "\n=== ARRAY PARTITION ERROR ===\n";
+      llvm::errs() << "Fatal: Cannot determine memory bank for operation with non-constant index\n\n";
+      llvm::errs() << "Operation: " << *part.op << "\n\n";
+
+      // Get the affine map to show the problematic access pattern
+      if (auto load = dyn_cast<AffineLoadOp>(part.op)) {
+        llvm::errs() << "Affine map: " << load.getAffineMap() << "\n";
+        llvm::errs() << "Memref: " << load.getMemRef() << "\n";
+      } else if (auto store = dyn_cast<AffineStoreOp>(part.op)) {
+        llvm::errs() << "Affine map: " << store.getAffineMap() << "\n";
+        llvm::errs() << "Memref: " << store.getMemRef() << "\n";
+      }
+
+      llvm::errs() << "\nReason: The memory access pattern contains symbolic expressions or\n";
+      llvm::errs() << "non-constant indices that cannot be statically resolved to a specific\n";
+      llvm::errs() << "memory bank during array partitioning.\n\n";
+      llvm::errs() << "Possible causes:\n";
+      llvm::errs() << "  1. Index depends on loop induction variable in complex ways\n";
+      llvm::errs() << "  2. Index contains division/modulo operations that cannot be constant-folded\n";
+      llvm::errs() << "  3. Index uses symbolic values (function arguments, loop bounds)\n\n";
+      llvm::errs() << "Solutions:\n";
+      llvm::errs() << "  1. Simplify the index expression to use constant offsets\n";
+      llvm::errs() << "  2. Apply loop unrolling first to expose constant indices\n";
+      llvm::errs() << "  3. Use simpler partitioning factors that divide evenly\n";
+      llvm::errs() << "  4. Do not partition this array (remove partition attributes)\n\n";
+
+      llvm_unreachable("Array partitioning failed: non-constant memory bank index");
+    }
+
+    // Bounds check: ensure bank index is within newArray bounds
+    if (part.bank >= newArray.size()) {
+      llvm::errs() << "\n=== ARRAY PARTITION ERROR ===\n";
+      llvm::errs() << "Fatal: Bank index out of bounds\n\n";
+      llvm::errs() << "Bank index: " << part.bank << "\n";
+      llvm::errs() << "Array size: " << newArray.size() << "\n";
+      llvm::errs() << "Operation: " << *part.op << "\n\n";
+      llvm::errs() << "This indicates a mismatch between the calculated bank index\n";
+      llvm::errs() << "and the number of partitioned arrays created.\n\n";
+      llvm_unreachable("Array partitioning failed: bank index exceeds array bounds");
+    }
+
+    part.op->setOperand(memrefOperandIdx, newArray[part.bank]);
   }
 }
 

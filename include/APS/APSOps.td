@@ -41,6 +41,7 @@ def MemLoad : APSOp<"memload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let arguments = (ins AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
   let results = (outs AnyType:$result);
   let assemblyFormat = "$memref `[` $indices `]` attr-dict `:` type($memref) `,` type($indices) `->` type($result)";
+  let hasCanonicalizer = 1;
 }
 
 def MemStore : APSOp<"memstore", [MemoryEffects<[MemRead, MemWrite]>]> {
@@ -51,6 +52,7 @@ def MemStore : APSOp<"memstore", [MemoryEffects<[MemRead, MemWrite]>]> {
   }];
   let arguments = (ins AnyType:$value, AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
   let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices)";
+  let hasCanonicalizer = 1;
 }
 
 def ItfcLoadReq : APSOp<"itfc.load_req", [MemoryEffects<[MemRead, MemWrite]>]> {

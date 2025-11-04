@@ -37,6 +37,10 @@ cadl2c = { cmd = "python aps-frontend cadl2c" }
 args = ["cadl", "apsir"]
 cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e -i {{ cadl }} -o outputs/ > {{ apsir }}"
 
+[tasks.opt-debug]
+args = ["cadl"]
+cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e -i {{ cadl }} -o outputs/ --print-ir-after-all 2> error.log"
+
 [tasks.sv]
 args = ["apsir", "sv"]
 cmd = "./build/tools/aps-opt/aps-opt {{ apsir }} --aps-to-cmt2-gen --mlir-print-ir-after-failure | sed -n '/^module {$/,/^}$/p' | sed '/tor.design @aps_isaxes {/,/^  }/d' | sed '/aps\\.memorymap {/,/^  }/d' > {{ sv }}.mlir && sed -n '/cmt2\\.module @main(%clk: !firrtl\\.clock, %rst: !firrtl\\.uint<1>)/,/^}/p' {{ sv }}.mlir | sed '/cmt2\\.module @.*main(/!{/cmt2\\.module @/,/^}/d}' > {{ sv }}_main.mlir && ./circt/build/bin/circt-opt {{ sv }}.mlir --lower-cmt2-to-firrtl --mlir-print-ir-after-failure | ./circt/build/bin/firtool -format=mlir -o {{ sv }}"
