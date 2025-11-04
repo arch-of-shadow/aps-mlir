@@ -49,7 +49,7 @@ rtype gemm_4x4(rs1: u5, rs2: u5, rd: u5) {
     // rd receives status (0 = success)
 
     let addr_a: u32 = _irf[rs1];       // Base address of matrix A
-    let addr_b: u32 = _irf[rs1] + 64;  // Matrix B follows A (16 words × 4 bytes = 64 bytes)
+    // let addr_b: u32 = _irf[rs1] + 64;  // Matrix B follows A (16 words × 4 bytes = 64 bytes)
     let out_addr: u32 = _irf[rs2];     // Output address for matrix C
 
     // ========================================================================
@@ -60,7 +60,7 @@ rtype gemm_4x4(rs1: u5, rs2: u5, rd: u5) {
     matrix_a[0 +: ] = _burst_read[addr_a +: 16];
 
     // Burst read matrix B (16 i32 elements = 64 bytes)
-    matrix_b[0 +: ] = _burst_read[addr_b +: 16];
+    matrix_b[0 +: ] = _burst_read[addr_a + 64 +: 16];
 
     // ========================================================================
     // Stage 2: Matrix Multiplication - Triple Nested Loop

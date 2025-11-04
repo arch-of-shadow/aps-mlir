@@ -1,0 +1,1369 @@
+{
+  "constants": [
+    {
+      "name": "op_0",
+      "operands": "0",
+      "type": "i32"
+    },
+    {
+      "name": "op_1",
+      "operands": "8",
+      "type": "i32"
+    },
+    {
+      "name": "op_2",
+      "operands": "64",
+      "type": "i32"
+    },
+    {
+      "name": "op_3",
+      "operands": "68",
+      "type": "i32"
+    },
+    {
+      "name": "op_4",
+      "operands": "6",
+      "type": "i32"
+    },
+    {
+      "name": "op_5",
+      "operands": "4",
+      "type": "i32"
+    },
+    {
+      "name": "op_6",
+      "operands": "2",
+      "type": "i32"
+    },
+    {
+      "name": "op_7",
+      "operands": "3",
+      "type": "i32"
+    },
+    {
+      "name": "op_8",
+      "operands": "7",
+      "type": "i32"
+    },
+    {
+      "name": "op_9",
+      "operands": "0",
+      "type": "i8"
+    },
+    {
+      "name": "op_10",
+      "operands": "1",
+      "type": "i32"
+    },
+    {
+      "name": "op_11",
+      "operands": "0",
+      "type": "i32"
+    },
+    {
+      "name": "op_12",
+      "operands": "8",
+      "type": "i32"
+    },
+    {
+      "name": "op_13",
+      "operands": "1",
+      "type": "i32"
+    }
+  ],
+  "level": "software",
+  "memory": [
+    {
+      "name": "op_14",
+      "size": 1024,
+      "type": "i32"
+    },
+    {
+      "name": "op_15",
+      "size": 8,
+      "type": "i64"
+    },
+    {
+      "name": "op_16",
+      "size": 8,
+      "type": "i8"
+    },
+    {
+      "name": "op_17",
+      "size": 8,
+      "type": "i8"
+    },
+    {
+      "name": "op_18",
+      "size": 8,
+      "type": "i8"
+    },
+    {
+      "name": "op_19",
+      "size": 8,
+      "type": "i8"
+    },
+    {
+      "name": "op_20",
+      "size": 8,
+      "type": "i16"
+    },
+    {
+      "name": "op_21",
+      "size": 8,
+      "type": "i16"
+    },
+    {
+      "name": "op_22",
+      "size": 8,
+      "type": "i16"
+    },
+    {
+      "name": "op_23",
+      "size": 8,
+      "type": "i16"
+    },
+    {
+      "name": "op_24",
+      "size": 1,
+      "type": "i32"
+    }
+  ],
+  "modules": [
+    {
+      "args": [
+        "op_174_0_b",
+        "op_174_1_b",
+        "op_174_2_b"
+      ],
+      "body": [
+        {
+          "name": "op_25",
+          "op_type": "readrf",
+          "operands": [
+            "op_174_0_b"
+          ],
+          "type": "i32"
+        },
+        {
+          "name": "op_26",
+          "op_type": "readrf",
+          "operands": [
+            "op_174_1_b"
+          ],
+          "type": "i32"
+        },
+        {
+          "memory": "vidx",
+          "op_type": "globalstore",
+          "value": "op_0"
+        },
+        {
+          "memory_name": "values",
+          "name": "op_28",
+          "op_type": "get_global",
+          "type": "memref<8xi64>"
+        },
+        {
+          "cpu_addr": "op_25",
+          "length": "op_1",
+          "memory": [
+            "op_28"
+          ],
+          "op_type": "memburstload",
+          "start": "op_0"
+        },
+        {
+          "memory_name": "_cpu_memory",
+          "name": "op_30",
+          "op_type": "get_global",
+          "type": "memref<1024xi32>"
+        },
+        {
+          "name": "op_31",
+          "op_type": "add",
+          "operands": [
+            "op_25",
+            "op_2"
+          ],
+          "type": "i32"
+        },
+        {
+          "indices": [
+            "op_31"
+          ],
+          "memory": "op_30",
+          "name": "op_32",
+          "op_type": "memload",
+          "type": "i32"
+        },
+        {
+          "name": "op_33",
+          "op_type": "add",
+          "operands": [
+            "op_25",
+            "op_3"
+          ],
+          "type": "i32"
+        },
+        {
+          "indices": [
+            "op_33"
+          ],
+          "memory": "op_30",
+          "name": "op_34",
+          "op_type": "memload",
+          "type": "i32"
+        },
+        {
+          "name": "op_35",
+          "op_type": "trunci",
+          "operands": [
+            "op_34"
+          ],
+          "type": "i16"
+        },
+        {
+          "body": [
+            {
+              "name": "op_36",
+              "op_type": "index_cast",
+              "operands": [
+                "op_123_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "from": 24,
+              "name": "op_37",
+              "op_type": "extract",
+              "operands": [
+                "op_32"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_38",
+              "op_type": "cmp_ult",
+              "operands": [
+                "op_36",
+                "op_4"
+              ],
+              "type": "bool"
+            },
+            {
+              "from": 16,
+              "name": "op_39",
+              "op_type": "extract",
+              "operands": [
+                "op_32"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_40",
+              "op_type": "select",
+              "operands": [
+                "op_38",
+                "op_39",
+                "op_37"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_41",
+              "op_type": "cmp_ult",
+              "operands": [
+                "op_36",
+                "op_5"
+              ],
+              "type": "bool"
+            },
+            {
+              "from": 8,
+              "name": "op_42",
+              "op_type": "extract",
+              "operands": [
+                "op_32"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_43",
+              "op_type": "select",
+              "operands": [
+                "op_41",
+                "op_42",
+                "op_40"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_44",
+              "op_type": "cmp_ult",
+              "operands": [
+                "op_36",
+                "op_6"
+              ],
+              "type": "bool"
+            },
+            {
+              "from": 0,
+              "name": "op_45",
+              "op_type": "extract",
+              "operands": [
+                "op_32"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_46",
+              "op_type": "select",
+              "operands": [
+                "op_44",
+                "op_45",
+                "op_43"
+              ],
+              "type": "i8"
+            },
+            {
+              "from": 0,
+              "name": "op_47",
+              "op_type": "extract",
+              "operands": [
+                "op_36"
+              ],
+              "type": "bool"
+            },
+            {
+              "name": "op_48",
+              "op_type": "extui",
+              "operands": [
+                "op_47"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_49",
+              "op_type": "mul",
+              "operands": [
+                "op_48",
+                "op_5"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_50",
+              "op_type": "extui",
+              "operands": [
+                "op_46"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_51",
+              "op_type": "shrui",
+              "operands": [
+                "op_50",
+                "op_49"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_52",
+              "op_type": "trunci",
+              "operands": [
+                "op_51"
+              ],
+              "type": "i8"
+            },
+            {
+              "from": 0,
+              "name": "op_53",
+              "op_type": "extract",
+              "operands": [
+                "op_52"
+              ],
+              "type": "bool"
+            },
+            {
+              "memory": "vidx",
+              "op_type": "globalload"
+            },
+            {
+              "name": "op_55",
+              "op_type": "shrui",
+              "operands": [
+                "op_54",
+                "op_7"
+              ],
+              "type": "i32"
+            },
+            {
+              "memory": "vidx",
+              "op_type": "globalload"
+            },
+            {
+              "name": "op_57",
+              "op_type": "and",
+              "operands": [
+                "op_56",
+                "op_8"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_55"
+              ],
+              "memory": "op_28",
+              "name": "op_58",
+              "op_type": "memload",
+              "type": "i64"
+            },
+            {
+              "name": "op_59",
+              "op_type": "mul",
+              "operands": [
+                "op_57",
+                "op_1"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_60",
+              "op_type": "extui",
+              "operands": [
+                "op_59"
+              ],
+              "type": "i64"
+            },
+            {
+              "name": "op_61",
+              "op_type": "shrsi",
+              "operands": [
+                "op_58",
+                "op_60"
+              ],
+              "type": "i64"
+            },
+            {
+              "from": 0,
+              "name": "op_62",
+              "op_type": "extract",
+              "operands": [
+                "op_61"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_63",
+              "op_type": "select",
+              "operands": [
+                "op_53",
+                "op_62",
+                "op_9"
+              ],
+              "type": "i8"
+            },
+            {
+              "memory_name": "dense_values_0",
+              "name": "op_64",
+              "op_type": "get_global",
+              "type": "memref<8xi8>"
+            },
+            {
+              "memory_name": "dense_values_1",
+              "name": "op_65",
+              "op_type": "get_global",
+              "type": "memref<8xi8>"
+            },
+            {
+              "memory_name": "dense_values_2",
+              "name": "op_66",
+              "op_type": "get_global",
+              "type": "memref<8xi8>"
+            },
+            {
+              "memory_name": "dense_values_3",
+              "name": "op_67",
+              "op_type": "get_global",
+              "type": "memref<8xi8>"
+            },
+            {
+              "name": "op_68",
+              "op_type": "index_cast",
+              "operands": [
+                "op_123_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_68"
+              ],
+              "memory": "op_64",
+              "op_type": "memstore",
+              "value": "op_63"
+            },
+            {
+              "memory": "vidx",
+              "op_type": "globalload"
+            },
+            {
+              "name": "op_71",
+              "op_type": "extui",
+              "operands": [
+                "op_53"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_72",
+              "op_type": "add",
+              "operands": [
+                "op_70",
+                "op_71"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_73",
+              "op_type": "add",
+              "operands": [
+                "op_49",
+                "op_10"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_74",
+              "op_type": "shrui",
+              "operands": [
+                "op_50",
+                "op_73"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_75",
+              "op_type": "trunci",
+              "operands": [
+                "op_74"
+              ],
+              "type": "i8"
+            },
+            {
+              "from": 0,
+              "name": "op_76",
+              "op_type": "extract",
+              "operands": [
+                "op_75"
+              ],
+              "type": "bool"
+            },
+            {
+              "name": "op_77",
+              "op_type": "shrui",
+              "operands": [
+                "op_72",
+                "op_7"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_78",
+              "op_type": "and",
+              "operands": [
+                "op_72",
+                "op_8"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_77"
+              ],
+              "memory": "op_28",
+              "name": "op_79",
+              "op_type": "memload",
+              "type": "i64"
+            },
+            {
+              "name": "op_80",
+              "op_type": "mul",
+              "operands": [
+                "op_78",
+                "op_1"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_81",
+              "op_type": "extui",
+              "operands": [
+                "op_80"
+              ],
+              "type": "i64"
+            },
+            {
+              "name": "op_82",
+              "op_type": "shrsi",
+              "operands": [
+                "op_79",
+                "op_81"
+              ],
+              "type": "i64"
+            },
+            {
+              "from": 0,
+              "name": "op_83",
+              "op_type": "extract",
+              "operands": [
+                "op_82"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_84",
+              "op_type": "select",
+              "operands": [
+                "op_76",
+                "op_83",
+                "op_9"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_85",
+              "op_type": "index_cast",
+              "operands": [
+                "op_123_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_85"
+              ],
+              "memory": "op_65",
+              "op_type": "memstore",
+              "value": "op_84"
+            },
+            {
+              "name": "op_87",
+              "op_type": "extui",
+              "operands": [
+                "op_76"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_88",
+              "op_type": "add",
+              "operands": [
+                "op_72",
+                "op_87"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_89",
+              "op_type": "add",
+              "operands": [
+                "op_49",
+                "op_6"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_90",
+              "op_type": "shrui",
+              "operands": [
+                "op_50",
+                "op_89"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_91",
+              "op_type": "trunci",
+              "operands": [
+                "op_90"
+              ],
+              "type": "i8"
+            },
+            {
+              "from": 0,
+              "name": "op_92",
+              "op_type": "extract",
+              "operands": [
+                "op_91"
+              ],
+              "type": "bool"
+            },
+            {
+              "name": "op_93",
+              "op_type": "shrui",
+              "operands": [
+                "op_88",
+                "op_7"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_94",
+              "op_type": "and",
+              "operands": [
+                "op_88",
+                "op_8"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_93"
+              ],
+              "memory": "op_28",
+              "name": "op_95",
+              "op_type": "memload",
+              "type": "i64"
+            },
+            {
+              "name": "op_96",
+              "op_type": "mul",
+              "operands": [
+                "op_94",
+                "op_1"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_97",
+              "op_type": "extui",
+              "operands": [
+                "op_96"
+              ],
+              "type": "i64"
+            },
+            {
+              "name": "op_98",
+              "op_type": "shrsi",
+              "operands": [
+                "op_95",
+                "op_97"
+              ],
+              "type": "i64"
+            },
+            {
+              "from": 0,
+              "name": "op_99",
+              "op_type": "extract",
+              "operands": [
+                "op_98"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_100",
+              "op_type": "select",
+              "operands": [
+                "op_92",
+                "op_99",
+                "op_9"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_101",
+              "op_type": "index_cast",
+              "operands": [
+                "op_123_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_101"
+              ],
+              "memory": "op_66",
+              "op_type": "memstore",
+              "value": "op_100"
+            },
+            {
+              "name": "op_103",
+              "op_type": "extui",
+              "operands": [
+                "op_92"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_104",
+              "op_type": "add",
+              "operands": [
+                "op_88",
+                "op_103"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_105",
+              "op_type": "add",
+              "operands": [
+                "op_49",
+                "op_7"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_106",
+              "op_type": "shrui",
+              "operands": [
+                "op_50",
+                "op_105"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_107",
+              "op_type": "trunci",
+              "operands": [
+                "op_106"
+              ],
+              "type": "i8"
+            },
+            {
+              "from": 0,
+              "name": "op_108",
+              "op_type": "extract",
+              "operands": [
+                "op_107"
+              ],
+              "type": "bool"
+            },
+            {
+              "name": "op_109",
+              "op_type": "shrui",
+              "operands": [
+                "op_104",
+                "op_7"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_110",
+              "op_type": "and",
+              "operands": [
+                "op_104",
+                "op_8"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_109"
+              ],
+              "memory": "op_28",
+              "name": "op_111",
+              "op_type": "memload",
+              "type": "i64"
+            },
+            {
+              "name": "op_112",
+              "op_type": "mul",
+              "operands": [
+                "op_110",
+                "op_1"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_113",
+              "op_type": "extui",
+              "operands": [
+                "op_112"
+              ],
+              "type": "i64"
+            },
+            {
+              "name": "op_114",
+              "op_type": "shrsi",
+              "operands": [
+                "op_111",
+                "op_113"
+              ],
+              "type": "i64"
+            },
+            {
+              "from": 0,
+              "name": "op_115",
+              "op_type": "extract",
+              "operands": [
+                "op_114"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_116",
+              "op_type": "select",
+              "operands": [
+                "op_108",
+                "op_115",
+                "op_9"
+              ],
+              "type": "i8"
+            },
+            {
+              "name": "op_117",
+              "op_type": "index_cast",
+              "operands": [
+                "op_123_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_117"
+              ],
+              "memory": "op_67",
+              "op_type": "memstore",
+              "value": "op_116"
+            },
+            {
+              "name": "op_119",
+              "op_type": "extui",
+              "operands": [
+                "op_108"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_120",
+              "op_type": "add",
+              "operands": [
+                "op_104",
+                "op_119"
+              ],
+              "type": "i32"
+            },
+            {
+              "memory": "vidx",
+              "op_type": "globalstore",
+              "value": "op_120"
+            },
+            {
+              "op_type": "yield",
+              "operands": []
+            }
+          ],
+          "iter_args": [],
+          "iter_inits": [],
+          "iter_name": "op_123_b",
+          "lb": "op_11",
+          "names": [],
+          "op_type": "for",
+          "step": "op_13",
+          "ub": "op_12"
+        },
+        {
+          "body": [
+            {
+              "memory_name": "dense_values_0",
+              "name": "op_124",
+              "op_type": "get_global",
+              "type": "memref<8xi8>"
+            },
+            {
+              "memory_name": "dense_values_1",
+              "name": "op_125",
+              "op_type": "get_global",
+              "type": "memref<8xi8>"
+            },
+            {
+              "memory_name": "dense_values_2",
+              "name": "op_126",
+              "op_type": "get_global",
+              "type": "memref<8xi8>"
+            },
+            {
+              "memory_name": "dense_values_3",
+              "name": "op_127",
+              "op_type": "get_global",
+              "type": "memref<8xi8>"
+            },
+            {
+              "name": "op_128",
+              "op_type": "index_cast",
+              "operands": [
+                "op_166_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_128"
+              ],
+              "memory": "op_124",
+              "name": "op_129",
+              "op_type": "memload",
+              "type": "i8"
+            },
+            {
+              "name": "op_130",
+              "op_type": "extsi",
+              "operands": [
+                "op_129"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_131",
+              "op_type": "extsi",
+              "operands": [
+                "op_35"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_132",
+              "op_type": "mul",
+              "operands": [
+                "op_130",
+                "op_131"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_133",
+              "op_type": "shrsi",
+              "operands": [
+                "op_132",
+                "op_1"
+              ],
+              "type": "i32"
+            },
+            {
+              "from": 0,
+              "name": "op_134",
+              "op_type": "extract",
+              "operands": [
+                "op_133"
+              ],
+              "type": "i16"
+            },
+            {
+              "memory_name": "decompressed_weights_0",
+              "name": "op_135",
+              "op_type": "get_global",
+              "type": "memref<8xi16>"
+            },
+            {
+              "memory_name": "decompressed_weights_1",
+              "name": "op_136",
+              "op_type": "get_global",
+              "type": "memref<8xi16>"
+            },
+            {
+              "memory_name": "decompressed_weights_2",
+              "name": "op_137",
+              "op_type": "get_global",
+              "type": "memref<8xi16>"
+            },
+            {
+              "memory_name": "decompressed_weights_3",
+              "name": "op_138",
+              "op_type": "get_global",
+              "type": "memref<8xi16>"
+            },
+            {
+              "name": "op_139",
+              "op_type": "index_cast",
+              "operands": [
+                "op_166_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_139"
+              ],
+              "memory": "op_135",
+              "op_type": "memstore",
+              "value": "op_134"
+            },
+            {
+              "name": "op_141",
+              "op_type": "index_cast",
+              "operands": [
+                "op_166_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_141"
+              ],
+              "memory": "op_125",
+              "name": "op_142",
+              "op_type": "memload",
+              "type": "i8"
+            },
+            {
+              "name": "op_143",
+              "op_type": "extsi",
+              "operands": [
+                "op_142"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_144",
+              "op_type": "mul",
+              "operands": [
+                "op_143",
+                "op_131"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_145",
+              "op_type": "shrsi",
+              "operands": [
+                "op_144",
+                "op_1"
+              ],
+              "type": "i32"
+            },
+            {
+              "from": 0,
+              "name": "op_146",
+              "op_type": "extract",
+              "operands": [
+                "op_145"
+              ],
+              "type": "i16"
+            },
+            {
+              "name": "op_147",
+              "op_type": "index_cast",
+              "operands": [
+                "op_166_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_147"
+              ],
+              "memory": "op_136",
+              "op_type": "memstore",
+              "value": "op_146"
+            },
+            {
+              "name": "op_149",
+              "op_type": "index_cast",
+              "operands": [
+                "op_166_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_149"
+              ],
+              "memory": "op_126",
+              "name": "op_150",
+              "op_type": "memload",
+              "type": "i8"
+            },
+            {
+              "name": "op_151",
+              "op_type": "extsi",
+              "operands": [
+                "op_150"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_152",
+              "op_type": "mul",
+              "operands": [
+                "op_151",
+                "op_131"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_153",
+              "op_type": "shrsi",
+              "operands": [
+                "op_152",
+                "op_1"
+              ],
+              "type": "i32"
+            },
+            {
+              "from": 0,
+              "name": "op_154",
+              "op_type": "extract",
+              "operands": [
+                "op_153"
+              ],
+              "type": "i16"
+            },
+            {
+              "name": "op_155",
+              "op_type": "index_cast",
+              "operands": [
+                "op_166_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_155"
+              ],
+              "memory": "op_137",
+              "op_type": "memstore",
+              "value": "op_154"
+            },
+            {
+              "name": "op_157",
+              "op_type": "index_cast",
+              "operands": [
+                "op_166_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_157"
+              ],
+              "memory": "op_127",
+              "name": "op_158",
+              "op_type": "memload",
+              "type": "i8"
+            },
+            {
+              "name": "op_159",
+              "op_type": "extsi",
+              "operands": [
+                "op_158"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_160",
+              "op_type": "mul",
+              "operands": [
+                "op_159",
+                "op_131"
+              ],
+              "type": "i32"
+            },
+            {
+              "name": "op_161",
+              "op_type": "shrsi",
+              "operands": [
+                "op_160",
+                "op_1"
+              ],
+              "type": "i32"
+            },
+            {
+              "from": 0,
+              "name": "op_162",
+              "op_type": "extract",
+              "operands": [
+                "op_161"
+              ],
+              "type": "i16"
+            },
+            {
+              "name": "op_163",
+              "op_type": "index_cast",
+              "operands": [
+                "op_166_b"
+              ],
+              "type": "i32"
+            },
+            {
+              "indices": [
+                "op_163"
+              ],
+              "memory": "op_138",
+              "op_type": "memstore",
+              "value": "op_162"
+            },
+            {
+              "op_type": "yield",
+              "operands": []
+            }
+          ],
+          "iter_args": [],
+          "iter_inits": [],
+          "iter_name": "op_166_b",
+          "lb": "op_11",
+          "names": [],
+          "op_type": "for",
+          "step": "op_13",
+          "ub": "op_12"
+        },
+        {
+          "memory_name": "decompressed_weights_0",
+          "name": "op_167",
+          "op_type": "get_global",
+          "type": "memref<8xi16>"
+        },
+        {
+          "memory_name": "decompressed_weights_1",
+          "name": "op_168",
+          "op_type": "get_global",
+          "type": "memref<8xi16>"
+        },
+        {
+          "memory_name": "decompressed_weights_2",
+          "name": "op_169",
+          "op_type": "get_global",
+          "type": "memref<8xi16>"
+        },
+        {
+          "memory_name": "decompressed_weights_3",
+          "name": "op_170",
+          "op_type": "get_global",
+          "type": "memref<8xi16>"
+        },
+        {
+          "cpu_addr": "op_26",
+          "length": "op_2",
+          "memory": [
+            "op_167",
+            "op_168",
+            "op_169",
+            "op_170"
+          ],
+          "op_type": "memburststore",
+          "start": "op_0"
+        },
+        {
+          "op_type": "writerf",
+          "operands": [
+            "op_174_2_b",
+            "op_0"
+          ]
+        },
+        {
+          "op_type": "return",
+          "operands": []
+        }
+      ],
+      "name": "flow_deca_decompress_u1",
+      "types": [
+        "i5",
+        "i5",
+        "i5"
+      ]
+    }
+  ]
+}

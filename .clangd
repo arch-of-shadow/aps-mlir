@@ -1,3 +1,40 @@
 CompileFlags:
+  CompilationDatabase: build
+  Add:
+    # RISC-V toolchain includes
+    - -I/home/share/zyy-riscv-toolchain/root/riscv32-unknown-elf/include
+    - -I/home/share/zyy-riscv-toolchain/root/include
+    # Chipyard baremetal includes (for marchid.h)
+    - -I/home/cloud/aps-mlir-chipyard/tests
+    # Target specification
+    - --target=riscv32-unknown-elf
+    - -march=rv32imac
+    - -mabi=ilp32
+    # Disable threading for baremetal/embedded systems
+    - -D_GLIBCXX_HAS_GTHREADS=0
+    - -D__SINGLE_THREAD__
+    # Suppress warnings for volatile to const conversions (common in embedded)
+    - -Wno-incompatible-pointer-types-discards-qualifiers
+    - -Wno-ignored-qualifiers
   Remove:
-    - -fno-lifetime-dse
+    # Remove unsupported debug flags that cause issues with cross-compilation
+    - -gsplit-dwarf
+    - -Wno-dev
+    # Remove C++ specific flags that may cause issues
+    - -std=c++*
+    - -stdlib=*
+
+Diagnostics:
+  # Suppress clangd diagnostics for embedded code patterns
+  Suppress:
+    - drv_unknown_argument
+    - err_drv_unsupported_opt_for_target
+    # Suppress volatile/const pointer conversion errors (common in embedded)
+    - ovl_no_viable_function_in_call
+    - typecheck_convert_incompatible_pointer_qual
+    - err_typecheck_convert_incompatible_pointer
+  # Don't show clang-tidy warnings
+  ClangTidy:
+    Remove: '*'
+  # Suppress unused includes warnings
+  UnusedIncludes: None
