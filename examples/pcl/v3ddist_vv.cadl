@@ -45,7 +45,7 @@ static dist_out: [u32; 16];
 
 // V3DDIST.VV - Vector-Vector mode
 // Computes distances between VL pairs of 3D points
-#[opcode(7'b0101011)]
+#[opcode(7'b0001011)]
 #[funct7(7'b0101000)]
 rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
   let addr1: u32 = _irf[rs1];  // Base address for first point set

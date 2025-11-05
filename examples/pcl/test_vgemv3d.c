@@ -7,7 +7,7 @@ __attribute__((alwaysinline))
 uint32_t vgemv3d_vv(uint32_t rs1, uint32_t rs2) {
   uint32_t rd = 0;
   asm volatile(
-  ".insn r 0x2B, 0b111, 0x31, %0, %1, %2"  // opcode=0x2B (0101011), funct7=0x31 (0110001)
+  ".insn r 0x7B, 0b111, 0x31, %0, %1, %2"  // opcode=0x2B (0101011), funct7=0x31 (0110001)
   : "=r"(rd) : "r"(rs1), "r"(rs2));
   return rd;
 }

@@ -7,3 +7,5 @@ pixi run opt examples/pcl/vgemv3d.cadl vgemv3d.mlir && pixi run sv vgemv3d.mlir 
 
 pixi run opt examples/deca/deca_decompress.cadl deca.mlir && pixi run sv deca.mlir deca.sv
 pixi run opt examples/deca/gemm.cadl gemm.mlir && pixi run sv gemm.mlir gemm.sv
+
+pixi run opt examples/pcl/pcl_all.cadl pcl.mlir && pixi run sv pcl.mlir pcl.sv

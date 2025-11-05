@@ -21,7 +21,7 @@ static result: [i32; 4];
 static acc: i32;
 // VGEMV3D.VV - Vector-Vector mode
 // Multiplies 4×4 matrix with 4D homogeneous vector
-#[opcode(7'b0101011)]
+#[opcode(7'b1111011)]
 #[funct7(7'b0110001)]
 rtype vgemv3d_vv(rs1: u5, rs2: u5, rd: u5) {
   let addr: u32 = _irf[rs1];    // Address of matrix data and vector data

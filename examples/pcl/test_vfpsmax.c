@@ -5,7 +5,7 @@
 
 __attribute__((alwaysinline)) uint32_t vfpsmax_v(uint32_t rs1, uint32_t rs2) {
   uint32_t rd = 0;
-  asm volatile(".insn r 0x2B, 0b111, 0x2A, %0, %1, %2" // opcode=0x2B (0101011),
+  asm volatile(".insn r 0x5B, 0b111, 0x2A, %0, %1, %2" // opcode=0x2B (0101011),
                                                        // funct7=0x2A (0101010)
                : "=r"(rd)
                : "r"(rs1), "r"(rs2));

@@ -34,7 +34,7 @@ static reduction_idxs_out: [u32; 16];
 
 // VFPSMAX.V - Find maximum value and index in a vector
 // Returns max value in first element of vd, max index in first element of vid
-#[opcode(7'b0101011)]
+#[opcode(7'b1011011)]
 #[funct7(7'b0101010)]
 rtype vfpsmax_v(rs1: u5, rs2: u5, rd: u5) {
   let addr: u32 = _irf[rs1];  // Base address of distance array
