@@ -7,17 +7,17 @@
 // Input: 16 3D points in Structure-of-Arrays (SOA) format
 // Layout: [X[16] | Y[16] | Z[16]] for parallel access
 #[partition_dim_array([0])]
-#[partition_factor_array([4])]
+#[partition_factor_array([2])]
 #[partition_cyclic_array([1])]
 static points_x: [i32; 16];
 
 #[partition_dim_array([0])]
-#[partition_factor_array([4])]
+#[partition_factor_array([2])]
 #[partition_cyclic_array([1])]
 static points_y: [i32; 16];
 
 #[partition_dim_array([0])]
-#[partition_factor_array([4])]
+#[partition_factor_array([2])]
 #[partition_cyclic_array([1])]
 static points_z: [i32; 16];
 
@@ -40,11 +40,9 @@ rtype vcovmat3d_vs(rs1: u5, rs2: u5, rd: u5) {
   let out_addr: u32 = _irf[rs2];       // Output address
 
   // Read centroid (3 scalar values after the 3 point arrays)
-  // Point cloud layout: X[16] (64B) | Y[16] (64B) | Z[16] (64B) | cx | cy | cz
-  let centroid_offset: u32 = 192; // 3 arrays × 16 elements × 4 bytes = 192
-  let cx: i32 = _mem[points_addr + centroid_offset];
-  let cy: i32 = _mem[points_addr + centroid_offset + 4];
-  let cz: i32 = _mem[points_addr + centroid_offset + 8];
+  let cx: i32 = _mem[out_addr + 32];
+  let cy: i32 = _mem[out_addr + 36];
+  let cz: i32 = _mem[out_addr + 40];
 
   // Initialize accumulator to zero
   cov_accum[0] = 0;  // C00 (σ_xx)
@@ -68,7 +66,7 @@ rtype vcovmat3d_vs(rs1: u5, rs2: u5, rd: u5) {
 
   // Process all 16 points with 4-way unrolling for throughput
   // Each iteration computes outer product and accumulates
-  [[unroll(4)]]
+  [[unroll(2)]]
   with i: u8 = (0, i + 1)
   do {
     // Read point coordinates (all available in parallel due to partitioning)

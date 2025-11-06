@@ -8,40 +8,40 @@
 // Cyclic partitioning with factor=16 for parallel vector lane access
 
 #[partition_dim_array([0])]
-#[partition_factor_array([2])]
+#[partition_factor_array([8])]
 #[partition_cyclic_array([1])]
-static points1_x: [u32; 16];
+static points1_x: [u32; 32];
 
 #[partition_dim_array([0])]
-#[partition_factor_array([2])]
+#[partition_factor_array([8])]
 #[partition_cyclic_array([1])]
-static points1_y: [u32; 16];
+static points1_y: [u32; 32];
 
 #[partition_dim_array([0])]
-#[partition_factor_array([2])]
+#[partition_factor_array([8])]
 #[partition_cyclic_array([1])]
-static points1_z: [u32; 16];
+static points1_z: [u32; 32];
 
 #[partition_dim_array([0])]
-#[partition_factor_array([2])]
+#[partition_factor_array([8])]
 #[partition_cyclic_array([1])]
-static points2_x: [u32; 16];
+static points2_x: [u32; 32];
 
 #[partition_dim_array([0])]
-#[partition_factor_array([2])]
+#[partition_factor_array([8])]
 #[partition_cyclic_array([1])]
-static points2_y: [u32; 16];
+static points2_y: [u32; 32];
 
 #[partition_dim_array([0])]
-#[partition_factor_array([2])]
+#[partition_factor_array([8])]
 #[partition_cyclic_array([1])]
-static points2_z: [u32; 16];
+static points2_z: [u32; 32];
 
 // Output distance array - complete partitioning for parallel access
 #[partition_dim_array([0])]
-#[partition_factor_array([2])]
+#[partition_factor_array([8])]
 #[partition_cyclic_array([1])]
-static dist_out: [u32; 16];
+static dist_out: [u32; 32];
 
 // V3DDIST.VV - Vector-Vector mode
 // Computes distances between VL pairs of 3D points
@@ -50,19 +50,19 @@ static dist_out: [u32; 16];
 rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
   let addr1: u32 = _irf[rs1];  // Base address for first point set
   let out_addr: u32 = _irf[rs2];  // Base address for second point set
-  let vl: u32 = 16;             // Vector length
+  let vl: u32 = 32;             // Vector length
 
   // Burst read point coordinates from memory (SOA layout)
-  points1_x[0 +: ] = _burst_read[addr1 +: 16];
-  points1_y[0 +: ] = _burst_read[addr1 + 64 +: 16];   // 16 words × 4 bytes
-  points1_z[0 +: ] = _burst_read[addr1 + 128 +: 16];  // 2 × 16 words × 4 bytes
+  points1_x[0 +: ] = _burst_read[addr1 +: 32];
+  points1_y[0 +: ] = _burst_read[addr1 + 128 +: 32];   // 16 words × 4 bytes
+  points1_z[0 +: ] = _burst_read[addr1 + 256 +: 32];  // 2 × 16 words × 4 bytes
 
-  points2_x[0 +: ] = _burst_read[addr1 + 192 +: 16];
-  points2_y[0 +: ] = _burst_read[addr1 + 256 +: 16];
-  points2_z[0 +: ] = _burst_read[addr1 + 320 +: 16];
+  points2_x[0 +: ] = _burst_read[addr1 + 384 +: 32];
+  points2_y[0 +: ] = _burst_read[addr1 + 512 +: 32];
+  points2_z[0 +: ] = _burst_read[addr1 + 640 +: 32];
 
   // Compute distances for all vector elements with partial unrolling
-  [[unroll(2)]]
+  [[unroll(8)]]
   with i: u32 = (0, i_) do {
     let x1: u32 = points1_x[i];
     let y1: u32 = points1_y[i];
@@ -121,22 +121,22 @@ rtype vcovmat3d_vs(rs1: u5, rs2: u5, rd: u5) {
   cov_accum[3] = 0;  // C11 (σ_yy)
   cov_accum[4] = 0;  // C12 (σ_yz)
   cov_accum[5] = 0;  // C22 (σ_zz)
-  cov_accum[6] = 16; // Store count for averaging
+  cov_accum[6] = 32; // Store count for averaging
   cov_accum[7] = 0;  // Reserved
 
   // Burst read all X coordinates (16 values in parallel)
   // Only 1 DMA startup penalty for entire vector
-  points1_x[0 +: ] = _burst_read[points_addr +: 16];
+  points1_x[0 +: ] = _burst_read[points_addr +: 32];
 
   // Burst read all Y coordinates
-  points1_y[0 +: ] = _burst_read[points_addr + 64 +: 16];
+  points1_y[0 +: ] = _burst_read[points_addr + 128 +: 32];
 
   // Burst read all Z coordinates
-  points1_z[0 +: ] = _burst_read[points_addr + 128 +: 16];
+  points1_z[0 +: ] = _burst_read[points_addr + 256 +: 32];
 
   // Process all 16 points with 4-way unrolling for throughput
   // Each iteration computes outer product and accumulates
-  [[unroll(2)]]
+  [[unroll(8)]]
   with i: u8 = (0, i + 1)
   do {
     // Read point coordinates (all available in parallel due to partitioning)
@@ -157,7 +157,7 @@ rtype vcovmat3d_vs(rs1: u5, rs2: u5, rd: u5) {
     cov_accum[3] = cov_accum[3] + dy * dy;  // σ_yy
     cov_accum[4] = cov_accum[4] + dy * dz;  // σ_yz
     cov_accum[5] = cov_accum[5] + dz * dz;  // σ_zz
-  } while i + 1 < 16;
+  } while i + 1 < 32;
 
   // Burst write accumulated covariance matrix (8 values including metadata)
   _burst_write[out_addr +: 8] = cov_accum[0 +: ];

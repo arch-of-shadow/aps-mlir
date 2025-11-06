@@ -11,7 +11,7 @@
 __attribute__((always_inline))
 uint32_t deca_decompress_u1(uint32_t rs1, uint32_t rs2) {
   uint32_t rd = 0;
-  asm volatile(".insn r 0x2B, 0b111, 0x05, %0, %1, %2"
+  asm volatile(".insn r 0x0B, 0b111, 0x05, %0, %1, %2"
                : "=r"(rd) : "r"(rs1), "r"(rs2));
   return rd;
 }
