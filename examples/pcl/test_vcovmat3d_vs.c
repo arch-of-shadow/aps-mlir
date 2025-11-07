@@ -135,11 +135,14 @@ int test_centered_at_origin() {
     compute_covariance_reference((const PointCloudWithCentroid *)&test1_data, &ref);
 
     // Call hardware instruction
-    uint32_t result = vcovmat3d_vs(
+    volatile uint32_t result;
+    for (int i = 0; i < 10 ; i++) {
+        result = vcovmat3d_vs(
         (uint32_t)(unsigned long)&test1_data,
         (uint32_t)(unsigned long)&test1_output);
-
+    }
     printf("Hardware returned: %u\n", result);
+    printf("0x%p", (void *)&test1_output);
     print_covariance(&ref, "Reference");
     print_covariance((const CovarianceMatrix *)&test1_output, "Hardware");
 
