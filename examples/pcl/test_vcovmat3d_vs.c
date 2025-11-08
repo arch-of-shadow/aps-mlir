@@ -20,40 +20,42 @@ __attribute__((always_inline)) uint32_t vcovmat3d_vs(uint32_t points_centroid_ad
     return result;
 }
 
-// Point cloud in SOA (Structure of Arrays) format WITH appended centroid
-// Memory layout: [X[16] | Y[16] | Z[16] | cx | cy | cz]
-// Total: 64 + 64 + 64 + 4 + 4 + 4 = 204 bytes
+// Point cloud in SOA (Structure of Arrays) format
+// Memory layout: [X[16] | Y[16] | Z[16]]
+// Total: 64 + 64 + 64 = 192 bytes
 typedef struct {
     int32_t x[16];     // X coordinates (64 bytes)
     int32_t y[16];     // Y coordinates (64 bytes)
     int32_t z[16];     // Z coordinates (64 bytes)
-    int32_t cx;        // Centroid X (4 bytes)
-    int32_t cy;        // Centroid Y (4 bytes)
-    int32_t cz;        // Centroid Z (4 bytes)
 } PointCloudWithCentroid;
 
-// Covariance matrix output (symmetric 3x3, upper triangle + metadata)
+// Covariance matrix output (symmetric 3x3, upper triangle + metadata + centroid)
+// CADL reads centroid from output buffer at offset 8-10 (byte offset 32-40)
 typedef struct {
-    int32_t c00;      // σ_xx
-    int32_t c01;      // σ_xy
-    int32_t c02;      // σ_xz
-    int32_t c11;      // σ_yy
-    int32_t c12;      // σ_yz
-    int32_t c22;      // σ_zz
-    int32_t count;    // Number of points
-    int32_t reserved; // Reserved field
+    int32_t c00;      // Offset 0: σ_xx
+    int32_t c01;      // Offset 1: σ_xy
+    int32_t c02;      // Offset 2: σ_xz
+    int32_t c11;      // Offset 3: σ_yy
+    int32_t c12;      // Offset 4: σ_yz
+    int32_t c22;      // Offset 5: σ_zz
+    int32_t count;    // Offset 6: Number of points
+    int32_t reserved; // Offset 7: Reserved field
+    int32_t cx;       // Offset 8: Centroid X (read by CADL at out_addr+32)
+    int32_t cy;       // Offset 9: Centroid Y (read by CADL at out_addr+36)
+    int32_t cz;       // Offset 10: Centroid Z (read by CADL at out_addr+40)
 } CovarianceMatrix;
 
 // Software reference implementation
+// Centroid is now passed in cov->cx/cy/cz (must be set before calling)
 void compute_covariance_reference(const PointCloudWithCentroid *data, CovarianceMatrix *cov) {
     // Use 64-bit accumulator to prevent overflow
     int64_t c00 = 0, c01 = 0, c02 = 0;
     int64_t c11 = 0, c12 = 0, c22 = 0;
 
     for (int i = 0; i < 16; i++) {
-        int64_t dx = data->x[i] - data->cx;
-        int64_t dy = data->y[i] - data->cy;
-        int64_t dz = data->z[i] - data->cz;
+        int64_t dx = data->x[i] - cov->cx;
+        int64_t dy = data->y[i] - cov->cy;
+        int64_t dz = data->z[i] - cov->cz;
 
         c00 += dx * dx;
         c01 += dx * dy;
@@ -71,19 +73,20 @@ void compute_covariance_reference(const PointCloudWithCentroid *data, Covariance
     cov->c22 = (int32_t)c22;
     cov->count = 16;
     cov->reserved = 0;
+    // Note: cx, cy, cz are preserved from input
 }
 
-// Helper: compute centroid from points
-void compute_centroid(PointCloudWithCentroid *data) {
+// Helper: compute centroid from points and store in cov matrix
+void compute_centroid(const PointCloudWithCentroid *data, CovarianceMatrix *cov) {
     int64_t sum_x = 0, sum_y = 0, sum_z = 0;
     for (int i = 0; i < 16; i++) {
         sum_x += data->x[i];
         sum_y += data->y[i];
         sum_z += data->z[i];
     }
-    data->cx = sum_x / 16;
-    data->cy = sum_y / 16;
-    data->cz = sum_z / 16;
+    cov->cx = sum_x / 16;
+    cov->cy = sum_y / 16;
+    cov->cz = sum_z / 16;
 }
 
 // Helper: print covariance matrix
@@ -123,16 +126,25 @@ int verify_covariance(const CovarianceMatrix *hw, const CovarianceMatrix *ref,
 volatile PointCloudWithCentroid test1_data __attribute__((aligned(128))) = {
     .x = {-1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1},
     .y = {-1, -1, 1, 1, -1, -1, 1, 1, -1, -1, 1, 1, -1, -1, 1, 1},
-    .z = {-1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1},
-    .cx = 0, .cy = 0, .cz = 0
+    .z = {-1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1}
 };
 volatile CovarianceMatrix test1_output __attribute__((aligned(128)));
+volatile uint32_t foo = 0;
 
 int test_centered_at_origin() {
     printf("\n=== Test 1: Points centered at origin ===\n");
 
+    // Set centroid in output buffer (for both reference and hardware)
     CovarianceMatrix ref;
+    ref.cx = 0;
+    ref.cy = 0;
+    ref.cz = 0;
     compute_covariance_reference((const PointCloudWithCentroid *)&test1_data, &ref);
+
+    // Set centroid in hardware output buffer
+    test1_output.cx = 0;
+    test1_output.cy = 0;
+    test1_output.cz = 0;
 
     // Call hardware instruction
     volatile uint32_t result;
@@ -140,6 +152,9 @@ int test_centered_at_origin() {
         result = vcovmat3d_vs(
         (uint32_t)(unsigned long)&test1_data,
         (uint32_t)(unsigned long)&test1_output);
+        for (int i = 0; i < 32; i++) {
+            foo += ((int32_t *)&test1_output)[i]; // heat the cache!
+        }
     }
     printf("Hardware returned: %u\n", result);
     printf("0x%p", (void *)&test1_output);
@@ -153,20 +168,24 @@ int test_centered_at_origin() {
 volatile PointCloudWithCentroid test2_data __attribute__((aligned(128))) = {
     .x = {0, 10, 0, 10, 0, 10, 0, 10, 0, 10, 0, 10, 0, 10, 0, 10},
     .y = {0, 0, 10, 10, 0, 0, 10, 10, 0, 0, 10, 10, 0, 0, 10, 10},
-    .z = {0, 0, 0, 0, 10, 10, 10, 10, 0, 0, 0, 0, 10, 10, 10, 10},
-    .cx = 5, .cy = 5, .cz = 5
+    .z = {0, 0, 0, 0, 10, 10, 10, 10, 0, 0, 0, 0, 10, 10, 10, 10}
 };
 volatile CovarianceMatrix test2_output __attribute__((aligned(128)));
 
 int test_cube_vertices() {
     printf("\n=== Test 2: Cube vertices (diagonal covariance) ===\n");
 
-    // Compute centroid first
-    compute_centroid((PointCloudWithCentroid *)&test2_data);
-    printf("Centroid: (%d, %d, %d)\n", test2_data.cx, test2_data.cy, test2_data.cz);
-
+    // Compute centroid and store in both ref and output
     CovarianceMatrix ref;
+    compute_centroid((const PointCloudWithCentroid *)&test2_data, &ref);
+    printf("Centroid: (%d, %d, %d)\n", ref.cx, ref.cy, ref.cz);
+
     compute_covariance_reference((const PointCloudWithCentroid *)&test2_data, &ref);
+
+    // Set centroid in hardware output buffer
+    test2_output.cx = ref.cx;
+    test2_output.cy = ref.cy;
+    test2_output.cz = ref.cz;
 
     // Call hardware instruction
     uint32_t result = vcovmat3d_vs(
@@ -193,11 +212,16 @@ int test_linear_correlation() {
         ((int32_t *)test3_data.z)[i] = 5;      // Constant Z
     }
 
-    compute_centroid((PointCloudWithCentroid *)&test3_data);
-    printf("Centroid: (%d, %d, %d)\n", test3_data.cx, test3_data.cy, test3_data.cz);
-
     CovarianceMatrix ref;
+    compute_centroid((const PointCloudWithCentroid *)&test3_data, &ref);
+    printf("Centroid: (%d, %d, %d)\n", ref.cx, ref.cy, ref.cz);
+
     compute_covariance_reference((const PointCloudWithCentroid *)&test3_data, &ref);
+
+    // Set centroid in hardware output buffer
+    test3_output.cx = ref.cx;
+    test3_output.cy = ref.cy;
+    test3_output.cz = ref.cz;
 
     uint32_t result = vcovmat3d_vs(
         (uint32_t)(unsigned long)&test3_data,
@@ -222,12 +246,18 @@ int test_identical_points() {
         ((int32_t *)test4_data.y)[i] = 200;
         ((int32_t *)test4_data.z)[i] = 300;
     }
-    ((PointCloudWithCentroid *)&test4_data)->cx = 100;
-    ((PointCloudWithCentroid *)&test4_data)->cy = 200;
-    ((PointCloudWithCentroid *)&test4_data)->cz = 300;
 
     CovarianceMatrix ref;
+    ref.cx = 100;
+    ref.cy = 200;
+    ref.cz = 300;
+
     compute_covariance_reference((const PointCloudWithCentroid *)&test4_data, &ref);
+
+    // Set centroid in hardware output buffer
+    test4_output.cx = 100;
+    test4_output.cy = 200;
+    test4_output.cz = 300;
 
     uint32_t result = vcovmat3d_vs(
         (uint32_t)(unsigned long)&test4_data,
@@ -253,10 +283,15 @@ int test_planar_points() {
         ((int32_t *)test5_data.z)[i] = 0; // All on Z=0 plane
     }
 
-    compute_centroid((PointCloudWithCentroid *)&test5_data);
-
     CovarianceMatrix ref;
+    compute_centroid((const PointCloudWithCentroid *)&test5_data, &ref);
+
     compute_covariance_reference((const PointCloudWithCentroid *)&test5_data, &ref);
+
+    // Set centroid in hardware output buffer
+    test5_output.cx = ref.cx;
+    test5_output.cy = ref.cy;
+    test5_output.cz = ref.cz;
 
     uint32_t result = vcovmat3d_vs(
         (uint32_t)(unsigned long)&test5_data,
