@@ -35,7 +35,7 @@ cadl2c = { cmd = "python aps-frontend cadl2c" }
 
 [tasks.opt]
 args = ["cadl", "apsir"]
-cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e -i {{ cadl }} -o outputs/ > {{ apsir }}"
+cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e --clock 8.0 -i {{ cadl }} -o outputs/ > {{ apsir }}"
 
 [tasks.opt-debug]
 args = ["cadl"]

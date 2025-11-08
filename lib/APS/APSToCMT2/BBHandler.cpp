@@ -420,10 +420,18 @@ LogicalResult BBHandler::createTokenFIFOs() {
 
   // Create token FIFOs for stage synchronization - one token per stage (except last)
   stageTokenFifos.clear(); // Clear any existing token FIFOs
+  int64_t firstSlot = slotOrder.empty() ? 0 : slotOrder[0];
   for (size_t i = 0; i < slotOrder.size() - 1; ++i) {
     int64_t currentSlot = slotOrder[i];
     // Create 1-bit FIFO for token passing to next stage
-    auto *tokenFifoMod = STLLibrary::createFIFO1PushModule(1, circuit);
+    // Use FIFO2I for first slot, FIFO1Push for others
+    Module *tokenFifoMod;
+    if (currentSlot == firstSlot) {
+      tokenFifoMod = STLLibrary::createFIFO2IModule(1, circuit);
+      llvm::outs() << "[BBHandler] Using FIFO2I for first slot token FIFO\n";
+    } else {
+      tokenFifoMod = STLLibrary::createFIFO1PushModule(1, circuit);
+    }
     mainModule->getBuilder().restoreInsertionPoint(savedIP);
     std::string tokenFifoName = currentBlock->blockName + "_token_fifo_s" + std::to_string(currentSlot);
     auto *tokenFifo = mainModule->addInstance(tokenFifoName, tokenFifoMod,
@@ -445,6 +453,10 @@ LogicalResult BBHandler::instantiateCrossSlotFIFOs() {
 
   llvm::outs() << "[BBHandler] Instantiating " << fifoStorage.size() << " cross-slot FIFO modules\n";
 
+  // Determine the first slot in this basic block
+  int64_t firstSlot = slotOrder.empty() ? 0 : slotOrder[0];
+  llvm::outs() << "[BBHandler] First slot in basic block: " << firstSlot << "\n";
+
   for (auto &fifoPtr : fifoStorage) {
     auto *fifo = fifoPtr.get();
     int64_t width = cast<circt::firrtl::UIntType>(fifo->firType).getWidthOrSentinel();
@@ -453,10 +465,18 @@ LogicalResult BBHandler::instantiateCrossSlotFIFOs() {
 
     // Debug info: log FIFO instantiation
     llvm::outs() << "[BBHandler] Instantiating FIFO: " << fifo->instanceName
-                 << " (width=" << width << ")\n";
+                 << " (width=" << width << ", producerSlot=" << fifo->producerSlot << ")\n";
 
     // Create FIFO module with proper clock and reset
-    auto *fifoMod = STLLibrary::createFIFO1PushModule(width, circuit);
+    // Use FIFO2I for first slot producers in basic block, FIFO1Push for others
+    Module *fifoMod;
+    if (fifo->producerSlot == firstSlot) {
+      fifoMod = STLLibrary::createFIFO2IModule(width, circuit);
+      llvm::outs() << "[BBHandler] Using FIFO2I for first slot producer in BB\n";
+    } else {
+      fifoMod = STLLibrary::createFIFO1PushModule(width, circuit);
+      llvm::outs() << "[BBHandler] Using FIFO1Push for non-first slot producer\n";
+    }
     builder.restoreInsertionPoint(savedIP);
     fifo->fifoInstance = mainModule->addInstance(fifo->instanceName, fifoMod,
                                                  {mainClk.getValue(), mainRst.getValue()});

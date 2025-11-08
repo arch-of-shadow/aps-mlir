@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
         .help("Output path (e.g., zyy_out)");
     program.add_argument("--clock")
         .required()
-        .default_value(std::string("10.0"))
+        .default_value(std::string("6.0"))
         .help("Clock period in ns (default: 10.0)");
     program.add_argument("--resource")
         .required()
