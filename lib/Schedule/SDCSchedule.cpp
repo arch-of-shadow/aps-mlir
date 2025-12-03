@@ -1116,7 +1116,7 @@ void SDCSchedule::addMAxiConstr(SDCSolver *SDC) {
   // assume no overlapping execution of basic blocks
   // or overlapping basic blocks does not have dependecy issue
   int amount = 1; // one bus channel for read and one for write
-  int readLat = 2, writeLat = 3, requestLat = 1;
+  int readLat = 1, writeLat = 1, requestLat = 1;
   for (auto &&BB : BasicBlocks) {
     if (!needSchedule(BB.get()))
       continue;
@@ -1126,10 +1126,7 @@ void SDCSchedule::addMAxiConstr(SDCSolver *SDC) {
     // Exclude TileLink operations (they are handled by addResourceConstr with their own amount)
     std::vector<SDCOpWrapper *> constrainedOp = getFeasibleOrder(BB.get(),
                          [&](SDCOpWrapper *op) {
-                             if (op->getMAxiOp() == nullptr)
-                               return false;
-                             // Exclude TileLink operations
-                             return RDB.getName(op->getResource()) != "tl";
+                            return op->getMAxiOp() != nullptr;
                          });
 
     std::unordered_map<mlir::Operation*, std::vector<SDCOpWrapper*>> burstOps;
