@@ -570,32 +570,32 @@ namespace scheduling {
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
             } else if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op)) {
-                // Handle aps.memburstload - similar to M_AXI burst operations
+                // Handle aps.memburstload - TileLink burst read
                 std::vector<Value> operands{
                     memBurstLoadOp.getCpuAddr(),
                     memBurstLoadOp.getStart(),
                     memBurstLoadOp.getLength()
                 };
-                OpAbstract *newOpA = createMAxiBurstOp(
+                OpAbstract *newOpA = createTLOp(
                     &op, parentLoop, lastHead,
                     std::vector<Value>{},  // No result
                     operands,
-                    OpAbstract::OpType::M_AXI_BURST_READ_OP
+                    OpAbstract::OpType::TL_READ_OP
                 );
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
             } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op)) {
-                // Handle aps.memburststore - similar to M_AXI burst operations
+                // Handle aps.memburststore - TileLink burst write
                 std::vector<Value> operands{
                     memBurstStoreOp.getStart(),
                     memBurstStoreOp.getCpuAddr(),
                     memBurstStoreOp.getLength()
                 };
-                OpAbstract *newOpA = createMAxiBurstOp(
+                OpAbstract *newOpA = createTLOp(
                     &op, parentLoop, lastHead,
                     std::vector<Value>{},  // No result
                     operands,
-                    OpAbstract::OpType::M_AXI_BURST_WRITE_OP
+                    OpAbstract::OpType::TL_WRITE_OP
                 );
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
@@ -1045,9 +1045,11 @@ namespace scheduling {
                 if (maxiop2 == nullptr || op1.get() == op2.get())
                     continue;
 
-                // Only process burst operations (aps.memburstload, aps.memburststore)
+                // Only process burst operations (M_AXI burst and TileLink)
                 if (op2->getType() != OpAbstract::OpType::M_AXI_BURST_READ_OP &&
-                    op2->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP)
+                    op2->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                    op2->getType() != OpAbstract::OpType::TL_READ_OP &&
+                    op2->getType() != OpAbstract::OpType::TL_WRITE_OP)
                     continue;
 
                 // Check if memrefs match
@@ -1118,20 +1120,24 @@ namespace scheduling {
 
                 // Add appropriate dependencies
                 if (op1->getType() == OpAbstract::OpType::LOAD_OP &&
-                    op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP) {
-                    // LOAD -> BURST_WRITE: WAR
+                    (op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP ||
+                     op2->getType() == OpAbstract::OpType::TL_WRITE_OP)) {
+                    // LOAD -> BURST_WRITE/TL_WRITE: WAR
                     addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_WAR));
                 } else if (op1->getType() == OpAbstract::OpType::STORE_OP &&
-                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP) {
-                    // STORE -> BURST_READ: WAR
+                           (op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP ||
+                            op2->getType() == OpAbstract::OpType::TL_READ_OP)) {
+                    // STORE -> BURST_READ/TL_READ: WAR
                     addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_WAR));
                 } else if (op1->getType() == OpAbstract::OpType::STORE_OP &&
-                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP) {
-                    // STORE -> BURST_WRITE: RAW (burst write reads from memory)
+                           (op2->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP ||
+                            op2->getType() == OpAbstract::OpType::TL_WRITE_OP)) {
+                    // STORE -> BURST_WRITE/TL_WRITE: RAW (burst write reads from memory)
                     addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_RAW));
                 } else if (op1->getType() == OpAbstract::OpType::LOAD_OP &&
-                           op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP) {
-                    // LOAD -> BURST_READ: RAR (no true dependency, but for ordering)
+                           (op2->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP ||
+                            op2->getType() == OpAbstract::OpType::TL_READ_OP)) {
+                    // LOAD -> BURST_READ/TL_READ: RAR (no true dependency, but for ordering)
                     addDependency(Dependence(memop1, maxiop2, Distance, Dependence::D_RAR));
                 }
             }
@@ -1143,9 +1149,11 @@ namespace scheduling {
             if (maxiop1 == nullptr)
                 continue;
 
-            // Only process burst operations
+            // Only process burst operations (M_AXI burst and TileLink)
             if (op1->getType() != OpAbstract::OpType::M_AXI_BURST_READ_OP &&
-                op1->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP)
+                op1->getType() != OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                op1->getType() != OpAbstract::OpType::TL_READ_OP &&
+                op1->getType() != OpAbstract::OpType::TL_WRITE_OP)
                 continue;
 
             for (auto &&op2 : Operations) {
@@ -1210,21 +1218,25 @@ namespace scheduling {
                 llvm::errs() << "  Distance: " << Distance << ", adding dependency from burst to mem\n";
 
                 // Add appropriate dependencies
-                if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                if ((op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP ||
+                     op1->getType() == OpAbstract::OpType::TL_READ_OP) &&
                     op2->getType() == OpAbstract::OpType::LOAD_OP) {
-                    // BURST_READ -> LOAD: RAW (burst read writes to memory)
+                    // BURST_READ/TL_READ -> LOAD: RAW (burst read writes to memory)
                     addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_RAW));
-                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP &&
+                } else if ((op1->getType() == OpAbstract::OpType::M_AXI_BURST_READ_OP ||
+                            op1->getType() == OpAbstract::OpType::TL_READ_OP) &&
                            op2->getType() == OpAbstract::OpType::STORE_OP) {
-                    // BURST_READ -> STORE: WAW (burst read writes to memory)
+                    // BURST_READ/TL_READ -> STORE: WAW (burst read writes to memory)
                     addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_WAW));
-                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                } else if ((op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP ||
+                            op1->getType() == OpAbstract::OpType::TL_WRITE_OP) &&
                            op2->getType() == OpAbstract::OpType::LOAD_OP) {
-                    // BURST_WRITE -> LOAD: WAR
+                    // BURST_WRITE/TL_WRITE -> LOAD: WAR
                     addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_WAR));
-                } else if (op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP &&
+                } else if ((op1->getType() == OpAbstract::OpType::M_AXI_BURST_WRITE_OP ||
+                            op1->getType() == OpAbstract::OpType::TL_WRITE_OP) &&
                            op2->getType() == OpAbstract::OpType::STORE_OP) {
-                    // BURST_WRITE -> STORE: RAR (no true dependency, but for ordering)
+                    // BURST_WRITE/TL_WRITE -> STORE: RAR (no true dependency, but for ordering)
                     addDependency(Dependence(maxiop1, memop2, Distance, Dependence::D_RAR));
                 }
             }
