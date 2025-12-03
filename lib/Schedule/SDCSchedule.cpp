@@ -1123,9 +1123,13 @@ void SDCSchedule::addMAxiConstr(SDCSolver *SDC) {
 
     // resource confliction of pipelined loop has been handled
     // mAxi conflict of non-pipelined loop
+    // Exclude TileLink operations (they are handled by addResourceConstr with their own amount)
     std::vector<SDCOpWrapper *> constrainedOp = getFeasibleOrder(BB.get(),
                          [&](SDCOpWrapper *op) {
-                             return op->getMAxiOp() != nullptr;
+                             if (op->getMAxiOp() == nullptr)
+                               return false;
+                             // Exclude TileLink operations
+                             return RDB.getName(op->getResource()) != "tl";
                          });
 
     std::unordered_map<mlir::Operation*, std::vector<SDCOpWrapper*>> burstOps;
@@ -2112,6 +2116,61 @@ void SDCSchedule::assignSlotAttrAfterSchedule() {
           if (opA->getStartTime() - L->AchievedII >= memrefStartTime) {
             opA->getOp()->setAttr("slot",
               IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), 1));
+          }
+        }
+      }
+    }
+  }
+
+  // TileLink channel assignment
+  if (RDB.hasResource("tl")) {
+    auto tlId = RDB.getResourceID("tl");
+    int numChannels = RDB.getAmount(tlId);
+
+    // For non-pipelined basic blocks (needSchedule returns true for non-pipelined BBs)
+    for (auto &&BB : BasicBlocks) {
+      if (!needSchedule(BB.get())) {
+        continue;  // Skip pipelined BBs, they are handled below
+      }
+      // Group TileLink ops by start time
+      llvm::DenseMap<int, std::vector<OpAbstract*>> tlOpsByTime;
+      for (auto &opA : BB->getOperations()) {
+        if (opA->getResource() == tlId) {
+          tlOpsByTime[opA->getStartTime()].push_back(opA);
+        }
+      }
+      // Assign channel to each TileLink op
+      for (auto &timeOps : tlOpsByTime) {
+        int channel = 0;
+        for (auto op : timeOps.second) {
+          assert(channel < numChannels && "Too many TileLink ops at same time");
+          op->getOp()->setAttr("tl_channel",
+            IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), channel++));
+        }
+      }
+    }
+
+    // For pipelined loops
+    for (auto &&L : Loops) {
+      if (L->PipelineFlag == true) {
+        int II = L->AchievedII;
+        for (auto BB : L->getBody()) {
+          // Group TileLink ops by their slot within II (startTime % II)
+          llvm::DenseMap<int, std::vector<OpAbstract*>> tlOpsBySlot;
+          for (auto opA : BB->getOperations()) {
+            if (opA->getResource() == tlId) {
+              int slot = opA->getStartTime() % II;
+              tlOpsBySlot[slot].push_back(opA);
+            }
+          }
+          // Assign channel to each TileLink op
+          for (auto &slotOps : tlOpsBySlot) {
+            int channel = 0;
+            for (auto op : slotOps.second) {
+              assert(channel < numChannels && "Too many TileLink ops in same II slot");
+              op->getOp()->setAttr("tl_channel",
+                IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), channel++));
+            }
           }
         }
       }

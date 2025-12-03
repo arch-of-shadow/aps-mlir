@@ -335,6 +335,13 @@ struct APSSplitMemoryOpsPass
         setRefTimePair(collectOp, B, B + 1);
         llvm::errs() << "  Created aps.itfc.burst_load_collect: (" << B << ", " << (B + 1) << ")\n";
 
+        // Inherit tl_channel attribute if present
+        if (auto tlChannelAttr = burstOp->getAttrOfType<IntegerAttr>("tl_channel")) {
+          reqOp->setAttr("tl_channel", tlChannelAttr);
+          collectOp->setAttr("tl_channel", tlChannelAttr);
+          llvm::errs() << "  Inherited tl_channel: " << tlChannelAttr.getInt() << "\n";
+        }
+
         rewriter.eraseOp(burstOp);
         llvm::errs() << "=== Split complete ===\n\n";
       }
@@ -366,6 +373,13 @@ struct APSSplitMemoryOpsPass
 
         setRefTimePair(collectOp, B, B + 1);
         llvm::errs() << "  Created aps.itfc.burst_store_collect: (" << B << ", " << (B + 1) << ")\n";
+
+        // Inherit tl_channel attribute if present
+        if (auto tlChannelAttr = burstOp->getAttrOfType<IntegerAttr>("tl_channel")) {
+          reqOp->setAttr("tl_channel", tlChannelAttr);
+          collectOp->setAttr("tl_channel", tlChannelAttr);
+          llvm::errs() << "  Inherited tl_channel: " << tlChannelAttr.getInt() << "\n";
+        }
 
         rewriter.eraseOp(burstOp);
         llvm::errs() << "=== Split complete ===\n\n";
