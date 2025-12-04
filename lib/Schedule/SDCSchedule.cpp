@@ -2119,55 +2119,113 @@ void SDCSchedule::assignSlotAttrAfterSchedule() {
     }
   }
 
-  // TileLink channel assignment
+  // TileLink channel assignment based on time interval overlap
+  // Two TileLink ops need different channels if their active intervals overlap
   if (RDB.hasResource("tl")) {
     auto tlId = RDB.getResourceID("tl");
     int numChannels = RDB.getAmount(tlId);
+    int tlLatency = RDB.getLatency(tlId, 32);  // TileLink latency
+
+    // Helper: check if two intervals [s1, s1+lat) and [s2, s2+lat) overlap
+    auto intervalsOverlap = [](int s1, int e1, int s2, int e2) {
+      return s1 < e2 && s2 < e1;
+    };
 
     // For non-pipelined basic blocks (needSchedule returns true for non-pipelined BBs)
     for (auto &&BB : BasicBlocks) {
       if (!needSchedule(BB.get())) {
         continue;  // Skip pipelined BBs, they are handled below
       }
-      // Group TileLink ops by start time
-      llvm::DenseMap<int, std::vector<OpAbstract*>> tlOpsByTime;
+
+      // Collect all TileLink ops with their time intervals
+      std::vector<OpAbstract*> tlOps;
       for (auto &opA : BB->getOperations()) {
         if (opA->getResource() == tlId) {
-          tlOpsByTime[opA->getStartTime()].push_back(opA);
+          tlOps.push_back(opA);
         }
       }
-      // Assign channel to each TileLink op
-      for (auto &timeOps : tlOpsByTime) {
-        int channel = 0;
-        for (auto op : timeOps.second) {
-          assert(channel < numChannels && "Too many TileLink ops at same time");
-          op->getOp()->setAttr("tl_channel",
-            IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), channel++));
+
+      // Sort by start time
+      std::sort(tlOps.begin(), tlOps.end(),
+                [](OpAbstract *a, OpAbstract *b) {
+                  return a->getStartTime() < b->getStartTime();
+                });
+
+      // Assign channels using interval graph coloring
+      // channelEndTimes[i] = end time of the last op assigned to channel i
+      std::vector<int> channelEndTimes(numChannels, -1);
+
+      for (auto op : tlOps) {
+        int startTime = op->getStartTime();
+        int endTime = startTime + tlLatency;
+
+        // Find a channel that doesn't overlap with this op
+        int assignedChannel = -1;
+        for (int ch = 0; ch < numChannels; ch++) {
+          if (channelEndTimes[ch] <= startTime) {
+            // This channel is free (its last op ended before this one starts)
+            assignedChannel = ch;
+            channelEndTimes[ch] = endTime;
+            break;
+          }
         }
+
+        assert(assignedChannel >= 0 && "Too many overlapping TileLink ops");
+        op->getOp()->setAttr("tl_channel",
+          IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), assignedChannel));
       }
     }
 
-    // For pipelined loops
+    // For pipelined loops - use modular interval coloring
     for (auto &&L : Loops) {
       if (L->PipelineFlag == true) {
-        int II = L->AchievedII;
         for (auto BB : L->getBody()) {
-          // Group TileLink ops by their slot within II (startTime % II)
-          llvm::DenseMap<int, std::vector<OpAbstract*>> tlOpsBySlot;
+          // Collect all TileLink ops
+          std::vector<OpAbstract*> tlOps;
           for (auto opA : BB->getOperations()) {
             if (opA->getResource() == tlId) {
-              int slot = opA->getStartTime() % II;
-              tlOpsBySlot[slot].push_back(opA);
+              tlOps.push_back(opA);
             }
           }
-          // Assign channel to each TileLink op
-          for (auto &slotOps : tlOpsBySlot) {
-            int channel = 0;
-            for (auto op : slotOps.second) {
-              assert(channel < numChannels && "Too many TileLink ops in same II slot");
-              op->getOp()->setAttr("tl_channel",
-                IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), channel++));
+
+          // Sort by start time
+          std::sort(tlOps.begin(), tlOps.end(),
+                    [](OpAbstract *a, OpAbstract *b) {
+                      return a->getStartTime() < b->getStartTime();
+                    });
+
+          // For pipelined loops, check overlap considering II wraparound
+          // Two ops overlap if their modular intervals [s%II, (s+lat)%II) intersect
+          std::vector<int> channelAssignment(tlOps.size(), -1);
+
+          for (size_t i = 0; i < tlOps.size(); i++) {
+            int si = tlOps[i]->getStartTime();
+            int ei = si + tlLatency;
+
+            // Find channels used by overlapping ops
+            std::set<int> usedChannels;
+            for (size_t j = 0; j < i; j++) {
+              int sj = tlOps[j]->getStartTime();
+              int ej = sj + tlLatency;
+
+              // Check if intervals overlap (considering they may span multiple IIs)
+              bool overlap = intervalsOverlap(si, ei, sj, ej);
+              if (overlap && channelAssignment[j] >= 0) {
+                usedChannels.insert(channelAssignment[j]);
+              }
             }
+
+            // Assign first available channel
+            for (int ch = 0; ch < numChannels; ch++) {
+              if (usedChannels.find(ch) == usedChannels.end()) {
+                channelAssignment[i] = ch;
+                break;
+              }
+            }
+
+            assert(channelAssignment[i] >= 0 && "Too many overlapping TileLink ops in pipelined loop");
+            tlOps[i]->getOp()->setAttr("tl_channel",
+              IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), channelAssignment[i]));
           }
         }
       }
