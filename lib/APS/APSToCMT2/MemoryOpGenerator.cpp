@@ -10,9 +10,12 @@
 #include "circt/Dialect/Cmt2/ECMT2/Signal.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/ValueRange.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
+#include <string>
 
 namespace mlir {
 
@@ -409,7 +412,9 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
     return failure();
   }
 
-  dmaItfc->callMethod("cpu_to_isax",
+  auto tl_id = dyn_cast<IntegerAttr>(op->getAttr("tl_channel")).getInt();
+
+  dmaItfc->callMethod("cpu_to_isax_ch" + std::to_string(tl_id),
                       {*cpuAddrValue, localAddr.bits(31, 0).getValue(),
                        realCpuLength.bits(3, 0).getValue()},
                       b);
@@ -421,10 +426,10 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
 LogicalResult MemoryOpGenerator::generateBurstLoadCollect(
     aps::ItfcBurstLoadCollect op, mlir::OpBuilder &b, Location loc,
     int64_t slot, llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  // no action needed
   auto dmaItfc = bbHandler->getDmaInterface();
   if (dmaItfc) {
-    dmaItfc->callMethod("poll_for_idle", {}, b);
+    auto tl_id = dyn_cast<IntegerAttr>(op->getAttr("tl_channel")).getInt();
+    dmaItfc->callMethod("poll_for_idle_ch" + std::to_string(tl_id), {}, b);
   }
   return success();
 }
@@ -536,7 +541,9 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
     return failure();
   }
 
-  dmaItfc->callMethod("isax_to_cpu",
+  auto tl_id = dyn_cast<IntegerAttr>(op->getAttr("tl_channel")).getInt();
+
+  dmaItfc->callMethod("isax_to_cpu_ch" + std::to_string(tl_id),
                       {*cpuAddrValue, localAddr.bits(31, 0).getValue(),
                        realCpuLength.bits(3, 0).getValue()},
                       b);
@@ -550,7 +557,8 @@ LogicalResult MemoryOpGenerator::generateBurstStoreCollect(
     int64_t slot, llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   auto dmaItfc = bbHandler->getDmaInterface();
   if (dmaItfc) {
-    dmaItfc->callMethod("poll_for_idle", {}, b);
+    auto tl_id = dyn_cast<IntegerAttr>(op->getAttr("tl_channel")).getInt();
+    dmaItfc->callMethod("poll_for_idle_ch" + std::to_string(tl_id), {}, b);
   }
   return success();
 }

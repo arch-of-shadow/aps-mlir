@@ -33,6 +33,7 @@ add_mlir_dialect_library(MLIRTOR
     IgnoreAliasingLICM.cpp
     # Mem2IterArgs.cpp
     NewArrayPartition.cpp
+    AffineModSimplify.cpp
     NormalizeMemrefIndices.cpp
     CountCycles.cpp
     GenPragmaReport.cpp

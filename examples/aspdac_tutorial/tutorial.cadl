@@ -1,0 +1,63 @@
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matA: [i8; 131072]; // 128KB, 2048 tiles
+
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matB: [i8; 131072];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matC: [i8; 131072];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matD: [i8; 131072];
+
+// Accumulator for dot product computation
+static acc: i16;
+
+// ============================================================================
+// GEMM Kernel - Matrix-Matrix Multiplication
+// ============================================================================
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0111000)]
+rtype gemm8x8_i8(rs1: u5, rs2: u5, rd: u5) {
+    let r1: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+
+    let offsetA: i16 = r1 >> 16;
+    let offsetB: i16 = r1 & 32'hFFFF;
+    let offsetC: i16 = r2 >> 16;
+    let offsetD: i16 = r2 & 32'hFFFF;
+
+    with i: u32 = (0, i_) do {
+        [[unroll(2)]]
+        with j: u32 = (0, j_) do {
+            acc = 0;
+            [[unroll(8)]]
+            with k: u32 = (0, k_) do {
+                let a_idx: u32 = i * 8 + k + offsetA * 64;
+                let a_val: i16 = matA[a_idx];
+                let b_idx: u32 = k * 8 + j + offsetB * 64;
+                let b_val: i16 = matB[b_idx];
+                acc = acc + a_val * b_val;
+                let k_: u32 = k + 1;
+            } while (k_ < 8);
+            let cd_idx: u32 = i * 8 + j + offsetC * 64;
+            let c_val_raw: u32 = matC[cd_idx];
+            let c_val: u32 = if ((r2 & 32'h80000000) != 32'h0) {c_val_raw} else {32'h0};
+            let d_val: u8 = acc + c_val;
+            matD[cd_idx] = d_val;
+            let j_: u32 = j + 1;
+        } while (j_ < 8);
+        let i_: u32 = i + 1;
+    } while (i_ < 8);
+
+    _irf[rd] = 0;
+}

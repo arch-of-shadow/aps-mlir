@@ -1,4 +1,5 @@
 #include "APS/APSToCMT2.h"
+#include <string>
 
 #define DEBUG_TYPE "aps-memory-pool-gen"
 
@@ -16,16 +17,18 @@ void APSToCMT2GenPass::addBurstMemoryInterface(Circuit &circuit) {
   auto u32Type = UIntType::get(&context, 32);
   auto u4Type = UIntType::get(&context, 4);
   auto u1Type = UIntType::get(&context, 1);
-  burstMemoryInterface->addMethod(
-      "cpu_to_isax",
-      {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}}, {});
-  burstMemoryInterface->addMethod(
-      "isax_to_cpu",
-      {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}}, {});
-  burstMemoryInterface->addValue(
-      // This will not ready if burst engine is running
-      // So the main operation can be stucked
-      "poll_for_idle", {}, {TypeAttr::get(u1Type)});
+  for (int i = 0; i < 2; i++) { // dual channel tilelink
+    burstMemoryInterface->addMethod(
+        "cpu_to_isax_ch" + std::to_string(i),
+        {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}}, {});
+    burstMemoryInterface->addMethod(
+        "isax_to_cpu_ch" + std::to_string(i),
+        {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}}, {});
+    burstMemoryInterface->addValue(
+        // This will not ready if burst engine is running
+        // So the main operation can be stucked
+        "poll_for_idle_ch" + std::to_string(i), {}, {TypeAttr::get(u1Type)});
+  }
 }
 
 void APSToCMT2GenPass::addRoccAndHellaMemoryInterface(Circuit &circuit) {
