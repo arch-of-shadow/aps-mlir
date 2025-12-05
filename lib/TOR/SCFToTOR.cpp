@@ -910,6 +910,20 @@ namespace {
                 }
             }
 
+            // Pattern 3: index_cast followed by unrealized_cast back to original type
+            // i32 -> index_cast -> index -> unrealized_cast -> i32
+            if (auto indexCast = input.getDefiningOp<IndexCastOp>()) {
+                auto originalValue = indexCast.getIn();
+                // If we're converting back to the original type, bypass both casts
+                if (originalValue.getType() == output.getType()) {
+                    rewriter.replaceOp(castOp, originalValue);
+                    if (indexCast.getResult().use_empty()) {
+                        rewriter.eraseOp(indexCast);
+                    }
+                    return success();
+                }
+            }
+
             return failure();
         }
     };
