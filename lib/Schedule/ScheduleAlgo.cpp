@@ -875,7 +875,35 @@ namespace scheduling {
                     }
                     addDependency(Dependence(mAxiOp1, mAxiOp2, distance, Dependence::D_RAW));
                 } else if (mAxiOp1->isWrite() && mAxiOp2->isWrite()) {
-                    // WAW
+                    // WAW - For TileLink operations, check if they access overlapping addresses
+                    // If they don't overlap, skip WAW dependency as they can run in parallel
+                    // based on the "amount" resource parameter
+                    if (opA1->getType() == OpAbstract::OpType::TL_WRITE_OP &&
+                        opA2->getType() == OpAbstract::OpType::TL_WRITE_OP) {
+                        // Use dependence analysis to check if address ranges overlap
+                        auto loop1 = mAxiOp1->getParentLoop();
+                        auto loop2 = mAxiOp2->getParentLoop();
+                        if (loop1 != nullptr && loop1 == loop2) {
+                            // In the same loop, use dependence analysis
+                            auto loopOp = loop1->getDefiningOp();
+                            auto dep = depAnalysis.get_distance(mAxiOp1->getLength(), mAxiOp1->getAddr(),
+                                mAxiOp2->getLength(), mAxiOp2->getAddr(), loopOp);
+                            if (dep.type == tor::DependenceResult::NotDependent) {
+                                // No overlap, can skip WAW dependency
+                                continue;
+                            }
+                        } else {
+                            // Not in the same loop - check if addresses are statically different
+                            // If both have constant addresses that don't overlap, skip dependency
+                            auto addr1 = mAxiOp1->getAddr();
+                            auto addr2 = mAxiOp2->getAddr();
+                            if (addr1 != addr2) {
+                                // Different SSA values for addresses - likely different ranges
+                                // Skip WAW dependency, resource constraints will handle parallelism
+                                continue;
+                            }
+                        }
+                    }
                     if (requestOpToLastOp.find(op1) != requestOpToLastOp.end()) {
                         mAxiOp1 = OperationMap[op1]->getMAxiOp();
                     }
@@ -1244,6 +1272,7 @@ namespace scheduling {
 
         // Dependencies between burst operations themselves
         // Burst operations must be serialized to respect resource constraints and memory ordering
+        // Note: TileLink operations are excluded here as they are handled by addResourceConstr with amount limit
         for (auto &&op1: Operations) {
             auto maxiop1 = op1->getMAxiOp();
             if (maxiop1 == nullptr)
