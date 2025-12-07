@@ -44,7 +44,7 @@ BlockHandler::BlockHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::Func
     : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
       roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), regRdInstance(regRdInstance),
       dmaItfc(dmaItfc), circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode),
-      namePrefix(namePrefix.empty() ? "inst" + std::to_string(opcode) + "_" : namePrefix),
+      namePrefix(namePrefix.empty() ? "inst" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str() + "_" : namePrefix),
       inputTokenFIFO(inputTokenFIFO), outputTokenFIFO(outputTokenFIFO), input_fifos(input_fifos),
       output_fifos(output_fifos) {
 }

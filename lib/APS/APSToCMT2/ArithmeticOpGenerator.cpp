@@ -318,32 +318,60 @@ LogicalResult ArithmeticOpGenerator::performExtractOp(mlir::OpBuilder &b, Locati
   return success();
 }
 
+/// Try to get a constant integer value from a FIRRTL value.
+/// Returns std::nullopt if not a constant.
+static std::optional<int64_t> getConstantValue(mlir::Value value) {
+  // Check if it's a FIRRTL constant
+  if (auto constOp = value.getDefiningOp<circt::firrtl::ConstantOp>()) {
+    return constOp.getValue().getSExtValue();
+  }
+  return std::nullopt;
+}
+
 LogicalResult ArithmeticOpGenerator::performShiftOp(mlir::OpBuilder &b, Location loc,
                                                      mlir::Value lhs, mlir::Value rhs,
                                                      mlir::Value result, StringRef opName,
                                                      llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // Create Signal wrappers
   Signal lhsSignal(lhs, &b, loc);
-  Signal rhsSignal(rhs, &b, loc);
 
   // Get result width
   auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
 
+  // Check if shift amount is a constant
+  auto constShiftAmount = getConstantValue(rhs);
+
   // Create FIRRTL shift operations using the underlying values
   mlir::Value shiftResult;
 
-  if (opName == "shl") {
-    // Dynamic left shift: dshl
-    shiftResult = b.create<circt::firrtl::DShlPrimOp>(loc, lhs, rhs);
-  } else if (opName == "shrui") {
-    // Dynamic logical right shift: dshr
-    shiftResult = b.create<circt::firrtl::DShrPrimOp>(loc, lhs, rhs);
-  } else if (opName == "shrsi") {
-    // Dynamic arithmetic right shift: for signed, we need to ensure proper sign extension
-    // FIRRTL's dshr on signed values performs arithmetic shift
-    shiftResult = b.create<circt::firrtl::DShrPrimOp>(loc, lhs, rhs);
+  if (constShiftAmount.has_value()) {
+    // Constant shift - use ShlPrimOp/ShrPrimOp
+    int64_t shiftAmt = *constShiftAmount;
+
+    if (opName == "shl") {
+      // Constant left shift
+      shiftResult = b.create<circt::firrtl::ShlPrimOp>(loc, lhs, shiftAmt);
+    } else if (opName == "shrui" || opName == "shrsi") {
+      // Constant right shift (both logical and arithmetic use ShrPrimOp)
+      shiftResult = b.create<circt::firrtl::ShrPrimOp>(loc, lhs, shiftAmt);
+    } else {
+      return failure();
+    }
   } else {
-    return failure();
+    // Dynamic shift - use DShlPrimOp/DShrPrimOp
+    if (opName == "shl") {
+      // Dynamic left shift: dshl
+      shiftResult = b.create<circt::firrtl::DShlPrimOp>(loc, lhs, rhs);
+    } else if (opName == "shrui") {
+      // Dynamic logical right shift: dshr
+      shiftResult = b.create<circt::firrtl::DShrPrimOp>(loc, lhs, rhs);
+    } else if (opName == "shrsi") {
+      // Dynamic arithmetic right shift: for signed, we need to ensure proper sign extension
+      // FIRRTL's dshr on signed values performs arithmetic shift
+      shiftResult = b.create<circt::firrtl::DShrPrimOp>(loc, lhs, rhs);
+    } else {
+      return failure();
+    }
   }
 
   // Wrap result in Signal for width adjustment

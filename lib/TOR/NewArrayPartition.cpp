@@ -769,6 +769,11 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
 
           auto bankLoad = rewriter.create<AffineLoadOp>(
               load.getLoc(), newArray[bankIdx], newMap, load.getMapOperands());
+          // Copy all attributes from original load except the affine map
+          for (auto attr : load->getAttrs()) {
+            if (attr.getName() != load.getMapAttrStrName())
+              bankLoad->setAttr(attr.getName(), attr.getValue());
+          }
           bankLoads.push_back(bankLoad.getResult());
         }
 
@@ -897,8 +902,13 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
               store.getLoc(), cmp, storeValue, oldValue);
 
           // Write back to this bank
-          rewriter.create<AffineStoreOp>(
+          auto newStore = rewriter.create<AffineStoreOp>(
               store.getLoc(), newValue, newArray[bankIdx], indexMap, store.getMapOperands());
+          // Copy all attributes from original store except the affine map
+          for (auto attr : store->getAttrs()) {
+            if (attr.getName() != store.getMapAttrStrName())
+              newStore->setAttr(attr.getName(), attr.getValue());
+          }
         }
 
         // Erase original store
@@ -919,7 +929,12 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       rewriter.setInsertionPoint(burstLoad);
       auto newBurstLoad = rewriter.replaceOpWithNewOp<aps::MemBurstLoad>(burstLoad, TypeRange{}, newOperands);
 
-      // Transfer partition attributes to the new operation
+      // Copy all attributes from original operation first
+      for (auto attr : burstLoad->getAttrs()) {
+        newBurstLoad->setAttr(attr.getName(), attr.getValue());
+      }
+
+      // Then update partition attributes for the new partitioned array
       SmallVector<mlir::Attribute> dimAttrs, factorAttrs, cyclicAttrs;
       auto ctx = rewriter.getContext();
       for (size_t rank = 0; rank < partition.size(); ++rank) {
@@ -946,7 +961,12 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       rewriter.setInsertionPoint(burstStore);
       auto newBurstStore = rewriter.replaceOpWithNewOp<aps::MemBurstStore>(burstStore, TypeRange{}, newOperands);
 
-      // Transfer partition attributes to the new operation
+      // Copy all attributes from original operation first
+      for (auto attr : burstStore->getAttrs()) {
+        newBurstStore->setAttr(attr.getName(), attr.getValue());
+      }
+
+      // Then update partition attributes for the new partitioned array
       SmallVector<mlir::Attribute> dimAttrs, factorAttrs, cyclicAttrs;
       auto ctx = rewriter.getContext();
       for (size_t rank = 0; rank < partition.size(); ++rank) {
@@ -973,8 +993,12 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
         newOperands.push_back(val);
       }
       rewriter.setInsertionPoint(callOp);
-      rewriter.replaceOpWithNewOp<func::CallOp>(
+      auto newCallOp = rewriter.replaceOpWithNewOp<func::CallOp>(
           callOp, callOp.getCallee(), callOp.getResultTypes(), newOperands);
+      // Copy all attributes from original call operation
+      for (auto attr : callOp->getAttrs()) {
+        newCallOp->setAttr(attr.getName(), attr.getValue());
+      }
     }
   }
   for (auto part : new_part) {

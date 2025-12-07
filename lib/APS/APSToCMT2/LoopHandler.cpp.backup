@@ -785,7 +785,7 @@ LogicalResult LoopHandler::buildBBGraph(LoopInfo &loop) {
 
 std::string LoopHandler::getFIFOName(StringRef prefix, unsigned loopId,
                                      unsigned bbId, StringRef suffix) {
-  std::string name = std::to_string(opcode) + "_" + prefix.str() + "_l" + std::to_string(loopId);
+  std::string name = (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str() + "_" + prefix.str() + "_l" + std::to_string(loopId);
   if (bbId != 0) {
     name += "_bb" + std::to_string(bbId);
   }

@@ -135,14 +135,8 @@ class LoopTransformer:
             dbg_debug("No induction variable found with constant step", module="loop_transform")
         else:
             dbg_debug(f"Found induction variable: {induction_var.id} (step={induction_step})", module="loop_transform")
-            # Verify all other bindings have constant inits (for iter_args)
-            for binding in stmt.bindings:
-                if binding.id != induction_var.id:
-                    if not self._is_constant_expr(binding.init):
-                        can_be_for = False
-                        reasons.append(f"Loop-carried variable '{binding.id}' has non-constant init")
-                        dbg_debug(f"Variable '{binding.id}' has non-constant init", module="loop_transform")
-                        break
+            # Note: Other bindings (iter_args) can have non-constant inits.
+            # scf.for accepts any SSA value as initial value for loop-carried variables.
 
             # Check simple bound - must reference the induction variable
             if isinstance(stmt.condition, BinaryExpr):
@@ -370,6 +364,8 @@ class LoopTransformer:
                 else:
                     # Boolean flag directive (no argument)
                     for_op.operation.attributes[attr_name] = ir.BoolAttr.get(True)
+            # Clear directives after applying to loop (before processing body)
+            self.converter.pending_directives = []
 
         # Body block
         body_block = for_op.region.blocks[0]
@@ -472,6 +468,21 @@ class LoopTransformer:
 
         # Create scf.while operation
         while_op = scf.WhileOp(loop_var_types, init_values)
+
+        # Apply directives as attributes (same as emit_scf_for)
+        if self.converter.pending_directives:
+            from .ast import LitExpr
+            for directive in self.converter.pending_directives:
+                attr_name = directive.name
+                if directive.expr:
+                    if isinstance(directive.expr, LitExpr):
+                        value = directive.expr.literal.lit.value
+                        attr = ir.IntegerAttr.get(ir.IntegerType.get_signless(32), value)
+                        while_op.operation.attributes[attr_name] = attr
+                else:
+                    while_op.operation.attributes[attr_name] = ir.BoolAttr.get(True)
+            # Clear directives after applying to loop (before processing body)
+            self.converter.pending_directives = []
 
         # Before region: check if we should continue
         before_block = while_op.before.blocks.append(*loop_var_types)

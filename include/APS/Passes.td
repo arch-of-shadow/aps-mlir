@@ -197,6 +197,42 @@ def ArithSelectToSCFIf : Pass<"arith-select-to-scf-if"> {
   let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect"];
 }
 
+def ArithMulDivToShift : Pass<"arith-muldiv-to-shift"> {
+  let summary = "Convert arith mul/div by power of 2 to shift operations";
+  let description = [{
+    This pass converts arith.muli and arith.divui/divsi operations to shift
+    operations when the second operand is a constant power of 2.
+
+    Transformations:
+    - arith.muli %x, 2^n  => arith.shli %x, n
+    - arith.divui %x, 2^n => arith.shrui %x, n
+    - arith.divsi %x, 2^n => arith.shrsi with bias correction for negative values
+
+    For signed division (arith.divsi), the transformation adds a bias for
+    negative values to ensure correct truncation toward zero (matching C
+    semantics), rather than floor division which arithmetic shift alone provides.
+
+    The bias correction is:
+      sign = shrsi(x, bitwidth-1)   // -1 if negative, 0 if positive
+      bias = andi(sign, 2^n - 1)    // (2^n - 1) if negative, 0 if positive
+      result = shrsi(addi(x, bias), n)
+
+    This optimization is useful for:
+    - Reducing hardware complexity (shift is simpler than multiply/divide)
+    - Improving performance on targets where shift is faster than multiply/divide
+    - Matching patterns in instruction selection
+
+    Example:
+      %c8 = arith.constant 8 : i32
+      %result = arith.muli %x, %c8 : i32
+    becomes:
+      %c3 = arith.constant 3 : i32
+      %result = arith.shli %x, %c3 : i32
+  }];
+  let constructor = "mlir::createArithMulDivToShiftPass()";
+  let dependentDialects = ["::mlir::arith::ArithDialect"];
+}
+
 def APSHoistReadRF : Pass<"aps-hoist-readrf", "::mlir::func::FuncOp"> {
   let summary = "Hoist all aps.readrf operations to function entry block";
   let description = [{

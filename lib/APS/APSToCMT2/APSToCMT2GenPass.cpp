@@ -100,8 +100,9 @@ void APSToCMT2GenPass::runOnOperation() {
   // Generate RoCC adapter module
   llvm::SmallVector<unsigned long, 4> opcodes = {}; // Example opcodes
   moduleOp.walk([&](tor::FuncOp funcOp) {
-    auto opcode = dyn_cast<IntegerAttr>(funcOp->getAttr("opcode"));
-    opcodes.push_back(opcode.getInt());
+    auto opcode = funcOp->getAttrOfType<IntegerAttr>("opcode").getInt();
+    auto funct7 = funcOp->getAttrOfType<IntegerAttr>("funct7").getInt();
+    opcodes.push_back((opcode << 8) + funct7);
   });
   auto *roccAdapterModule = generateRoCCAdapter(circuit, opcodes);
 
@@ -178,10 +179,12 @@ MainModuleInstances APSToCMT2GenPass::generateRuleBasedMainModule(
   // Extract opcodes from the function or use defaults
   // For scalar.mlir, we need to determine the appropriate opcode
   for (auto funcOp : torFuncs) {
-    auto opcode = dyn_cast<IntegerAttr>(funcOp->getAttr("opcode")).getInt();
+    auto opcode = funcOp->getAttrOfType<IntegerAttr>("opcode").getInt();
+    auto funct7 = funcOp->getAttrOfType<IntegerAttr>("funct7").getInt();
     generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance,
                              hellaMemInstance, burstControllerItfcDecl, circuit,
-                             mainClk, mainRst, opcode);
+                             mainClk, mainRst, (opcode << 8) + funct7);
+                             // we now use both opcode and funct7 to identify functions
   }
 
   return {mainModule, poolInstance, roccInstance, hellaMemInstance};

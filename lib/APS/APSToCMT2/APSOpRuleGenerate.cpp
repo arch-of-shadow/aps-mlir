@@ -47,7 +47,7 @@ void APSToCMT2GenPass::generateRulesForFunction(
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
   auto *regRdMod = STLLibrary::createRegModule(5, 0, circuit);
-  Instance *regRdInstance = mainModule->addInstance("reg_rd_" + std::to_string(opcode), regRdMod,
+  Instance *regRdInstance = mainModule->addInstance("reg_rd_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str(), regRdMod,
                                                     {mainClk.getValue(), mainRst.getValue()});
   builder.restoreInsertionPoint(savedIP);
   llvm::outs() << "[RuleGen] Created shared reg_rd instance: reg_rd_" << opcode << "\n";
