@@ -261,6 +261,11 @@ struct APSSplitMemoryOpsPass
             loadOp.getMemref(),
             loadOp.getIndices());
 
+        // Copy all attributes from original operation first
+        for (auto attr : loadOp->getAttrs()) {
+          reqOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for request op
         setRefTimePair(reqOp, A, B);
         llvm::errs() << "  Created aps.itfc.load_req: (" << A << ", " << B << ")\n";
 
@@ -269,6 +274,11 @@ struct APSSplitMemoryOpsPass
             loadOp.getResult().getType(),
             reqOp.getResult());
 
+        // Copy all attributes from original operation first
+        for (auto attr : loadOp->getAttrs()) {
+          collectOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for collect op
         setRefTimePair(collectOp, B, B + 1);
         llvm::errs() << "  Created aps.itfc.load_collect: (" << B << ", " << (B + 1) << ")\n";
 
@@ -293,6 +303,11 @@ struct APSSplitMemoryOpsPass
             storeOp.getMemref(),
             storeOp.getIndices());
 
+        // Copy all attributes from original operation first
+        for (auto attr : storeOp->getAttrs()) {
+          reqOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for request op
         setRefTimePair(reqOp, A, B);
         llvm::errs() << "  Created aps.itfc.store_req: (" << A << ", " << B << ")\n";
 
@@ -300,6 +315,11 @@ struct APSSplitMemoryOpsPass
             storeOp.getLoc(),
             reqOp.getResult());
 
+        // Copy all attributes from original operation first
+        for (auto attr : storeOp->getAttrs()) {
+          collectOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for collect op
         setRefTimePair(collectOp, B, B + 1);
         llvm::errs() << "  Created aps.itfc.store_collect: (" << B << ", " << (B + 1) << ")\n";
 
@@ -325,6 +345,11 @@ struct APSSplitMemoryOpsPass
             burstOp.getStart(),
             burstOp.getLength());
 
+        // Copy all attributes from original operation first
+        for (auto attr : burstOp->getAttrs()) {
+          reqOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for request op
         setRefTimePair(reqOp, A, B);
         llvm::errs() << "  Created aps.itfc.burst_load_req: (" << A << ", " << B << ")\n";
 
@@ -332,15 +357,13 @@ struct APSSplitMemoryOpsPass
             burstOp.getLoc(),
             reqOp.getResult());
 
+        // Copy all attributes from original operation first
+        for (auto attr : burstOp->getAttrs()) {
+          collectOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for collect op
         setRefTimePair(collectOp, B, B + 1);
         llvm::errs() << "  Created aps.itfc.burst_load_collect: (" << B << ", " << (B + 1) << ")\n";
-
-        // Inherit tl_channel attribute if present
-        if (auto tlChannelAttr = burstOp->getAttrOfType<IntegerAttr>("tl_channel")) {
-          reqOp->setAttr("tl_channel", tlChannelAttr);
-          collectOp->setAttr("tl_channel", tlChannelAttr);
-          llvm::errs() << "  Inherited tl_channel: " << tlChannelAttr.getInt() << "\n";
-        }
 
         rewriter.eraseOp(burstOp);
         llvm::errs() << "=== Split complete ===\n\n";
@@ -364,6 +387,11 @@ struct APSSplitMemoryOpsPass
             burstOp.getCpuAddr(),
             burstOp.getLength());
 
+        // Copy all attributes from original operation first
+        for (auto attr : burstOp->getAttrs()) {
+          reqOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for request op
         setRefTimePair(reqOp, A, B);
         llvm::errs() << "  Created aps.itfc.burst_store_req: (" << A << ", " << B << ")\n";
 
@@ -371,15 +399,13 @@ struct APSSplitMemoryOpsPass
             burstOp.getLoc(),
             reqOp.getResult());
 
+        // Copy all attributes from original operation first
+        for (auto attr : burstOp->getAttrs()) {
+          collectOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for collect op
         setRefTimePair(collectOp, B, B + 1);
         llvm::errs() << "  Created aps.itfc.burst_store_collect: (" << B << ", " << (B + 1) << ")\n";
-
-        // Inherit tl_channel attribute if present
-        if (auto tlChannelAttr = burstOp->getAttrOfType<IntegerAttr>("tl_channel")) {
-          reqOp->setAttr("tl_channel", tlChannelAttr);
-          collectOp->setAttr("tl_channel", tlChannelAttr);
-          llvm::errs() << "  Inherited tl_channel: " << tlChannelAttr.getInt() << "\n";
-        }
 
         rewriter.eraseOp(burstOp);
         llvm::errs() << "=== Split complete ===\n\n";
