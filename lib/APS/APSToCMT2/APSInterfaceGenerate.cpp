@@ -21,10 +21,12 @@ void APSToCMT2GenPass::addBurstMemoryInterface(Circuit &circuit) {
   for (int i = 0; i < 2; i++) { // dual channel tilelink
     burstMemoryInterface->addMethod(
         "cpu_to_isax_ch" + std::to_string(i),
-        {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}, {"stride", u8Type}}, {});
+        {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}, 
+        {"stride_x", u8Type}, {"stride_y", u8Type}}, {});
     burstMemoryInterface->addMethod(
         "isax_to_cpu_ch" + std::to_string(i),
-        {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}, {"stride", u8Type}}, {});
+        {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type},
+        {"stride_x", u8Type}, {"stride_y", u8Type}}, {});
     burstMemoryInterface->addValue(
         // This will not ready if burst engine is running
         // So the main operation can be stucked

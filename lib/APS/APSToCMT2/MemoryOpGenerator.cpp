@@ -414,17 +414,25 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   }
 
   auto tl_id = op->getAttrOfType<IntegerAttr>("tl_channel").getInt();
-  auto strideAttr = op->getAttrOfType<IntegerAttr>("stride");
-  int64_t stride = 0;
-  if (strideAttr) {
-    stride = strideAttr.getInt();
+
+  auto strideXAttr = op->getAttrOfType<IntegerAttr>("stride_x");
+  int64_t strideX = 0;
+  if (strideXAttr) {
+    strideX = strideXAttr.getInt();
   }
-  auto strideValue = UInt::constant(stride, 8, b, loc);
+  auto strideXValue = UInt::constant(strideX, 8, b, loc);
+  auto strideYAttr = op->getAttrOfType<IntegerAttr>("stride_y");
+  int64_t strideY = 0;
+  if (strideYAttr) {
+    strideY = strideYAttr.getInt();
+  }
+  auto strideYValue = UInt::constant(strideY, 8, b, loc);
 
   dmaItfc->callMethod("cpu_to_isax_ch" + std::to_string(tl_id),
                       {*cpuAddrValue, localAddr.bits(31, 0).getValue(),
                        realCpuLength.bits(3, 0).getValue(),
-                       strideValue.getValue()},
+                       strideXValue.getValue(),
+                       strideYValue.getValue()},
                       b);
 
   localMap[op.getResult()] = UInt::constant(1, 1, b, loc).getValue();
@@ -550,17 +558,24 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   }
 
   auto tl_id = op->getAttrOfType<IntegerAttr>("tl_channel").getInt();
-  auto strideAttr = op->getAttrOfType<IntegerAttr>("stride");
-  int64_t stride = 0;
-  if (strideAttr) {
-    stride = strideAttr.getInt();
+  auto strideXAttr = op->getAttrOfType<IntegerAttr>("stride_x");
+  int64_t strideX = 0;
+  if (strideXAttr) {
+    strideX = strideXAttr.getInt();
   }
-  auto strideValue = UInt::constant(stride, 8, b, loc);
+  auto strideXValue = UInt::constant(strideX, 8, b, loc);
+  auto strideYAttr = op->getAttrOfType<IntegerAttr>("stride_y");
+  int64_t strideY = 0;
+  if (strideYAttr) {
+    strideY = strideYAttr.getInt();
+  }
+  auto strideYValue = UInt::constant(strideY, 8, b, loc);
 
   dmaItfc->callMethod("isax_to_cpu_ch" + std::to_string(tl_id),
                       {*cpuAddrValue, localAddr.bits(31, 0).getValue(),
                        realCpuLength.bits(3, 0).getValue(),
-                      strideValue.getValue()},
+                      strideXValue.getValue(),
+                      strideYValue.getValue()},
                       b);
 
   localMap[op.getResult()] = UInt::constant(1, 1, b, loc).getValue();
