@@ -32,48 +32,6 @@ bool needSchedule(const BasicBlock *B) {
          B->getParentLoop()->PipelineFlag == false;
 }
 
-/// Helper function to check if a memref is _cpu_memory
-static bool isCpuMemory(mlir::Value memref) {
-  auto defOp = memref.getDefiningOp();
-  if (!defOp)
-    return false;
-
-  if (auto getGlobal = llvm::dyn_cast<mlir::memref::GetGlobalOp>(defOp)) {
-    mlir::StringRef name = getGlobal.getName();
-    return name.contains("_cpu_memory");
-  }
-
-  return false;
-}
-
-int SDCSchedule::getAdjustedLatency(SDCOpWrapper *op) {
-  // Get base latency from resource database
-  int baseLatency = RDB.getLatency(op->getResource(), op->getWidth());
-
-  mlir::Operation *mlirOp = op->getOp();
-
-  // Check if this is an APS memory load operation
-  if (auto memLoadOp = llvm::dyn_cast<aps::MemLoad>(mlirOp)) {
-    // For aps.memload: check if accessing _cpu_memory
-    mlir::Value memref = memLoadOp.getMemref();
-    if (isCpuMemory(memref)) {
-      // Access to _cpu_memory: use latency=1
-      llvm::errs() << "  aps.memload to _cpu_memory: latency=1\n";
-      return 1;
-    } else {
-      // Access to other memory: use latency=0
-      llvm::errs() << "  aps.memload to other memory: latency=0\n";
-      return 0;
-    }
-  }
-
-  // For aps.memstore and all other operations: use base latency
-  if (llvm::isa<aps::MemStore>(mlirOp)) {
-    llvm::errs() << "  aps.memstore: using base latency=" << baseLatency << "\n";
-  }
-
-  return baseLatency;
-}
 
 int SDCSchedule::getMAxiMII(Loop *L) {
   // todo axi pipeline + burst but this is not that important
@@ -229,7 +187,7 @@ void SDCSchedule::addChainingConstr(SDCOpWrapper *op, SDCSolver *SDC, int II) {
   std::unordered_map<SDCOpWrapper *, bool> exceed;
 
   if (RDB.getName(op->getResource()) != "nop")
-    traverse(op, SDC, getAdjustedLatency(op), 0.0, 0,
+    traverse(op, SDC, RDB.getLatency(op->getResource(), op->getWidth()), 0.0, 0,
              II, op, vis, exceed);
 }
 
@@ -306,12 +264,8 @@ void SDCSchedule::formulateDependency(Loop *L, int II, SDCSolver *SDC) {
             //   continue;
             // }
 
-            if (getAdjustedLatency(destOp) == 0)
-              SDC->addInitialConstraint(Constraint::CreateGE(
-                  destOp->VarId, srcOp->VarId, -II * pred->Distance));
-            else
-              SDC->addInitialConstraint(Constraint::CreateGE(
-                  destOp->VarId, srcOp->VarId, 1 - II * pred->Distance));
+            SDC->addInitialConstraint(Constraint::CreateGE(
+                destOp->VarId, srcOp->VarId, 1 - II * pred->Distance));
           } else {
             LLVM_DEBUG(if (pred->Distance != 0) {
               llvm::outs() << srcOp->getOpDumpId()
@@ -1200,7 +1154,7 @@ SDCSolver *SDCSchedule::formulateSDC() {
           Constraint::CreateGE(sdcOp->VarId, BeginBB[BB.get()], 0));
       SDC->addInitialConstraint(Constraint::CreateGE(
           EndBB[BB.get()], sdcOp->VarId,
-          getAdjustedLatency(sdcOp)));
+          RDB.getLatency(sdcOp->getResource(), sdcOp->getWidth())));
     }
   }
 
@@ -1297,7 +1251,7 @@ SDCSolver *SDCSchedule::formulateSDC() {
           }
         }
         if(u){
-          int latency = getAdjustedLatency(predOp);
+          int latency = RDB.getLatency(predOp->getResource(), predOp->getWidth());
           llvm::errs() << "Adding SDC constraint: Var" << succOp->VarId
                        << " >= Var" << predOp->VarId << " + " << latency
                        << " (" << predOp->getOp()->getName().getStringRef() << " -> "
