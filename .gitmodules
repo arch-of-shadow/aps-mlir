@@ -1,6 +1,7 @@
 [submodule "circt"]
-  path = circt
+	path = circt
 	url = git@github.com:arch-of-shadow/circt-cmt2.git
+	branch = circt-cmt2-float
 [submodule "thirdparty/json"]
 	path = thirdparty/json
 	url = https://github.com/nlohmann/json.git

@@ -1,0 +1,33 @@
+// Comprehensive Float32 Operations Test
+// Tests all floating-point operations in a single function: add, sub, mul, div, sqrt
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0101011)]
+rtype float_ops(rs1: u5, rs2: u5, rd: u5) {
+    let a_bits: u32 = _irf[rs1];
+    let b_bits: u32 = _irf[rs2];
+
+    let a: f32 = bitcast<f32>(a_bits);
+    let b: f32 = bitcast<f32>(b_bits);
+
+    // Float Add
+    let sum: f32 = a + b;
+
+    // Float Sub
+    let diff: f32 = a - b;
+
+    // Float Mul
+    let prod: f32 = a * b;
+
+    // Float Div
+    let quot: f32 = a / b;
+
+    // Float Sqrt
+    let sqrt_a: f32 = sqrt(a);
+
+    // Chain operations: result = sqrt(a) + (a * b) - (a / b)
+    let result_f: f32 = sqrt_a + prod - quot;
+
+    let result: u32 = bitcast<u32>(result_f);
+    _irf[rd] = result;
+}

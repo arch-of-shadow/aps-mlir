@@ -125,7 +125,7 @@ private:
   /// alignment
   Module *generateBankWrapperModule(const MemoryEntryInfo &entryInfo,
                                     Circuit &circuit, size_t bankIdx,
-                                    ExternalModule *memMod, Clock clk,
+                                    Module *memMod, Clock clk,
                                     Reset rst, bool burstEnable);
 
   Module *

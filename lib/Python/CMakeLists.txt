@@ -66,6 +66,7 @@ set(PYTHON_BINDINGS_LINK_LIBS
   MLIRCAPIExportSMTLIB
   MLIRCAPISCF
   MLIRCAPIMemRef
+  MLIRCAPIMath
   # needed for mlirFrozenRewritePatternSetDestroy
   # but not the actual passes
   MLIRCAPITransforms
@@ -304,6 +305,14 @@ declare_mlir_dialect_python_bindings(
     SOURCES
       dialects/memref.py
     DIALECT_NAME memref)
+
+declare_mlir_dialect_python_bindings(
+    ADD_TO_PARENT CIRCTBindingsPythonSources.Dialects
+    ROOT_DIR "${MLIR_PYTHON_SRC_DIR}"
+    TD_FILE dialects/MathOps.td
+    SOURCES
+      dialects/math.py
+    DIALECT_NAME math)
 
 ################################################################################
 # Build composite binaries

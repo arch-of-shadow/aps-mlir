@@ -12,6 +12,7 @@ add_mlir_library(APS
   APSToCMT2/APSToCMT2GenPass.cpp
   APSToCMT2/APSOpRuleGenerate.cpp
   APSToCMT2/BlockHandler.cpp
+  APSToCMT2/FloatOpGenerator.cpp 
   APSToCMT2/BBHandler.cpp
   APSToCMT2/LoopHandler.cpp
   APSToCMT2/ArithmeticOpGenerator.cpp

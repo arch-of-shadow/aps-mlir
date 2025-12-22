@@ -400,6 +400,7 @@ namespace {
                 OPERATION(TruncFOp, "truncf")
                 OPERATION(TruncIOp, "trunci")
                 OPERATION(IndexCastOp, "index_cast")
+                OPERATION(arith::BitcastOp, "bitcast")
 
                 // other
                 OPERATION(SelectOp, "select")

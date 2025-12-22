@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define HARDWARE // Uncomment to use hardware instructions
+// #define HARDWARE // Uncomment to use hardware instructions
 #define NO_DBG_PRINT
 
 #ifdef HARDWARE

@@ -452,6 +452,7 @@ namespace {
                 OPERATION(tor::SubFOp, "sub")
                 OPERATION(tor::DivFOp, "div")
                 OPERATION(tor::MacFOp, "mac")
+                OPERATION(tor::SqrtFOp, "sqrtf")
                 OPERATION(NegFOp, "negf")
 
                 // convert
@@ -465,6 +466,7 @@ namespace {
                 OPERATION(TruncFOp, "truncf")
                 OPERATION(TruncIOp, "trunci")
                 OPERATION(IndexCastOp, "index_cast")
+                OPERATION(arith::BitcastOp, "bitcast")
 
                 // other
                 OPERATION(SelectOp, "select")
@@ -477,7 +479,7 @@ namespace {
                 OPERATION(math::FloorOp, "floor")
                 OPERATION(math::RoundOp, "round")
 
-                OPERATION(math::SqrtOp, "sqrt")
+                
                 OPERATION(math::ExpOp, "exp")
                 OPERATION(math::PowFOp, "powf")
                 OPERATION(math::LogOp, "log")

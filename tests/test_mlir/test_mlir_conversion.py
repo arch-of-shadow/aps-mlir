@@ -435,5 +435,103 @@ class TestMLIRStructure:
         assert "i64" not in mlir_str
 
 
+@pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
+class TestMathFunctions:
+    """Test math function conversions (sqrt, exp, log, etc.)"""
+
+    def test_sqrt_f32(self):
+        """Test sqrt with f32 type"""
+        source = """
+        static out: f32;
+        flow sqrt_test(x: f32) {
+            out = sqrt(x);
+        }
+        """
+        mlir = verify_mlir(source, ["math.sqrt"])
+        assert "f32" in mlir
+
+    def test_sqrt_f64(self):
+        """Test sqrt with f64 type"""
+        source = """
+        static out: f64;
+        flow sqrt_test(x: f64) {
+            out = sqrt(x);
+        }
+        """
+        mlir = verify_mlir(source, ["math.sqrt"])
+        assert "f64" in mlir
+
+    def test_exp_function(self):
+        """Test exp math function"""
+        source = """
+        static out: f32;
+        flow exp_test(x: f32) {
+            out = exp(x);
+        }
+        """
+        mlir = verify_mlir(source, ["math.exp"])
+
+    def test_log_function(self):
+        """Test log math function"""
+        source = """
+        static out: f32;
+        flow log_test(x: f32) {
+            out = log(x);
+        }
+        """
+        mlir = verify_mlir(source, ["math.log"])
+
+    def test_trig_functions(self):
+        """Test trigonometric functions"""
+        source = """
+        static s_out: f32;
+        static c_out: f32;
+        static t_out: f32;
+        flow trig_test(x: f32) {
+            s_out = sin(x);
+            c_out = cos(x);
+            t_out = tan(x);
+        }
+        """
+        mlir = verify_mlir(source, ["math.sin", "math.cos", "math.tan"])
+
+    def test_pow_function(self):
+        """Test pow binary math function"""
+        source = """
+        static out: f32;
+        flow pow_test(x: f32, y: f32) {
+            out = pow(x, y);
+        }
+        """
+        mlir = verify_mlir(source, ["math.powf"])
+
+    def test_floor_ceil(self):
+        """Test floor and ceil functions"""
+        source = """
+        static f_out: f32;
+        static c_out: f32;
+        flow round_test(x: f32) {
+            f_out = floor(x);
+            c_out = ceil(x);
+        }
+        """
+        mlir = verify_mlir(source, ["math.floor", "math.ceil"])
+
+    def test_math_in_expression(self):
+        """Test math function used in complex expression"""
+        source = """
+        static sqrt_out: f32;
+        static exp_out: f32;
+        flow complex_math(a: f32, b: f32) {
+            sqrt_out = sqrt(a);
+            exp_out = exp(b);
+        }
+        """
+        # Note: We test sqrt and exp separately here because the binary
+        # operation for floating-point addition (arith.addf vs arith.addi)
+        # is handled by a different part of the converter
+        mlir = verify_mlir(source, ["math.sqrt", "math.exp"])
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

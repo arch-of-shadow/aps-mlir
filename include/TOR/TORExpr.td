@@ -213,6 +213,28 @@ def DivFOp : TOROp<"divf", [Pure,
 
 }
 
+def SqrtFOp : TOROp<"sqrtf", [Pure,SameOperandsAndResultType]> {
+  let summary = "sqrtf operation";
+  let description = [{
+    The "sqrtf" operation represents the square root of a floating-point variable.
+  }];
+
+  // single
+  let arguments = (ins FloatLike : $operand,
+                       I32Attr : $starttime, I32Attr : $endtime);
+  let results = (outs FloatLike : $result);
+
+  let assemblyFormat = [{$operand `on` ` ` `(` $starttime `to` $endtime `)`
+    attr-dict `:` type($result)
+  }];
+
+  let builders = [
+    OpBuilder<(ins "Value" : $operand), [{
+      return build($_builder, $_state, operand.getType(), ValueRange{operand},
+                   ArrayRef<NamedAttribute>{});
+    }]>];
+}
+
 def MacFOp : TOROp<"macf", [Pure,
                             SameOperandsAndResultType]> {
   let summary = "macf operation";

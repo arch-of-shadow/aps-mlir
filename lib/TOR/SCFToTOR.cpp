@@ -5,7 +5,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
-
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -131,6 +131,30 @@ namespace {
     using SubFOpConversion = BinOpConversionPattern<SubFOp, tor::SubFOp>;
     using DivFOpConversion = BinOpConversionPattern<DivFOp, tor::DivFOp>;
 
+
+    template<typename SourceOp, typename TargetOp>
+    struct UnaryOpConversionPattern : public IndexTypeConversionPattern<SourceOp> {
+        using IndexTypeConversionPattern<SourceOp>::IndexTypeConversionPattern;
+
+        LogicalResult matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                                        ConversionPatternRewriter &rewriter) const final {
+            auto operands = this->prepareOperands(op, adaptor, rewriter);
+            auto resType = this->getTypeConverter()->convertType(op->getResult(0).getType());
+
+            auto newOp = rewriter.replaceOpWithNewOp<TargetOp>(op, resType, operands[0], 0, 0);
+            if (!op->hasAttr("dump")) {
+                op->setAttr("dump", StringAttr::get(rewriter.getContext(), get_tmp_attr().c_str()));
+            }
+            saveOldAttrWithName(newOp, op, "bind_op_impl");
+            saveOldAttrWithName(newOp, op, "bind_op_latency");
+            saveOldAttrWithName(newOp, op, "bind_op-line");
+            newOp->setAttr("dump", op->getAttr("dump"));
+            return success();
+        }
+    };
+
+    using SqrtFOpConversion = UnaryOpConversionPattern<math::SqrtOp, tor::SqrtFOp>;
+
     template<typename SourceOp>
     struct SimpleOpConversion : public IndexTypeConversionPattern<SourceOp> {
         using IndexTypeConversionPattern<SourceOp>::IndexTypeConversionPattern;
@@ -147,6 +171,7 @@ namespace {
             return success();
         }
     };
+
 
     using ShiftLeftConversionPattern = SimpleOpConversion<ShLIOp>;
     using OrIConversionPattern = SimpleOpConversion<OrIOp>;
@@ -987,10 +1012,13 @@ namespace {
                 });
                 // Keep IndexCastOp legal - don't convert it
                 target.addLegalOp<IndexCastOp>();
+                // Keep BitcastOp legal - it's a no-op in hardware (same bit width)
+                target.addLegalOp<arith::BitcastOp>();
 
                 patterns.add<AddIOpConversion, ConstIndexConversion, MulIOpConversion,
                         SubIOpConversion, CmpIOpConversion, MulFOpConversion,
                         AddFOpConversion, SubFOpConversion, DivFOpConversion,
+                        SqrtFOpConversion,
                         YieldOpConversion, CondOpConversion, WhileOpConversion,
                         IfOpConversion, FuncOpPattern,
                         CmpFOpConversion,

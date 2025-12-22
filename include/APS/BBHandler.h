@@ -16,6 +16,11 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+// Forward declaration to avoid <cmath> conflict with mlir::detail
+namespace scheduling {
+class ResourceDB;
+}
+
 namespace mlir {
 
 using namespace mlir;
@@ -33,6 +38,7 @@ class ArithmeticOpGenerator;
 class MemoryOpGenerator;
 class InterfaceOpGenerator;
 class RegisterOpGenerator;
+class FloatOpGenerator;
 
 //===----------------------------------------------------------------------===//
 // Basic Block Handler
@@ -92,6 +98,14 @@ public:
                                         llvm::DenseMap<Value, Instance*> &inputFIFOs,
                                         llvm::DenseMap<Value, Instance*> &outputFIFOs);
 
+  //for float arithmetic generator to access circuit and main module
+  // because dynamic generation of float ops needs these                                      
+  Circuit& getCircuit() { return circuit; }
+  Module* getMainModule() { return mainModule; }
+  Clock getMainClk() { return mainClk; }
+  Reset getMainRst() { return mainRst; }
+  // Wrapper method to get operation latency
+  unsigned getOperationLatency(mlir::Operation *op, unsigned width);
 private:
   // Core components
   APSToCMT2GenPass *pass;
@@ -105,6 +119,7 @@ private:
   Clock mainClk;
   Reset mainRst;
   unsigned long opcode;
+  scheduling::ResourceDB *resourceDB = nullptr;  // Optional, use default latency if null
 
   // Current block being processed (set by processBasicBlock)
   BlockInfo* currentBlock = nullptr;
@@ -122,6 +137,7 @@ private:
   std::unique_ptr<MemoryOpGenerator> memoryGen;
   std::unique_ptr<InterfaceOpGenerator> interfaceGen;
   std::unique_ptr<RegisterOpGenerator> registerGen;
+  std::unique_ptr<FloatOpGenerator> floatGen;
 
   // RoCC command bundle caching
   mlir::Value cachedRoCCCmdBundle;
@@ -299,6 +315,12 @@ private:
   performExtSIOp(mlir::OpBuilder &b, Location loc, mlir::Value input,
                  mlir::Value result,
                  llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform bitcast operation (no-op in hardware, just type reinterpretation)
+  LogicalResult
+  performBitcastOp(mlir::OpBuilder &b, Location loc, mlir::Value input,
+                   mlir::Value result,
+                   llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 };
 
 //===----------------------------------------------------------------------===//
@@ -443,6 +465,64 @@ private:
   generateCpuRfWrite(aps::CpuRfWrite op, mlir::OpBuilder &b, Location loc,
                      int64_t slot,
                      llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+};
+
+//===----------------------------------------------------------------------===//
+// Float Operation Generator
+//===----------------------------------------------------------------------===//
+
+/// Tracks pending float operations between start and result phases
+struct PendingFloatOp {
+  Operation *torOp;           // Original TOR float operation
+  Instance *fpuInstance;      // FloatAdd/Sub/Mul/etc instance
+  int64_t endSlot;            // Slot when result is available
+  Value resultVal;            // TOR result value to map
+  unsigned resultWidth;       // Width of result type
+};
+
+class FloatOpGenerator : public OperationGenerator {
+public:
+  FloatOpGenerator(BBHandler *bbHandler) : OperationGenerator(bbHandler) {}
+
+  LogicalResult
+  generateRule(Operation *op, mlir::OpBuilder &b, Location loc, int64_t slot,
+                llvm::DenseMap<mlir::Value, mlir::Value> &localMap) override;
+
+  bool canHandle(Operation *op) const override;
+
+  /// Process pending float operations whose results are ready at this slot
+  LogicalResult processFloatResults(int64_t slot, mlir::OpBuilder &b, Location loc,
+                                    llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Check if there are pending float results for this slot
+  bool hasPendingResultsForSlot(int64_t slot) const;
+
+  /// Get all end slots that have pending operations
+  llvm::SmallVector<int64_t> getPendingEndSlots() const;
+
+private:
+  unsigned instanceCount = 0;
+
+  /// Map from endSlot to pending float operations
+  llvm::DenseMap<int64_t, llvm::SmallVector<PendingFloatOp>> pendingFloatOps;
+
+  unsigned getLatencyFromOp(Operation *op);
+
+  LogicalResult handleBinaryFloatOp(Operation *op, mlir::OpBuilder &b,
+                                    Location loc, int64_t slot,
+                                    llvm::DenseMap<Value, Value> &localMap,
+                                    StringRef opType);
+
+  LogicalResult handleUnaryFloatOp(Operation *op, mlir::OpBuilder &b,
+                                    Location loc, int64_t slot,
+                                    llvm::DenseMap<Value, Value> &localMap,
+                                    StringRef opType);
+
+  LogicalResult handleCmpF(tor::CmpFOp op, mlir::OpBuilder &b, Location loc,
+                            int64_t slot,
+                            llvm::DenseMap<Value, Value> &localMap);
+
+  unsigned predicateToInt(tor::CmpFPredicate pred);
 };
 
 } // namespace mlir

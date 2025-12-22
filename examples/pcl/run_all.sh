@@ -15,6 +15,11 @@ pixi run opt examples/pcl/vfpsmax.cadl /tmp/vfpsmax.mlir && pixi run sv /tmp/vfp
 pixi run opt examples/pcl/vgemv3d.cadl /tmp/vgemv3d.mlir && pixi run sv /tmp/vgemv3d.mlir /home/zyy/aps-mlir/yosys/sv/vgemv3d.sv
 
 # e2e
-pixi run opt examples/pcl/pcl_all.cadl /tmp/pcl.mlir && pixi run sv /tmp/pcl.mlir /home/zyy/aps-mlir/yosys/sv/pcl.sv
+pixi run opt examples/pcl/pcl_all.cadl /tmp/1/pcl.mlir && pixi run sv /tmp/1/pcl.mlir /home/xys/aps-mlir/yosys/sv/pcl.sv
 # pixi run opt examples/deca/deca_all.cadl deca_all.mlir && pixi run sv deca_all.mlir deca_all.sv
-pixi run opt examples/deca/deca_all_i16.cadl /tmp/deca_all_i16.mlir && pixi run sv /tmp/deca_all_i16.mlir /home/zyy/aps-mlir/yosys/sv/deca_all_i16.sv
+pixi run opt examples/deca/deca_all_i16.cadl /tmp/1/deca_all_i16.mlir && pixi run sv /tmp/1/deca_all_i16.mlir /home/xys/aps-mlir/yosys/sv/deca_all_i16.sv
+
+
+pixi run opt examples/float/float32_add.cadl /tmp/1/float32_add.mlir && pixi run sv /tmp/1/float32_add.mlir /home/xys/aps-mlir/yosys/sv/float32_add.sv
+
+pixi run opt examples/floatv2/test_float.cadl /tmp/1/test_float.mlir && pixi run sv /tmp/1/test_float.mlir /home/xys/aps-mlir/yosys/sv/test_float.sv

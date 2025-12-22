@@ -574,9 +574,9 @@ mlir::LogicalResult removeExtraEdges(mlir::tor::FuncOp funcOp, TimeGraph *tg) {
 bool isMultiCycleOp(mlir::Operation* op) {
   if (llvm::isa<arith::SIToFPOp, arith::FPToSIOp, arith::ExtFOp, arith::TruncFOp,
                 math::PowFOp, math::CeilOp, math::FloorOp, math::RoundOp,
-                math::ExpOp, math::SqrtOp, math::LogOp, math::CosOp, math::TanOp,
+                math::ExpOp,  math::LogOp, math::CosOp, math::TanOp,
                 math::TanhOp, math::SinOp, tor::MulIOp, tor::MulSIOp, tor::MulUIOp,
-                tor::AddFOp, tor::SubFOp, tor::MulFOp, tor::DivFOp,
+                tor::AddFOp, tor::SubFOp, tor::MulFOp, tor::DivFOp,tor::SqrtFOp,
                 tor::CmpFOp, arith::DivSIOp, tor::MacIOp, tor::MacFOp,
                 arith::RemSIOp, arith::DivUIOp, arith::RemUIOp,
                 arith::UIToFPOp, arith::FPToUIOp,

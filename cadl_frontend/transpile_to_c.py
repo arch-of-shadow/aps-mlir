@@ -27,7 +27,7 @@ from .ast import (
     LitExpr, IdentExpr, BinaryExpr, BinaryOp, UnaryExpr, UnaryOp, SliceExpr, RangeSliceExpr,
     IndexExpr, IfExpr, CallExpr, SelectExpr, TupleExpr,
     DataType, DataType_Single, DataType_Array,
-    BasicType, BasicType_ApFixed, BasicType_ApUFixed, BasicType_Float32, BasicType_Float64,
+    BasicType, BasicType_ApFixed, BasicType_ApUFixed, BasicType_Float16, BasicType_Float32, BasicType_Float64,
     Literal, LiteralInner_Fixed, LiteralInner_Float,
 )
 
@@ -753,6 +753,8 @@ class CTranspiler:
             return "double"
         if "float" in (left, right):
             return "float"
+        if "_Float16" in (left, right):
+            return "_Float16"
         if left.startswith("int") or right.startswith("int"):
             return "int32_t"
         return "uint32_t"
@@ -845,6 +847,7 @@ class CTranspiler:
             "bool": 1,
             "uint16_t": 2,
             "int16_t": 2,
+            "_Float16": 2,
             "uint32_t": 4,
             "int32_t": 4,
             "float": 4,
@@ -1153,6 +1156,8 @@ class CTranspiler:
                 return "int32_t"
             else:
                 return "int64_t"
+        elif isinstance(basic_type, BasicType_Float16):
+            return "_Float16"
         elif isinstance(basic_type, BasicType_Float32):
             return "float"
         elif isinstance(basic_type, BasicType_Float64):
@@ -1678,6 +1683,9 @@ class CTranspiler:
                 else:
                     self._note_type("int64_t")
                     return "int64_t"
+            elif isinstance(basic, BasicType_Float16):
+                self._note_type("_Float16")
+                return "_Float16"
             elif isinstance(basic, BasicType_Float32):
                 self._note_type("float")
                 return "float"

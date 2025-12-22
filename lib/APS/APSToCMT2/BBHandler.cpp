@@ -5,6 +5,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+// Include ResourceDB.h BEFORE BBHandler.h to avoid <cmath> vs mlir::detail conflict
+// (APSToCMT2.h has "using namespace mlir;" which causes ambiguity with <cmath>'s detail)
+#include "Schedule/ResourceDB.h"
 #include "APS/BBHandler.h"
 #include "APS/APSOps.h"
 #include "circt/Dialect/Cmt2/ECMT2/Signal.h"
@@ -34,13 +37,15 @@ BBHandler::BBHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp fun
                     unsigned long opcode)
     : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
       roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), dmaItfc(dmaItfc),
-      circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode), regRdInstance(regRdInstance) {
+      circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode),
+      regRdInstance(regRdInstance) {
 
   // Initialize operation generators
   arithmeticGen = std::make_unique<ArithmeticOpGenerator>(this);
   memoryGen = std::make_unique<MemoryOpGenerator>(this);
   interfaceGen = std::make_unique<InterfaceOpGenerator>(this);
   registerGen = std::make_unique<RegisterOpGenerator>(this);
+  floatGen = std::make_unique<FloatOpGenerator>(this);
 
   // Set up register generator with required instances (shared across all blocks)
   registerGen->setRegRdInstance(regRdInstance);
@@ -146,39 +151,57 @@ LogicalResult BBHandler::collectOperationsBySlot() {
 LogicalResult BBHandler::collectOperationsFromList(llvm::SmallVector<Operation*> &operations) {
   // Organize the provided operations by their time slots
   llvm::outs() << "[BBHandler] Organizing " << operations.size() << " operations by time slots\n";
-  
+
   // Clear existing slot map and order
   slotMap.clear();
   slotOrder.clear();
-  
+
   // Process each operation and assign to appropriate slot
   for (Operation *op : operations) {
     if (auto startAttr = op->getAttrOfType<IntegerAttr>("starttime")) {
-      int64_t slot = startAttr.getInt();
-      slotMap[slot].ops.push_back(op);
-      llvm::outs() << "[BBHandler] Operation with explicit timeslot: slot " << slot << " - " << op->getName() << "\n";
+      int64_t startSlot = startAttr.getInt();
+      slotMap[startSlot].ops.push_back(op);
+      llvm::outs() << "[BBHandler] Operation with starttime: slot " << startSlot << " - " << op->getName() << "\n";
+
+      // Only float operations need two-phase handling (start at starttime, result at endtime)
+      // Other multi-cycle ops (like readrf, mul) complete code generation in starttime,
+      // their endtime is just a scheduling constraint for dependent operations.
+      // Float ops need explicit result collection because external IP results are
+      // truly obtained at endtime via the 'result' BindValue.
+      // INSERT at the beginning of endtime slot so float results are available
+      // before other operations that depend on them.
+      if (floatGen && floatGen->canHandle(op)) {
+        if (auto endAttr = op->getAttrOfType<IntegerAttr>("endtime")) {
+          int64_t endSlot = endAttr.getInt();
+          if (endSlot != startSlot) {
+            slotMap[endSlot].ops.insert(slotMap[endSlot].ops.begin(), op);
+            llvm::outs() << "[BBHandler] Float op inserted at beginning of endtime slot " << endSlot
+                         << " for result collection - " << op->getName() << "\n";
+          }
+        }
+      }
     } else {
       // For operations without explicit timeslots, place in slot 0
       slotMap[0].ops.push_back(op);
       llvm::outs() << "[BBHandler] Operation without explicit timeslot - placed in slot 0 - " << op->getName() << "\n";
     }
   }
-  
+
   // Populate sorted slot order
   for (auto &kv : slotMap)
     slotOrder.push_back(kv.first);
   llvm::sort(slotOrder);
-  
+
   if (slotOrder.empty() && !operations.empty()) {
     // If no explicit timeslots but we have operations, create a single slot
     slotOrder.push_back(0);
   }
-  
+
   llvm::outs() << "[BBHandler] Organized operations into " << slotOrder.size() << " time slots\n";
   for (int64_t slot : slotOrder) {
     llvm::outs() << "[BBHandler]   Slot " << slot << " has " << slotMap[slot].ops.size() << " operations\n";
   }
-  
+
   return success();
 }
 
@@ -234,8 +257,19 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
         continue;
       }
 
+      // For float operations, results are only available at endtime slot, not starttime
+      // So only create FIFO when we're processing the endtime slot
+      if (floatGen && floatGen->canHandle(op)) {
+        auto endtimeAttr = op->getAttrOfType<IntegerAttr>("endtime");
+        if (endtimeAttr && endtimeAttr.getInt() != slot) {
+          // This is the starttime slot, skip - will create FIFO at endtime slot
+          continue;
+        }
+      }
+
       for (mlir::Value res : op->getResults()) {
-        if (!isa<mlir::IntegerType>(res.getType()))
+        // Support both integer and float types for cross-slot data transfer
+        if (!isa<mlir::IntegerType, mlir::FloatType>(res.getType()))
           continue;
 
         // Skip constants - they don't need FIFOs since they have no readers
@@ -328,7 +362,8 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
       if (!inputFIFO)
         continue;
 
-      if (!isa<mlir::IntegerType>(inputValue.getType()))
+      // Support both integer and float types
+      if (!isa<mlir::IntegerType, mlir::FloatType>(inputValue.getType()))
         continue;
 
       // Skip constants - they don't need cross-slot FIFOs
@@ -530,6 +565,8 @@ LogicalResult BBHandler::generateSlotRules() {
         return;
 
       // Process all operations in this slot
+      // Multi-cycle operations (like float ops) are added to both starttime and endtime slots
+      // generateRuleForOperation handles both phases based on current slot
       for (Operation *op : slotMap[slot].ops) {
         LogicalResult result = generateRuleForOperation(op, b, loc, slot, localMap);
         if (failed(result))
@@ -543,7 +580,8 @@ LogicalResult BBHandler::generateSlotRules() {
       // Handle cross-slot FIFO writes for producer operations
       for (Operation *op : slotMap[slot].ops) {
         for (mlir::Value result : op->getResults()) {
-          if (!isa<mlir::IntegerType>(result.getType()))
+          // Support both integer and float types
+          if (!isa<mlir::IntegerType, mlir::FloatType>(result.getType()))
             continue;
           auto fifoIt = crossSlotFIFOs.find(result);
           if (fifoIt != crossSlotFIFOs.end()) {
@@ -633,6 +671,8 @@ LogicalResult BBHandler::generateRuleForOperation(Operation *op, mlir::OpBuilder
   // Try each operation generator in order
   if (arithmeticGen->canHandle(op)) {
     return arithmeticGen->generateRule(op, b, loc, slot, localMap);
+  } else if (floatGen->canHandle(op)) {
+    return floatGen->generateRule(op, b, loc, slot, localMap);
   } else if (memoryGen->canHandle(op)) {
     return memoryGen->generateRule(op, b, loc, slot, localMap);
   } else if (interfaceGen->canHandle(op)) {
@@ -804,6 +844,8 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
         return;
 
       // Process all operations in this time slot using existing operation generators
+      // Multi-cycle operations (like float ops) are added to both starttime and endtime slots
+      // generateRuleForOperation handles both phases based on current slot
       for (Operation *op : slotMap[slot].ops) {
         if (failed(generateRuleForOperation(op, b, loc, slot, localMap))) {
           llvm::outs() << "[BBHandler] Failed to process operation: " << *op << "\n";
@@ -814,7 +856,8 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
       // Handle cross-slot FIFO writes and cross-block output FIFO writes for producer operations in this slot
       for (Operation *op : slotMap[slot].ops) {
         for (mlir::Value result : op->getResults()) {
-          if (!isa<mlir::IntegerType>(result.getType()))
+          // Support both integer and float types
+          if (!isa<mlir::IntegerType, mlir::FloatType>(result.getType()))
             continue;
 
           auto valueIt = localMap.find(result);
@@ -908,6 +951,11 @@ mlir::Type BBHandler::toFirrtlType(mlir::Type type, mlir::MLIRContext *ctx) {
   if (auto intType = dyn_cast<mlir::IntegerType>(type)) {
     return circt::firrtl::UIntType::get(ctx, intType.getWidth());
   }
+  // Float types are represented as UInt of the same bit width in hardware
+  // f16 -> uint<16>, f32 -> uint<32>, f64 -> uint<64>
+  if (auto floatType = dyn_cast<mlir::FloatType>(type)) {
+    return circt::firrtl::UIntType::get(ctx, floatType.getWidth());
+  }
   return nullptr;
 }
 
@@ -983,6 +1031,14 @@ FailureOr<mlir::Value> OperationGenerator::getValueInRule(mlir::Value v, Operati
 
   currentOp->emitError("value is not available in this rule");
   return failure();
+}
+
+unsigned BBHandler::getOperationLatency(Operation *op, unsigned width) {
+  if (resourceDB) {
+    int resourceId = resourceDB->getResourceID(op);
+    return resourceDB->getLatency(resourceId, width);
+  }
+  return 8;  // Default latency when ResourceDB is not available
 }
 
 } // namespace mlir

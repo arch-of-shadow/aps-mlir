@@ -111,6 +111,11 @@ LogicalResult ArithmeticOpGenerator::generateRule(Operation *op, mlir::OpBuilder
     if (failed(input))
       return failure();
     return performExtSIOp(b, loc, *input, extsiOp.getResult(), localMap);
+  } else if (auto bitcastOp = dyn_cast<arith::BitcastOp>(op)) {
+    auto input = getValueInRule(bitcastOp.getIn(), op, 0, b, localMap, loc);
+    if (failed(input))
+      return failure();
+    return performBitcastOp(b, loc, *input, bitcastOp.getResult(), localMap);
   }
 
   return failure();
@@ -120,7 +125,7 @@ bool ArithmeticOpGenerator::canHandle(Operation *op) const {
   return isa<tor::AddIOp, tor::SubIOp, tor::MulIOp, tor::CmpIOp, arith::SelectOp,
              arith::ExtUIOp, arith::ExtSIOp, arith::TruncIOp, circt::comb::ExtractOp,
              arith::ShLIOp, arith::ShRUIOp, arith::ShRSIOp,
-             arith::AndIOp, arith::OrIOp, arith::XOrIOp>(op);
+             arith::AndIOp, arith::OrIOp, arith::XOrIOp, arith::BitcastOp>(op);
 }
 
 LogicalResult ArithmeticOpGenerator::performArithmeticOp(mlir::OpBuilder &b, Location loc,
@@ -477,6 +482,16 @@ LogicalResult ArithmeticOpGenerator::performExtSIOp(mlir::OpBuilder &b, Location
   auto asUInt = b.create<circt::firrtl::AsUIntPrimOp>(loc, resultType, padded);
 
   localMap[result] = asUInt.getResult();
+  return success();
+}
+
+LogicalResult ArithmeticOpGenerator::performBitcastOp(mlir::OpBuilder &b, Location loc,
+                                                      mlir::Value input, mlir::Value result,
+                                                      llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  // Bitcast is a no-op in hardware - same bit width, just type reinterpretation
+  // i32 <-> f32 are both 32 bits, no actual hardware logic needed
+  // Simply map the input value directly to the result
+  localMap[result] = input;
   return success();
 }
 

@@ -1,0 +1,133 @@
+
+# Copyright 2025 Tobias Senti
+# Solderpad Hardware License, Version 0.51, see LICENSE for details.
+# SPDX-License-Identifier: SHL-0.51
+
+package:
+    name: flopoco-sv-lib
+    authors:
+        - "Tobias Senti <git@tsenti.li>"
+
+sources:
+    # INT to Flopoco Floating Point conversion
+    - flopoco/Fix2FP/Fix2FP_S2.v
+    - flopoco/Fix2FP/Fix2FP_S0.v
+    - flopoco/Fix2FP/Fix2FP_S1.v
+    - flopoco/Fix2FP/Fix2FP_H2.v
+    - flopoco/Fix2FP/Fix2FP_H0.v
+    - flopoco/Fix2FP/Fix2FP_H1.v
+
+    # IEEE 754 to Flopoco Floating Point conversion
+    - flopoco/IEEE2FP/IEEE2FP_S0.v
+    - flopoco/IEEE2FP/IEEE2FP_H0.v
+
+    # Flopoco Floating Point to INT conversion
+    - flopoco/FP2Fix/FP2Fix_H1.v
+    - flopoco/FP2Fix/FP2Fix_H0.v
+    - flopoco/FP2Fix/FP2Fix_S1.v
+    - flopoco/FP2Fix/FP2Fix_S0.v
+
+    # Flopoco Floating Point square root
+    - flopoco/FPSqrt/FPSqrt_S12.v
+    - flopoco/FPSqrt/FPSqrt_S7.v
+    - flopoco/FPSqrt/FPSqrt_H1.v
+    - flopoco/FPSqrt/FPSqrt_S4.v
+    - flopoco/FPSqrt/FPSqrt_H2.v
+    - flopoco/FPSqrt/FPSqrt_H3.v
+    - flopoco/FPSqrt/FPSqrt_S5.v
+    - flopoco/FPSqrt/FPSqrt_S2.v
+    - flopoco/FPSqrt/FPSqrt_H4.v
+    - flopoco/FPSqrt/FPSqrt_S9.v
+    - flopoco/FPSqrt/FPSqrt_H5.v
+
+    # Flopoco Floating Point comparison
+    - flopoco/FPComp/FPComp_H0.v
+    - flopoco/FPComp/FPComp_S0.v
+
+    # IEEE 754 fused multiply-add
+    - flopoco/IEEEFMA/IEEEFMA_S4.v
+    - flopoco/IEEEFMA/IEEEFMA_H2.v
+    - flopoco/IEEEFMA/IEEEFMA_H3.v
+    - flopoco/IEEEFMA/IEEEFMA_H1.v
+    - flopoco/IEEEFMA/IEEEFMA_S6.v
+    - flopoco/IEEEFMA/IEEEFMA_S2.v
+    - flopoco/IEEEFMA/IEEEFMA_H5.v
+    - flopoco/IEEEFMA/IEEEFMA_S3.v
+    - flopoco/IEEEFMA/IEEEFMA_S1.v
+
+    # Flopoco Floating Point logarithm
+    - flopoco/FPLog/FPLog_H7.v
+    - flopoco/FPLog/FPLog_S2.v
+    - flopoco/FPLog/FPLog_H4.v
+    - flopoco/FPLog/FPLog_H5.v
+    - flopoco/FPLog/FPLog_S3.v
+    - flopoco/FPLog/FPLog_S9.v
+    - flopoco/FPLog/FPLog_H1.v
+    - flopoco/FPLog/FPLog_S6.v
+    - flopoco/FPLog/FPLog_S4.v
+    - flopoco/FPLog/FPLog_H2.v
+    - flopoco/FPLog/FPLog_H3.v
+    - flopoco/FPLog/FPLog_S5.v
+
+    # Flopoco Floating Point division
+    - flopoco/FPDiv/FPDiv_H6.v
+    - flopoco/FPDiv/FPDiv_S8.v
+    - flopoco/FPDiv/FPDiv_S2.v
+    - flopoco/FPDiv/FPDiv_H4.v
+    - flopoco/FPDiv/FPDiv_S7.v
+    - flopoco/FPDiv/FPDiv_H1.v
+    - flopoco/FPDiv/FPDiv_H3.v
+    - flopoco/FPDiv/FPDiv_S5.v
+    - flopoco/FPDiv/FPDiv_S12.v
+    - flopoco/FPDiv/FPDiv_S4.v
+    - flopoco/FPDiv/FPDiv_H2.v
+
+    # Flopoco Floating Point to IEEE 754 conversion
+    - flopoco/FP2IEEE/FP2IEEE_S0.v
+    - flopoco/FP2IEEE/FP2IEEE_H0.v
+
+    # IEEE 754 exponentiation
+    - flopoco/IEEEExp/IEEEExp_S7.v
+    - flopoco/IEEEExp/IEEEExp_H1.v
+    - flopoco/IEEEExp/IEEEExp_S6.v
+    - flopoco/IEEEExp/IEEEExp_S4.v
+    - flopoco/IEEEExp/IEEEExp_H2.v
+    - flopoco/IEEEExp/IEEEExp_H3.v
+    - flopoco/IEEEExp/IEEEExp_S5.v
+    - flopoco/IEEEExp/IEEEExp_H6.v
+    - flopoco/IEEEExp/IEEEExp_H4.v
+    - flopoco/IEEEExp/IEEEExp_S3.v
+    - flopoco/IEEEExp/IEEEExp_S9.v
+
+    # Wrappers
+    # Operations
+    - rtl/wrappers/FPComp.sv
+    - rtl/wrappers/FPDiv.sv
+    - rtl/wrappers/FPLog.sv
+    - rtl/wrappers/FPSqrt.sv
+    - rtl/wrappers/IEEEExp.sv
+    - rtl/wrappers/IEEEFMA.sv
+
+    # Flopoco FP to/from IEEE 754
+    - rtl/wrappers/IEEE2FP.sv
+    - rtl/wrappers/FP2IEEE.sv
+
+    # Flopoco FP to/from INT
+    - rtl/wrappers/INT2FP.sv
+    - rtl/wrappers/FP2INT.sv
+
+    # Conversion between INT to/from IEEE 754
+    - rtl/INT2IEEE.sv
+    - rtl/IEEE2INT.sv
+
+    # IEEE 754 Comparator
+    - rtl/IEEEComp.sv
+
+    # IEEE 754 Division
+    - rtl/IEEEDiv.sv
+
+    # IEEE 754 Logarithm
+    - rtl/IEEELog.sv
+
+    # IEEE 754 Square Root
+    - rtl/IEEESqrt.sv

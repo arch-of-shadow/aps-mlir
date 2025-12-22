@@ -42,6 +42,7 @@ KW_SEL: "sel"
 KW_TRUE: "true"
 KW_FALSE: "false"
 KW_REGFILE: "regfile"
+KW_BITCAST: "bitcast"
 
 // Cast operators
 SIGNED_CAST: "$signed"
@@ -215,6 +216,7 @@ primary_expr: LPAREN expr_list RPAREN                      -> paren_expr
             | F64_CAST LPAREN expr RPAREN                  -> f64_cast
             | INT_CAST LPAREN expr RPAREN                  -> int_cast
             | UINT_CAST LPAREN expr RPAREN                 -> uint_cast
+            | KW_BITCAST OP_LESS_THAN VARTYPE OP_GREATER_THAN LPAREN expr RPAREN -> bitcast_expr
             | KW_IF expr LBRACE expr RBRACE KW_ELSE LBRACE expr RBRACE -> if_expr
             | KW_SEL LBRACE sel_arm+ RBRACE                 -> select_expr
             | LBRACE expr_list RBRACE                       -> aggregate_expr

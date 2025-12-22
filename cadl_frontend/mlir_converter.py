@@ -25,16 +25,17 @@ import circt.dialects.memref as memref
 import circt.dialects.comb as comb
 import circt.dialects.hw as hw
 import circt.dialects.aps as aps
+import circt.dialects.math as math_dialect  # Math dialect for sqrt, exp, etc.
 
 # CADL AST imports
 from .ast import (
     Proc, Flow, Static, Regfile,
     Stmt, Expr, BasicType, DataType, CompoundType,
-    BasicType_ApFixed, BasicType_ApUFixed, BasicType_Float32, BasicType_Float64,
+    BasicType_ApFixed, BasicType_ApUFixed, BasicType_Float16, BasicType_Float32, BasicType_Float64,
     BasicType_String, BasicType_USize,
     DataType_Single, DataType_Array, DataType_Instance,
     CompoundType_Basic,
-    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, SelectExpr, AggregateExpr, ArrayLiteralExpr, StringLitExpr,
+    LitExpr, IdentExpr, BinaryExpr, UnaryExpr, CallExpr, BitcastExpr, IndexExpr, SliceExpr, RangeSliceExpr, IfExpr, SelectExpr, AggregateExpr, ArrayLiteralExpr, StringLitExpr,
     AssignStmt, ReturnStmt, ForStmt, DoWhileStmt, ExprStmt, DirectiveStmt, WithBinding,
     BinaryOp, UnaryOp, FlowKind
 )
@@ -280,6 +281,9 @@ class CADLMLIRConverter:
 
         elif isinstance(cadl_type, BasicType_ApUFixed):
             return ir.IntegerType.get_signless(cadl_type.width)
+
+        elif isinstance(cadl_type, BasicType_Float16):
+            return ir.F16Type.get()
 
         elif isinstance(cadl_type, BasicType_Float32):
             return ir.F32Type.get()
@@ -760,6 +764,14 @@ class CADLMLIRConverter:
             # Convert select expressions to conditional operations
             return self._convert_select_expr(expr)
 
+        elif isinstance(expr, CallExpr):
+            # Convert function call expressions (including math functions)
+            return self._convert_call_expr(expr)
+
+        elif isinstance(expr, BitcastExpr):
+            # Convert bitcast expression (reinterpret bits as different type)
+            return self._convert_bitcast_expr(expr)
+
         else:
             raise NotImplementedError(f"Expression type not yet supported: {type(expr)}")
 
@@ -830,6 +842,14 @@ class CADLMLIRConverter:
             return self._is_signed_type(ty.data_type)
         return False
 
+    def _is_float_mlir_type(self, mlir_type: ir.Type) -> bool:
+        """Check if an MLIR type is a floating point type.
+
+        Used to determine whether to use integer ops (AddIOp, etc.) or
+        float ops (AddFOp, etc.) for binary operations.
+        """
+        return isinstance(mlir_type, (ir.F16Type, ir.F32Type, ir.F64Type, ir.BF16Type))
+
     def _get_expr_signedness(self, expr: Expr) -> bool:
         """Check if an expression represents a signed value"""
         if isinstance(expr, IdentExpr):
@@ -853,20 +873,33 @@ class CADLMLIRConverter:
         # Check if left operand is signed by checking the original expression's CADL type
         is_signed = expr and self._get_expr_signedness(expr.left)
 
+        # Check if operands are floating point type
+        is_float = self._is_float_mlir_type(left.type)
+
         # Arithmetic operations (prefer arith dialect for arithmetic)
         if op == BinaryOp.ADD:
+            if is_float:
+                return arith.AddFOp(left, right).result
             return arith.AddIOp(left, right).result
         elif op == BinaryOp.SUB:
+            if is_float:
+                return arith.SubFOp(left, right).result
             return arith.SubIOp(left, right).result
         elif op == BinaryOp.MUL:
+            if is_float:
+                return arith.MulFOp(left, right).result
             return arith.MulIOp(left, right).result
         elif op == BinaryOp.DIV:
+            if is_float:
+                return arith.DivFOp(left, right).result
             # Use signed or unsigned division based on operand signedness
             if is_signed:
                 return arith.DivSIOp(left, right).result
             else:
                 return arith.DivUIOp(left, right).result
         elif op == BinaryOp.REM:
+            if is_float:
+                return arith.RemFOp(left, right).result
             # Use signed or unsigned remainder based on operand signedness
             if is_signed:
                 return arith.RemSIOp(left, right).result
@@ -875,28 +908,40 @@ class CADLMLIRConverter:
 
         # Comparison operations
         elif op == BinaryOp.EQ:
+            if is_float:
+                return arith.CmpFOp(arith.CmpFPredicate.OEQ, left, right).result
             return arith.CmpIOp(arith.CmpIPredicate.eq, left, right).result
         elif op == BinaryOp.NE:
+            if is_float:
+                return arith.CmpFOp(arith.CmpFPredicate.UNE, left, right).result
             return arith.CmpIOp(arith.CmpIPredicate.ne, left, right).result
         elif op == BinaryOp.LT:
+            if is_float:
+                return arith.CmpFOp(arith.CmpFPredicate.OLT, left, right).result
             # Use signed or unsigned comparison based on operand signedness
             if is_signed:
                 return arith.CmpIOp(arith.CmpIPredicate.slt, left, right).result
             else:
                 return arith.CmpIOp(arith.CmpIPredicate.ult, left, right).result
         elif op == BinaryOp.LE:
+            if is_float:
+                return arith.CmpFOp(arith.CmpFPredicate.OLE, left, right).result
             # Use signed or unsigned comparison based on operand signedness
             if is_signed:
                 return arith.CmpIOp(arith.CmpIPredicate.sle, left, right).result
             else:
                 return arith.CmpIOp(arith.CmpIPredicate.ule, left, right).result
         elif op == BinaryOp.GT:
+            if is_float:
+                return arith.CmpFOp(arith.CmpFPredicate.OGT, left, right).result
             # Use signed or unsigned comparison based on operand signedness
             if is_signed:
                 return arith.CmpIOp(arith.CmpIPredicate.sgt, left, right).result
             else:
                 return arith.CmpIOp(arith.CmpIPredicate.ugt, left, right).result
         elif op == BinaryOp.GE:
+            if is_float:
+                return arith.CmpFOp(arith.CmpFPredicate.OGE, left, right).result
             # Use signed or unsigned comparison based on operand signedness
             if is_signed:
                 return arith.CmpIOp(arith.CmpIPredicate.sge, left, right).result
@@ -1489,6 +1534,180 @@ class CADLMLIRConverter:
             result = arith.SelectOp(condition, value, result).result
 
         return result
+
+    def _convert_call_expr(self, expr: CallExpr) -> ir.Value:
+        """
+        Convert function call expression to MLIR operations.
+
+        Handles:
+        - Math functions (sqrt, exp, log, sin, cos, etc.) -> math dialect ops
+        - Other function calls -> func.call (if defined)
+
+        Uses the math dialect Python bindings from circt.dialects.math.
+        """
+        func_name = expr.name
+
+        # Math unary functions mapping: CADL name -> math dialect function
+        math_unary_ops = {
+            "sqrt": math_dialect.sqrt,
+            "exp": math_dialect.exp,
+            "exp2": math_dialect.exp2,
+            "expm1": math_dialect.expm1,
+            "log": math_dialect.log,
+            "log2": math_dialect.log2,
+            "log10": math_dialect.log10,
+            "log1p": math_dialect.log1p,
+            "sin": math_dialect.sin,
+            "cos": math_dialect.cos,
+            "tan": math_dialect.tan,
+            "asin": math_dialect.asin,
+            "acos": math_dialect.acos,
+            "atan": math_dialect.atan,
+            "sinh": math_dialect.sinh,
+            "cosh": math_dialect.cosh,
+            "tanh": math_dialect.tanh,
+            "ceil": math_dialect.ceil,
+            "floor": math_dialect.floor,
+            "round": math_dialect.round,
+            "trunc": math_dialect.trunc,
+            "abs": math_dialect.absf,  # For floating point; use absi for integers
+            "rsqrt": math_dialect.rsqrt,
+            "erf": math_dialect.erf,
+            "cbrt": math_dialect.cbrt,
+        }
+
+        # Math binary functions mapping
+        math_binary_ops = {
+            "pow": math_dialect.powf,
+            "atan2": math_dialect.atan2,
+            "copysign": math_dialect.copysign,
+        }
+
+        if func_name in math_unary_ops:
+            # Handle unary math functions
+            if len(expr.args) != 1:
+                raise ValueError(f"Math function '{func_name}' expects 1 argument, got {len(expr.args)}")
+
+            operand = self._convert_expr(expr.args[0])
+            result_type = operand.type
+
+            # Verify operand is floating point
+            if not isinstance(result_type, (ir.F32Type, ir.F64Type, ir.F16Type, ir.BF16Type)):
+                raise TypeError(f"Math function '{func_name}' requires floating-point operand, got {result_type}")
+
+            math_func = math_unary_ops[func_name]
+            return math_func(operand)
+
+        elif func_name in math_binary_ops:
+            # Handle binary math functions
+            if len(expr.args) != 2:
+                raise ValueError(f"Math function '{func_name}' expects 2 arguments, got {len(expr.args)}")
+
+            left = self._convert_expr(expr.args[0])
+            right = self._convert_expr(expr.args[1])
+
+            # Ensure both operands have the same type
+            if left.type != right.type:
+                raise TypeError(f"Math function '{func_name}' requires operands of the same type")
+
+            result_type = left.type
+
+            # Verify operands are floating point
+            if not isinstance(result_type, (ir.F32Type, ir.F64Type, ir.F16Type, ir.BF16Type)):
+                raise TypeError(f"Math function '{func_name}' requires floating-point operands, got {result_type}")
+
+            math_func = math_binary_ops[func_name]
+            return math_func(left, right)
+
+        elif func_name == "fma":
+            # Fused multiply-add: fma(a, b, c) = a * b + c
+            if len(expr.args) != 3:
+                raise ValueError(f"fma expects 3 arguments, got {len(expr.args)}")
+
+            a = self._convert_expr(expr.args[0])
+            b = self._convert_expr(expr.args[1])
+            c = self._convert_expr(expr.args[2])
+
+            return math_dialect.fma(a, b, c)
+
+        elif func_name == "absi":
+            # Integer absolute value
+            if len(expr.args) != 1:
+                raise ValueError(f"absi expects 1 argument, got {len(expr.args)}")
+
+            operand = self._convert_expr(expr.args[0])
+            return math_dialect.absi(operand)
+
+        else:
+            # For other function calls, try to call a defined function
+            raise NotImplementedError(f"Function call '{func_name}' is not supported. "
+                                    f"Supported math functions: {list(math_unary_ops.keys()) + list(math_binary_ops.keys())}")
+
+    def _convert_bitcast_expr(self, expr: BitcastExpr) -> ir.Value:
+        """
+        Convert bitcast expression to arith.bitcast operation.
+
+        Bitcast reinterprets the bit pattern of the operand as a different type.
+        This is NOT a numeric conversion - it's a pure bit reinterpretation.
+
+        Supported conversions:
+        - i16 <-> f16 (16-bit)
+        - i32/u32 <-> f32 (32-bit)
+        - i64/u64 <-> f64 (64-bit)
+
+        Example:
+            bitcast<f32>(0x3F800000) -> 1.0f (same bits, different interpretation)
+        """
+        # Convert the source expression
+        operand = self._convert_expr(expr.expr)
+        source_type = operand.type
+
+        # Parse the target type string
+        target_type_str = expr.target_type
+
+        # Determine target MLIR type based on type string
+        if target_type_str == "f16":
+            target_type = ir.F16Type.get()
+            expected_bits = 16
+        elif target_type_str == "f32":
+            target_type = ir.F32Type.get()
+            expected_bits = 32
+        elif target_type_str == "f64":
+            target_type = ir.F64Type.get()
+            expected_bits = 64
+        elif target_type_str.startswith(("i", "u")):
+            # Integer types: i16, u16, i32, u32, i64, u64
+            width = int(target_type_str[1:])
+            target_type = ir.IntegerType.get_signless(width)
+            expected_bits = width
+        else:
+            raise TypeError(f"Unsupported bitcast target type: {target_type_str}")
+
+        # Verify bit width compatibility
+        source_bits = self._get_type_bit_width(source_type)
+        if source_bits != expected_bits:
+            raise TypeError(
+                f"Bitcast requires same bit width: source has {source_bits} bits, "
+                f"target '{target_type_str}' has {expected_bits} bits"
+            )
+
+        # Generate arith.bitcast operation
+        return arith.bitcast(target_type, operand)
+
+    def _get_type_bit_width(self, mlir_type: ir.Type) -> int:
+        """Get the bit width of an MLIR type."""
+        if isinstance(mlir_type, ir.IntegerType):
+            return mlir_type.width
+        elif isinstance(mlir_type, ir.F16Type):
+            return 16
+        elif isinstance(mlir_type, ir.F32Type):
+            return 32
+        elif isinstance(mlir_type, ir.F64Type):
+            return 64
+        elif isinstance(mlir_type, ir.BF16Type):
+            return 16
+        else:
+            raise TypeError(f"Cannot determine bit width for type: {mlir_type}")
 
 
 def convert_cadl_to_mlir(proc: Proc, run_cse: bool = True) -> ir.Module:

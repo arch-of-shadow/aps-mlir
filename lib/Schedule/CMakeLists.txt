@@ -11,6 +11,7 @@ add_mlir_dialect_library(TORSCHEDULE
     ${RROJECT_SOURCE_DIR}/include/Schedule
 
     LINK_LIBS PUBLIC
+    MLIRTOR
     MLIRIR
 )
 

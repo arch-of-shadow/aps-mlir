@@ -105,10 +105,23 @@ class CallExpr(Expr):
     """Function call expression"""
     name: str
     args: List[Expr]
-    
+
     def __str__(self) -> str:
         args_str = ", ".join(str(arg) for arg in self.args)
         return f"{self.name}({args_str})"
+
+
+@dataclass
+class BitcastExpr(Expr):
+    """Bitcast expression - reinterpret bits as different type
+
+    Example: bitcast<f32>(x) reinterprets the bit pattern of x as f32
+    """
+    target_type: str  # Target type string (e.g., "f32", "u32", "i64")
+    expr: Expr        # Expression to bitcast
+
+    def __str__(self) -> str:
+        return f"bitcast<{self.target_type}>({self.expr})"
 
 
 @dataclass
@@ -246,18 +259,26 @@ class BasicType_ApUFixed(BasicType):
         return f"u{self.width}"
 
 @dataclass
+class BasicType_Float16(BasicType):
+    """16-bit float type - BasicType::Float16 (half precision)"""
+    pass
+
+    def __str__(self) -> str:
+        return "f16"
+
+@dataclass
 class BasicType_Float32(BasicType):
     """32-bit float type - BasicType::Float32"""
     pass
-    
+
     def __str__(self) -> str:
         return "f32"
 
 @dataclass
 class BasicType_Float64(BasicType):
-    """64-bit float type - BasicType::Float64"""  
+    """64-bit float type - BasicType::Float64"""
     pass
-    
+
     def __str__(self) -> str:
         return "f64"
 
@@ -728,8 +749,10 @@ def parse_basic_type_from_string(type_str: str) -> BasicType:
         width = int(type_str[1:])
         return BasicType_ApUFixed(width)
     elif type_str.startswith('i'):
-        width = int(type_str[1:])  
+        width = int(type_str[1:])
         return BasicType_ApFixed(width)
+    elif type_str == "f16":
+        return BasicType_Float16()
     elif type_str == "f32":
         return BasicType_Float32()
     elif type_str == "f64":

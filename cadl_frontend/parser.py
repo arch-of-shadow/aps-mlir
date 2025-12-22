@@ -445,6 +445,13 @@ class CADLTransformer(Transformer):
         # items = [CAST_TOKEN, LPAREN, expr, RPAREN]
         return UnaryExpr(UnaryOp.UINT_CAST, items[2])
 
+    def bitcast_expr(self, items):
+        # items = [KW_BITCAST, OP_LESS_THAN, VARTYPE, OP_GREATER_THAN, LPAREN, expr, RPAREN]
+        # bitcast<type>(expr) - reinterpret bits as different type
+        target_type = str(items[2])  # VARTYPE (e.g., "f32", "u32")
+        expr = items[5]              # The expression to bitcast
+        return BitcastExpr(target_type, expr)
+
     # Complex expressions
     def call_expr(self, items):
         name = str(items[0])  # IDENTIFIER

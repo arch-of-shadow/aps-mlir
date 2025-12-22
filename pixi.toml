@@ -9,11 +9,31 @@ version = "0.1.0"
 CIRCT_COMMIT = "cmt2-edsl"
 PYTHONPATH = "${PIXI_PROJECT_ROOT}/build/python_packages/circt_core:${PYTHONPATH}"
 OR_TOOLS_PATH = "${PIXI_PROJECT_ROOT}/install"
-PATH = "${PIXI_PROJECT_ROOT}/install/bin:${PATH}:${PIXI_PROJECT_ROOT}/circt/build/bin"
+PATH = "${PIXI_PROJECT_ROOT}/install/bin:${PATH}:${PIXI_PROJECT_ROOT}/circt/build/bin:${PIXI_PROJECT_ROOT}/flopoco/build/bin:${PIXI_PROJECT_ROOT}/oss-cad-suite/bin"
+# FloPoCo/Sollya/PAGSuite build paths
+SOLLYA_DIR = "${PIXI_PROJECT_ROOT}/sollya-install"
+PAGSUITE_DIR = "${PIXI_PROJECT_ROOT}/pagsuite-install"
+CMAKE_INCLUDE_PATH = "${PIXI_PROJECT_ROOT}/sollya-install/include:${PIXI_PROJECT_ROOT}/pagsuite-install/include:${CONDA_PREFIX}/include"
+CMAKE_LIBRARY_PATH = "${PIXI_PROJECT_ROOT}/sollya-install/lib:${PIXI_PROJECT_ROOT}/pagsuite-install/lib:${CONDA_PREFIX}/lib"
+CPLUS_INCLUDE_PATH = "${PIXI_PROJECT_ROOT}/sollya-install/include:${PIXI_PROJECT_ROOT}/pagsuite-install/include:${CONDA_PREFIX}/include"
+LIBRARY_PATH = "${PIXI_PROJECT_ROOT}/sollya-install/lib:${PIXI_PROJECT_ROOT}/pagsuite-install/lib:${CONDA_PREFIX}/lib"
+LD_LIBRARY_PATH = "${PIXI_PROJECT_ROOT}/sollya-install/lib:${PIXI_PROJECT_ROOT}/pagsuite-install/lib:${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}"
 
 [tasks]
 
 setup-ortools = { cmd = "pixi run chmod +x scripts/setup-ortools.sh && pixi run scripts/setup-ortools.sh", inputs = ["scripts/setup-ortools.sh"], outputs = ["__setup-ortools.success"] }
+
+# OSS CAD Suite (GHDL + Yosys with GHDL plugin, no sudo required)
+setup-oss-cad-suite = { cmd = "[ -d oss-cad-suite ] || (curl -L https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2024-12-02/oss-cad-suite-linux-x64-20241202.tgz -o /tmp/oss-cad-suite.tgz && tar -xzf /tmp/oss-cad-suite.tgz && rm /tmp/oss-cad-suite.tgz)", outputs = ["oss-cad-suite/bin/ghdl"] }
+
+# FloPoCo build tasks (auto-clone if directory doesn't exist)
+clone-sollya = { cmd = "[ -d sollya-src ] || git clone https://gitlab.inria.fr/sollya/sollya.git sollya-src", outputs = ["sollya-src/.git"] }
+clone-pagsuite = { cmd = "[ -d pagsuite ] || git clone https://gitlab.com/kumm/pagsuite.git pagsuite", outputs = ["pagsuite/.git"] }
+clone-flopoco = { cmd = "[ -d flopoco ] || git clone https://gitlab.com/flopoco/flopoco.git flopoco", outputs = ["flopoco/.git"] }
+
+build-sollya = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/sollya-install/{lib,include} && cd sollya-src && ./autogen.sh && ./configure --prefix=$PIXI_PROJECT_ROOT/sollya-install && make -j$(nproc) || true && cp .libs/libsollya.* $PIXI_PROJECT_ROOT/sollya-install/lib/ && cp *.h $PIXI_PROJECT_ROOT/sollya-install/include/", depends-on = ["clone-sollya"], outputs = ["sollya-install/lib/libsollya.so"] }
+build-pagsuite = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/pagsuite-install/{lib,include/pagsuite} && cd pagsuite && mkdir -p build && cd build && cmake .. -DCMAKE_INSTALL_PREFIX=$PIXI_PROJECT_ROOT/pagsuite-install && make -j$(nproc) && cp lib/*.so $PIXI_PROJECT_ROOT/pagsuite-install/lib/ && cp ../paglib/inc/pagsuite/*.h $PIXI_PROJECT_ROOT/pagsuite-install/include/pagsuite/ && cp ../rpag/inc/pagsuite/*.h $PIXI_PROJECT_ROOT/pagsuite-install/include/pagsuite/ && cp ../oscm/inc/pagsuite/*.h $PIXI_PROJECT_ROOT/pagsuite-install/include/pagsuite/", depends-on = ["clone-pagsuite"], outputs = ["pagsuite-install/lib/libpag.so"] }
+build-flopoco = { cmd = "cd flopoco && rm -rf build && mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DPAG_PREFIX_DIR=$PIXI_PROJECT_ROOT/pagsuite-install && make -j$(nproc)", depends-on = ["clone-flopoco", "build-sollya", "build-pagsuite"], outputs = ["flopoco/build/bin/flopoco"] }
 setup = { cmd = "pixi run chmod +x scripts/setup.sh && pixi run scripts/setup.sh $CIRCT_COMMIT", inputs = ["scripts/setup.sh","__setup-ortools.success"], outputs = ["__setup.success"] }
 
 mkdir_build = { cmd = "mkdir -p build", outputs = ["build"] }
@@ -70,6 +90,22 @@ z3prover = ">=4.15.3,<5"
 iverilog = ">=11.0,<12"
 sbt = ">=1.10.2,<2"
 openjdk = "20.*"
+
+# FloPoCo dependencies
+git = ">=2.40,<3"
+curl = ">=8.0,<9"
+gmp = ">=6.3.0,<7"
+mpfr = ">=4.2.1,<5"
+mpfi = ">=1.5.4,<2"
+fplll = ">=5.5.0,<6"
+libxml2 = ">=2.15.0,<3"
+boost = ">=1.84.0,<2"
+flex = ">=2.6.4,<3"
+lapack = ">=3.9.0,<4"
+autoconf = ">=2.71,<3"
+automake = ">=1.16,<2"
+libtool = ">=2.4,<3"
+yosys = ">=0.40,<1"
 
 [pypi-dependencies]
 lark = ">=1.1.0"
