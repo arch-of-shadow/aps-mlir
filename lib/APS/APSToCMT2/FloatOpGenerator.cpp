@@ -96,9 +96,6 @@ LogicalResult FloatOpGenerator::processFloatResults(int64_t slot, mlir::OpBuilde
         calleeSymbol, valueSymbol, nullptr, nullptr);
 
     localMap[pending.resultVal] = callOp.getResult(0);
-
-    llvm::outs() << "[FloatOpGenerator] Result phase at slot " << slot
-                 << " for " << pending.fpuInstance->getName() << "\n";
   }
 
   return success();
@@ -181,33 +178,29 @@ LogicalResult FloatOpGenerator::handleBinaryFloatOp(
     pending.resultWidth = width;
     pendingFloatOps[endtime].push_back(pending);
 
-    llvm::outs() << "[FloatOpGenerator] Start phase at slot " << starttime
-                 << ", result at slot " << endtime
-                 << " via " << instName << "\n";
   }
 
-  // Result phase: get result from FPU instance using callValue (for BindValue)
+  // Result phase: get result from FPU instance using callMethod
   if (slot == endtime) {
     auto it = pendingFloatOps.find(endtime);
     if (it != pendingFloatOps.end()) {
       for (auto &pending : it->second) {
         if (pending.torOp == op) {
-          llvm::outs() << "[FloatOpGenerator] About to call result on instance: "
-                       << pending.fpuInstance->getName() << "\n";
-
-          // Debug: print module info
-          auto *modOp = pending.fpuInstance->getModuleType()->getOperation();
-          llvm::outs() << "[FloatOpGenerator] Module op: ";
-          modOp->print(llvm::outs());
-          llvm::outs() << "\n";
-
-          auto resultValues = pending.fpuInstance->callValue("result", b);
+          auto resultValues = pending.fpuInstance->callMethod("result", {}, b);
           if (!resultValues.empty()) {
             localMap[pending.resultVal] = resultValues[0];
-          }
 
-          llvm::outs() << "[FloatOpGenerator] Result phase at slot " << endtime
-                       << " for " << pending.fpuInstance->getName() << "\n";
+            // Enqueue to cross-slot FIFOs if this value is needed in later slots
+            auto &crossSlotFIFOs = bbHandler->getCrossSlotFIFOs();
+            auto fifoIt = crossSlotFIFOs.find(pending.resultVal);
+            if (fifoIt != crossSlotFIFOs.end()) {
+              for (CrossSlotFIFO *fifo : fifoIt->second) {
+                if (fifo->fifoInstance) {
+                  fifo->fifoInstance->callMethod("enq", {resultValues[0]}, b);
+                }
+              }
+            }
+          }
           break;
         }
       }
@@ -272,25 +265,29 @@ LogicalResult FloatOpGenerator::handleUnaryFloatOp(
     pending.resultVal = resultVal;
     pending.resultWidth = width;
     pendingFloatOps[endtime].push_back(pending);
-
-    llvm::outs() << "[FloatOpGenerator] Start phase (unary) at slot " << starttime
-                 << ", result at slot " << endtime
-                 << " via " << instName << "\n";
   }
 
-  // Result phase: get result from FPU instance using callValue (for BindValue)
+  // Result phase: get result from FPU instance using callMethod
   if (slot == endtime) {
     auto it = pendingFloatOps.find(endtime);
     if (it != pendingFloatOps.end()) {
       for (auto &pending : it->second) {
         if (pending.torOp == op) {
-          auto resultValues = pending.fpuInstance->callValue("result", b);
+          auto resultValues = pending.fpuInstance->callMethod("result", {}, b);
           if (!resultValues.empty()) {
             localMap[pending.resultVal] = resultValues[0];
-          }
 
-          llvm::outs() << "[FloatOpGenerator] Result phase (unary) at slot " << endtime
-                       << " for " << pending.fpuInstance->getName() << "\n";
+            // Enqueue to cross-slot FIFOs if this value is needed in later slots
+            auto &crossSlotFIFOs = bbHandler->getCrossSlotFIFOs();
+            auto fifoIt = crossSlotFIFOs.find(pending.resultVal);
+            if (fifoIt != crossSlotFIFOs.end()) {
+              for (CrossSlotFIFO *fifo : fifoIt->second) {
+                if (fifo->fifoInstance) {
+                  fifo->fifoInstance->callMethod("enq", {resultValues[0]}, b);
+                }
+              }
+            }
+          }
           break;
         }
       }
@@ -324,7 +321,7 @@ LogicalResult FloatOpGenerator::handleCmpF(tor::CmpFOp op, mlir::OpBuilder &b,
     Clock clock = bbHandler->getMainClk();
     Reset reset = bbHandler->getMainRst();
 
-    auto *cmpMod = STLLibrary::createFloatCmpModule(width, predicate, latency, circuit);
+    auto *cmpMod = STLLibrary::createFloatCmpFifoModule(width, predicate, latency, circuit);
     if (!cmpMod)
       return failure();
 
@@ -348,25 +345,29 @@ LogicalResult FloatOpGenerator::handleCmpF(tor::CmpFOp op, mlir::OpBuilder &b,
     pending.resultVal = op.getResult();
     pending.resultWidth = 1;
     pendingFloatOps[endtime].push_back(pending);
-
-    llvm::outs() << "[FloatOpGenerator] Start phase (cmpf) at slot " << starttime
-                 << ", result at slot " << endtime
-                 << " via " << instName << "\n";
   }
 
-  // Result phase: get result from FPU instance using callValue (for BindValue)
+  // Result phase: get result from FIFO using callMethod("result")
   if (slot == endtime) {
     auto it = pendingFloatOps.find(endtime);
     if (it != pendingFloatOps.end()) {
       for (auto &pending : it->second) {
         if (pending.torOp == op) {
-          auto resultValues = pending.fpuInstance->callValue("result", b);
+          auto resultValues = pending.fpuInstance->callMethod("result", {}, b);
           if (!resultValues.empty()) {
             localMap[pending.resultVal] = resultValues[0];
-          }
 
-          llvm::outs() << "[FloatOpGenerator] Result phase (cmpf) at slot " << endtime
-                       << " for " << pending.fpuInstance->getName() << "\n";
+            // Enqueue to cross-slot FIFOs if this value is needed in later slots
+            auto &crossSlotFIFOs = bbHandler->getCrossSlotFIFOs();
+            auto fifoIt = crossSlotFIFOs.find(pending.resultVal);
+            if (fifoIt != crossSlotFIFOs.end()) {
+              for (CrossSlotFIFO *fifo : fifoIt->second) {
+                if (fifo->fifoInstance) {
+                  fifo->fifoInstance->callMethod("enq", {resultValues[0]}, b);
+                }
+              }
+            }
+          }
           break;
         }
       }
