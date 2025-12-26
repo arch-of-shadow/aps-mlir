@@ -1015,24 +1015,35 @@ class CADLMLIRConverter:
             all_ones = arith.ConstantOp(operand.type, -1).result
             return arith.XOrIOp(operand, all_ones).result
 
-        # # Type cast operations
-        # elif op == UnaryOp.SIGNED_CAST:
-        #     # Cast to signed interpretation
-        #     # For now, just return operand (type system handles interpretation)
-        #     return operand
-        # elif op == UnaryOp.UNSIGNED_CAST:
-        #     # Cast to unsigned interpretation
-        #     return operand
-        # elif op == UnaryOp.F32_CAST:
-        #     # Cast to f32
-        #     if operand.type != ir.F32Type.get():
-        #         return arith.SIToFPOp(ir.F32Type.get(), operand).result
-        #     return operand
-        # elif op == UnaryOp.F64_CAST:
-        #     # Cast to f64
-        #     if operand.type != ir.F64Type.get():
-        #         return arith.SIToFPOp(ir.F64Type.get(), operand).result
-        #     return operand
+        # Type cast operations
+        elif op == UnaryOp.SIGNED_CAST:
+            # Cast to signed interpretation
+            # For now, just return operand (type system handles interpretation)
+            return operand
+        elif op == UnaryOp.UNSIGNED_CAST:
+            # Cast to unsigned interpretation
+            return operand
+        elif op == UnaryOp.F32_CAST:
+            # Cast integer to f32 (sitofp)
+            if operand.type != ir.F32Type.get():
+                return arith.SIToFPOp(ir.F32Type.get(), operand).result
+            return operand
+        elif op == UnaryOp.F64_CAST:
+            # Cast integer to f64 (sitofp)
+            if operand.type != ir.F64Type.get():
+                return arith.SIToFPOp(ir.F64Type.get(), operand).result
+            return operand
+        elif op == UnaryOp.INT_CAST:
+            # Cast float to signed int (fptosi)
+            # Default to i32 for float -> int conversion
+            if isinstance(operand.type, ir.F32Type) or isinstance(operand.type, ir.F64Type):
+                return arith.FPToSIOp(ir.IntegerType.get_signless(32), operand).result
+            return operand
+        elif op == UnaryOp.UINT_CAST:
+            # Cast float to unsigned int (fptoui)
+            if isinstance(operand.type, ir.F32Type) or isinstance(operand.type, ir.F64Type):
+                return arith.FPToUIOp(ir.IntegerType.get_signless(32), operand).result
+            return operand
 
         else:
             raise NotImplementedError(f"Unary operation not yet supported: {op}")

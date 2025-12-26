@@ -1,0 +1,118 @@
+// Softmax - Row-wise Softmax for 4x4 Matrix
+// Formula: softmax(x_i) = exp(x_i - max(x)) / sum(exp(x_j - max(x)))
+//
+// Configuration:
+// - ROWS = 4, COLS = 4
+// - Input/Output: 4x4 float32 matrix (16 elements)
+// - Softmax computed row-wise (each row sums to 1.0)
+// - Data loaded from off-chip memory via burst read/write
+// - Arrays use u32 storage with bitcast for float computation
+
+// ============================================================================
+// Memory Buffers - Partitioned for parallel access (u32 for HW compatibility)
+// ============================================================================
+
+// Input matrix storage (4 x 4 = 16 elements, stored as u32 bits)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static input_mat: [u32; 16];
+
+// Output matrix storage (4 x 4 = 16 elements, stored as u32 bits)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static output_mat: [u32; 16];
+
+// ============================================================================
+// Softmax Kernel - Row-wise Softmax Computation
+// ============================================================================
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0101011)]
+rtype softmax_4x4(rs1: u5, rs2: u5, rd: u5) {
+    // rs1: base address of input matrix (16 float32 = 64 bytes)
+    // rs2: base address for output matrix
+    // rd: receives status (0 = success)
+
+    let addr_in: u32 = _irf[rs1];
+    let addr_out: u32 = _irf[rs2];
+
+    // ========================================================================
+    // Stage 1: Burst Read Input Matrix from Off-chip Memory
+    // ========================================================================
+
+    // Burst read input matrix (16 u32 elements = 64 bytes)
+    input_mat[0 +: ] = _burst_read[addr_in +: 32];
+
+    // ========================================================================
+    // Stage 2: Compute Softmax Row by Row
+    // ========================================================================
+
+    // Outer loop: iterate over rows
+    [[unroll(4)]]
+    with row: u32 = (0, row_) do {
+        let row_base: u32 = row * 4;
+
+        // --------------------------------------------------------------------
+        // Step 2a: Load and convert to float
+        // --------------------------------------------------------------------
+        let idx0: u32 = row_base;
+        let idx1: u32 = row_base + 1;
+        let idx2: u32 = row_base + 2;
+        let idx3: u32 = row_base + 3;
+
+        // Load u32 bits and bitcast to f32
+        let bits0: u32 = input_mat[idx0];
+        let bits1: u32 = input_mat[idx1];
+        let bits2: u32 = input_mat[idx2];
+        let bits3: u32 = input_mat[idx3];
+
+        let v0: f32 = bitcast<f32>(bits0);
+        let v1: f32 = bitcast<f32>(bits1);
+        let v2: f32 = bitcast<f32>(bits2);
+        let v3: f32 = bitcast<f32>(bits3);
+
+        // --------------------------------------------------------------------
+        // Step 2b: Find max value in current row (for numerical stability)
+        // --------------------------------------------------------------------
+        let max01: f32 = if (v0 > v1) {v0} else {v1};
+        let max23: f32 = if (v2 > v3) {v2} else {v3};
+        let max_val: f32 = if (max01 > max23) {max01} else {max23};
+
+        // --------------------------------------------------------------------
+        // Step 2c: Compute exp(x_i - max) and sum
+        // --------------------------------------------------------------------
+        let e0: f32 = exp(v0 - max_val);
+        let e1: f32 = exp(v1 - max_val);
+        let e2: f32 = exp(v2 - max_val);
+        let e3: f32 = exp(v3 - max_val);
+
+        let sum_exp: f32 = e0 + e1 + e2 + e3;
+
+        // --------------------------------------------------------------------
+        // Step 2d: Normalize by sum and convert back to u32 bits
+        // --------------------------------------------------------------------
+        let r0: f32 = e0 / sum_exp;
+        let r1: f32 = e1 / sum_exp;
+        let r2: f32 = e2 / sum_exp;
+        let r3: f32 = e3 / sum_exp;
+
+        output_mat[idx0] = bitcast<u32>(r0);
+        output_mat[idx1] = bitcast<u32>(r1);
+        output_mat[idx2] = bitcast<u32>(r2);
+        output_mat[idx3] = bitcast<u32>(r3);
+
+        let row_: u32 = row + 1;
+    } while (row_ < 4);
+
+    // ========================================================================
+    // Stage 3: Burst Write Output Matrix to Off-chip Memory
+    // ========================================================================
+
+    // Burst write output matrix (16 u32 elements = 64 bytes)
+    _burst_write[addr_out +: 32] = output_mat[0 +: ];
+
+    // Return success status
+    _irf[rd] = 0;
+}

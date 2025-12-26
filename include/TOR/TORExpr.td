@@ -235,6 +235,90 @@ def SqrtFOp : TOROp<"sqrtf", [Pure,SameOperandsAndResultType]> {
     }]>];
 }
 
+def ExpFOp : TOROp<"expf", [Pure,SameOperandsAndResultType]> {
+  let summary = "expf operation";
+  let description = [{
+    The "expf" operation computes the exponential (e^x) of a floating-point variable.
+  }];
+
+  let arguments = (ins FloatLike : $operand,
+                       I32Attr : $starttime, I32Attr : $endtime);
+  let results = (outs FloatLike : $result);
+
+  let assemblyFormat = [{$operand `on` ` ` `(` $starttime `to` $endtime `)`
+    attr-dict `:` type($result)
+  }];
+
+  let builders = [
+    OpBuilder<(ins "Value" : $operand), [{
+      return build($_builder, $_state, operand.getType(), ValueRange{operand},
+                   ArrayRef<NamedAttribute>{});
+    }]>];
+}
+
+def LogFOp : TOROp<"logf", [Pure,SameOperandsAndResultType]> {
+  let summary = "logf operation";
+  let description = [{
+    The "logf" operation computes the natural logarithm (ln) of a floating-point variable.
+  }];
+
+  let arguments = (ins FloatLike : $operand,
+                       I32Attr : $starttime, I32Attr : $endtime);
+  let results = (outs FloatLike : $result);
+
+  let assemblyFormat = [{$operand `on` ` ` `(` $starttime `to` $endtime `)`
+    attr-dict `:` type($result)
+  }];
+
+  let builders = [
+    OpBuilder<(ins "Value" : $operand), [{
+      return build($_builder, $_state, operand.getType(), ValueRange{operand},
+                   ArrayRef<NamedAttribute>{});
+    }]>];
+}
+
+def FpToSIOp : TOROp<"fptosi", [Pure]> {
+  let summary = "fptosi operation";
+  let description = [{
+    The "fptosi" operation converts a floating-point value to a signed integer.
+  }];
+
+  let arguments = (ins FloatLike : $operand,
+                       I32Attr : $starttime, I32Attr : $endtime);
+  let results = (outs AnySignlessInteger : $result);
+
+  let assemblyFormat = [{$operand `on` ` ` `(` $starttime `to` $endtime `)`
+    attr-dict `:` type($operand) `->` type($result)
+  }];
+
+  let builders = [
+    OpBuilder<(ins "Type" : $resultType, "Value" : $operand), [{
+      return build($_builder, $_state, resultType, ValueRange{operand},
+                   ArrayRef<NamedAttribute>{});
+    }]>];
+}
+
+def SIToFpOp : TOROp<"sitofp", [Pure]> {
+  let summary = "sitofp operation";
+  let description = [{
+    The "sitofp" operation converts a signed integer to a floating-point value.
+  }];
+
+  let arguments = (ins AnySignlessInteger : $operand,
+                       I32Attr : $starttime, I32Attr : $endtime);
+  let results = (outs FloatLike : $result);
+
+  let assemblyFormat = [{$operand `on` ` ` `(` $starttime `to` $endtime `)`
+    attr-dict `:` type($operand) `->` type($result)
+  }];
+
+  let builders = [
+    OpBuilder<(ins "Type" : $resultType, "Value" : $operand), [{
+      return build($_builder, $_state, resultType, ValueRange{operand},
+                   ArrayRef<NamedAttribute>{});
+    }]>];
+}
+
 def MacFOp : TOROp<"macf", [Pure,
                             SameOperandsAndResultType]> {
   let summary = "macf operation";

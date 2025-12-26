@@ -1,0 +1,148 @@
+// Softmax + GEMM with Delayed Normalization
+// Implements simplified attention: Y = softmax(X) @ V
+//
+// Standard flow: Y = (exp(X-max) / sum) @ V
+// Delayed flow:  Y = (exp(X-max) @ V) / sum  (mathematically equivalent)
+//
+// The delayed normalization allows:
+// 1. Stream exp results directly to matmul
+// 2. Accumulate sum in parallel
+// 3. Single division at the end per output element
+//
+// Matrix dimensions:
+// - X: 4x4 (input to softmax)
+// - V^T: 2x4 (value matrix, pre-transposed for row-wise access)
+// - Y: 4x2 (output)
+//
+// Note: V is stored as V^T (transposed) so that row-row dot products
+// can be computed with contiguous memory access.
+
+// ============================================================================
+// Memory Buffers (u32 storage with bitcast for float computation)
+// ============================================================================
+
+// Input X matrix (4x4 = 16 elements)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static mat_x: [u32; 16];
+
+// Value V^T matrix (2x4 = 8 elements, pre-transposed)
+// V^T[0,:] = original V[:,0], V^T[1,:] = original V[:,1]
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static mat_vt: [u32; 8];
+
+// Output Y matrix (4x2 = 8 elements)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static mat_y: [u32; 8];
+
+// ============================================================================
+// Softmax-GEMM Kernel with Delayed Normalization
+// ============================================================================
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0101011)]
+rtype softmax_gemm_4x4x2(rs1: u5, rs2: u5, rd: u5) {
+    // rs1: base address of X matrix (16 float32 = 64 bytes)
+    // rs2: base address of V matrix (8 float32 = 32 bytes), output follows V
+    // rd: receives status (0 = success)
+
+    let addr_x: u32 = _irf[rs1];
+    let addr_out: u32 = _irf[rs2];
+    let addr_v: u32 = addr_x + 64;
+
+    // ========================================================================
+    // Stage 1: Burst Read Input Matrices
+    // ========================================================================
+
+    // Read X matrix (16 elements)
+    mat_x[0 +: ] = _burst_read[addr_x +: 32];
+
+    // Read V^T matrix (8 elements, already transposed)
+    mat_vt[0 +: ] = _burst_read[addr_v +: 16];
+
+    // ========================================================================
+    // Stage 2: Compute Softmax-GEMM Row by Row (Delayed Normalization)
+    // ========================================================================
+
+    // Process each row of X (4 rows)
+    [[unroll(4)]]
+    with row: u32 = (0, row_) do {
+        let row_base: u32 = row * 4;
+
+        // --------------------------------------------------------------------
+        // Step 2a: Load X row and convert to float
+        // --------------------------------------------------------------------
+        let x0: f32 = bitcast<f32>(mat_x[row_base]);
+        let x1: f32 = bitcast<f32>(mat_x[row_base + 1]);
+        let x2: f32 = bitcast<f32>(mat_x[row_base + 2]);
+        let x3: f32 = bitcast<f32>(mat_x[row_base + 3]);
+
+        // --------------------------------------------------------------------
+        // Step 2b: Find max in row (for numerical stability)
+        // --------------------------------------------------------------------
+        let max01: f32 = if (x0 > x1) {x0} else {x1};
+        let max23: f32 = if (x2 > x3) {x2} else {x3};
+        let max_val: f32 = if (max01 > max23) {max01} else {max23};
+
+        // --------------------------------------------------------------------
+        // Step 2c: Compute exp(x - max) and accumulate sum
+        // --------------------------------------------------------------------
+        let e0: f32 = exp(x0 - max_val);
+        let e1: f32 = exp(x1 - max_val);
+        let e2: f32 = exp(x2 - max_val);
+        let e3: f32 = exp(x3 - max_val);
+
+        let sum_exp: f32 = e0 + e1 + e2 + e3;
+
+        // --------------------------------------------------------------------
+        // Step 2d: Load V^T rows and compute dot products (GEMM)
+        // V^T is 2x4, stored row-major: V^T[j,k] at index j*4 + k
+        // V^T[j,:] contains original V[:,j] (column j of V)
+        // --------------------------------------------------------------------
+
+        // Load V^T row 0 (= V column 0): contiguous access [0,1,2,3]
+        let vt00: f32 = bitcast<f32>(mat_vt[0]);  // V^T[0,0] = V[0,0]
+        let vt01: f32 = bitcast<f32>(mat_vt[1]);  // V^T[0,1] = V[1,0]
+        let vt02: f32 = bitcast<f32>(mat_vt[2]);  // V^T[0,2] = V[2,0]
+        let vt03: f32 = bitcast<f32>(mat_vt[3]);  // V^T[0,3] = V[3,0]
+
+        // Load V^T row 1 (= V column 1): contiguous access [4,5,6,7]
+        let vt10: f32 = bitcast<f32>(mat_vt[4]);  // V^T[1,0] = V[0,1]
+        let vt11: f32 = bitcast<f32>(mat_vt[5]);  // V^T[1,1] = V[1,1]
+        let vt12: f32 = bitcast<f32>(mat_vt[6]);  // V^T[1,2] = V[2,1]
+        let vt13: f32 = bitcast<f32>(mat_vt[7]);  // V^T[1,3] = V[3,1]
+
+        // Compute dot product: Y[row, 0] = sum(e[k] * V[k, 0]) / sum_exp
+        // Using V^T row 0: e dot V^T[0,:]
+        let dot0: f32 = e0 * vt00 + e1 * vt01 + e2 * vt02 + e3 * vt03;
+        let y0: f32 = dot0 / sum_exp;
+
+        // Compute dot product: Y[row, 1] = sum(e[k] * V[k, 1]) / sum_exp
+        // Using V^T row 1: e dot V^T[1,:]
+        let dot1: f32 = e0 * vt10 + e1 * vt11 + e2 * vt12 + e3 * vt13;
+        let y1: f32 = dot1 / sum_exp;
+
+        // --------------------------------------------------------------------
+        // Step 2e: Store result row
+        // --------------------------------------------------------------------
+        let out_base: u32 = row * 2;
+        mat_y[out_base] = bitcast<u32>(y0);
+        mat_y[out_base + 1] = bitcast<u32>(y1);
+
+        let row_: u32 = row + 1;
+    } while (row_ < 4);
+
+    // ========================================================================
+    // Stage 3: Burst Write Output Matrix
+    // ========================================================================
+
+    _burst_write[addr_out +: 16] = mat_y[0 +: ];
+
+    // Return success status
+    _irf[rd] = 0;
+}

@@ -77,7 +77,7 @@ install/
 
 __*
 *.mlir
-*.sv
+/*.sv
 *.log
 
 output/
@@ -93,6 +93,7 @@ sollya-install
 sollya-src
 sollya
 oss-cad-suite
-flopoco
+/flopoco
 flopoco.vhdl
 gmon.out
+/yosys

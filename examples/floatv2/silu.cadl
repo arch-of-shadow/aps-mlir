@@ -1,0 +1,58 @@
+// SiLU/Swish - Sigmoid Linear Unit
+// Formula: silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+//
+// Used in LLaMA, Mistral, and other modern LLMs.
+
+// ============================================================================
+// Memory Buffers
+// ============================================================================
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static input_mat: [u32; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static output_mat: [u32; 16];
+
+// ============================================================================
+// SiLU/Swish Kernel
+// ============================================================================
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0101111)]
+rtype silu_4x4(rs1: u5, rs2: u5, rd: u5) {
+    let addr_in: u32 = _irf[rs1];
+    let addr_out: u32 = _irf[rs2];
+
+    input_mat[0 +: ] = _burst_read[addr_in +: 32];
+
+    // Constants: 1.0f = 0x3F800000, 0.0f = 0x00000000
+    let one_bits: u32 = 1065353216;
+    let zero_bits: u32 = 0;
+
+    let one: f32 = bitcast<f32>(one_bits);
+    let zero: f32 = bitcast<f32>(zero_bits);
+
+    [[unroll(4)]]
+    with i: u32 = (0, i_) do {
+        let bits: u32 = input_mat[i];
+        let x: f32 = bitcast<f32>(bits);
+
+        // sigmoid(x) = 1 / (1 + exp(-x))
+        let neg_x: f32 = zero - x;
+        let exp_neg_x: f32 = exp(neg_x);
+        let sigmoid_val: f32 = one / (one + exp_neg_x);
+
+        // silu(x) = x * sigmoid(x)
+        let result: f32 = x * sigmoid_val;
+
+        output_mat[i] = bitcast<u32>(result);
+        let i_: u32 = i + 1;
+    } while (i_ < 16);
+
+    _burst_write[addr_out +: 32] = output_mat[0 +: ];
+    _irf[rd] = 0;
+}

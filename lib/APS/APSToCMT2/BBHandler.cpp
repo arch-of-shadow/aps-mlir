@@ -989,11 +989,32 @@ FailureOr<mlir::Value> OperationGenerator::getValueInRule(mlir::Value v, Operati
     return it->second;
 
   if (auto constOp = v.getDefiningOp<arith::ConstantOp>()) {
-    auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
-    unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
-    auto constant = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
-    localMap[v] = constant;
-    return constant;
+    auto valueAttr = constOp.getValueAttr();
+
+    // Handle integer constants
+    if (auto intAttr = mlir::dyn_cast<IntegerAttr>(valueAttr)) {
+      unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
+      auto constant = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
+      localMap[v] = constant;
+      return constant;
+    }
+
+    // Handle float constants - extract bit pattern as integer
+    if (auto floatAttr = mlir::dyn_cast<FloatAttr>(valueAttr)) {
+      auto floatType = floatAttr.getType();
+      unsigned width = floatType.getIntOrFloatBitWidth();
+
+      // Get the bit representation of the float value
+      APFloat apFloat = floatAttr.getValue();
+      APInt bitPattern = apFloat.bitcastToAPInt();
+
+      auto constant = UInt::constant(bitPattern.getZExtValue(), width, b, loc).getValue();
+      localMap[v] = constant;
+      return constant;
+    }
+
+    currentOp->emitError("unsupported constant type");
+    return failure();
   }
 
   if (auto globalOp = v.getDefiningOp<memref::GetGlobalOp>()) {

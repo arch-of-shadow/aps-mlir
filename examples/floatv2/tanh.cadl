@@ -1,0 +1,56 @@
+// Tanh - Hyperbolic Tangent (Exact Version)
+// Formula: tanh(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))
+//        = (exp(2x) - 1) / (exp(2x) + 1)
+//
+// Classic activation function for RNNs.
+
+// ============================================================================
+// Memory Buffers
+// ============================================================================
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static input_mat: [u32; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static output_mat: [u32; 16];
+
+// ============================================================================
+// Tanh Kernel (Exact Version using exp)
+// ============================================================================
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0110001)]
+rtype tanh_4x4(rs1: u5, rs2: u5, rd: u5) {
+    let addr_in: u32 = _irf[rs1];
+    let addr_out: u32 = _irf[rs2];
+
+    input_mat[0 +: ] = _burst_read[addr_in +: 32];
+
+    // Constants: 1.0f = 0x3F800000, 2.0f = 0x40000000
+    let one_bits: u32 = 1065353216;
+    let two_bits: u32 = 1073741824;
+
+    let one: f32 = bitcast<f32>(one_bits);
+    let two: f32 = bitcast<f32>(two_bits);
+
+    [[unroll(4)]]
+    with i: u32 = (0, i_) do {
+        let bits: u32 = input_mat[i];
+        let x: f32 = bitcast<f32>(bits);
+
+        // tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)
+        let two_x: f32 = two * x;
+        let exp_2x: f32 = exp(two_x);
+        let result: f32 = (exp_2x - one) / (exp_2x + one);
+
+        output_mat[i] = bitcast<u32>(result);
+        let i_: u32 = i + 1;
+    } while (i_ < 16);
+
+    _burst_write[addr_out +: 32] = output_mat[0 +: ];
+    _irf[rd] = 0;
+}

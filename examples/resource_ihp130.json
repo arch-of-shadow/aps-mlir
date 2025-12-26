@@ -1,11 +1,17 @@
 {
   "addi": {"delay": [0.08, 0.18, 0.38, 0.81, 1.84, 3.35, 6.28], "latency": [0, 0, 0, 0, 0, 0, 0], "II": 1, "constr": 0, "amount": -1},
-  "addf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [4, 4, 4, 4, 4, 4, 11], "II": 1, "constr": 0, "amount": -1},
-  "subf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [4, 4, 4, 4, 4, 4, 11], "II": 1, "constr": 0, "amount": -1},
-  "mulf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [4, 4, 4, 4, 4, 4, 11], "II": 1, "constr": 0, "amount": -1},
-  "divf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [12, 12, 12, 12, 12, 12, 68], "II": 1, "constr": 0, "amount": -1},
-  "sqrtf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [12, 12, 12, 12, 12, 12, 68], "II": 1, "constr": 0, "amount": -1},
+  "addf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [4, 4, 4, 4, 5, 5, 12], "II": 1, "constr": 0, "amount": -1},
+  "subf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [4, 4, 4, 4, 5, 5, 12], "II": 1, "constr": 0, "amount": -1},
+  "mulf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [4, 4, 4, 4, 5, 5, 12], "II": 1, "constr": 0, "amount": -1},
+  "divf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [12, 12, 12, 13, 13, 13, 69], "II": 1, "constr": 0, "amount": -1},
+  "sqrtf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [12, 12, 12, 13, 13, 13, 69], "II": 1, "constr": 0, "amount": -1},
   "cmpf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [2, 2, 2, 2, 2, 2, 2], "II": 1, "constr": 0, "amount": -1},
+  "exp": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [5, 5, 5, 5, 5, 5, 10], "II": 1, "constr": 0, "amount": -1},
+  "expf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [5, 5, 5, 5, 5, 5, 10], "II": 1, "constr": 0, "amount": -1},
+  "log": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [5, 5, 5, 5, 5, 5, 10], "II": 1, "constr": 0, "amount": -1},
+  "logf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [5, 5, 5, 5, 5, 5, 10], "II": 1, "constr": 0, "amount": -1},
+  "fptosi": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [2, 2, 2, 2, 2, 2, 2], "II": 1, "constr": 0, "amount": -1},
+  "sitofp": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [2, 2, 2, 2, 2, 2, 2], "II": 1, "constr": 0, "amount": -1},
   "subi": {"delay": [0.0, 0.08, 0.24, 0.48, 1.13, 2.46, 5.33], "latency": [0, 0, 0, 0, 0, 0, 0], "II": 1, "constr": 0, "amount": -1},
   "muli": {"delay": [0.06, 0.14, 0.48, 1.2, 2.37, 4.23, 7.13], "latency": [0, 0, 0, 0, 0, 0, 0], "II": 1, "constr": 0, "amount": -1},
   "divsi": {"delay": [0.05, 0.07, 1.14, 5.13, 19.9, 72.5, 273.67], "latency": [0, 0, 0, 0, 0, 0, 0], "II": 1, "constr": 0, "amount": -1},
@@ -23,5 +29,5 @@
   "writerf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [1, 1, 1, 1, 1, 1, 1], "II": 1, "constr": 0, "amount": -1},
   "select": {"delay": [0.04, 0.09, 0.19, 0.4, 0.97, 1.67, 3.14], "latency": [0, 0, 0, 0, 0, 0, 0], "II": 1, "constr": 0, "amount": -1},
   "nop": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [0, 0, 0, 0, 0, 0, 0], "II": 1, "constr": 0, "amount": -1},
-  "tl": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [15, 15, 15, 15, 15, 15, 15], "II": 15, "constr": 1, "amount": 2}
+  "tl": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [15, 15, 15, 15, 15, 15, 15], "II": 15, "constr": 1, "amount": 1}
 }

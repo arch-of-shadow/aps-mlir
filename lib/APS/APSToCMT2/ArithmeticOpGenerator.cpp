@@ -258,7 +258,8 @@ LogicalResult ArithmeticOpGenerator::performSelectOp(mlir::OpBuilder &b, Locatio
   Signal resultSignal = condSignal.mux(trueSignal, falseSignal);
 
   // Get required result width from the operation result type
-  auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
+  // Use getIntOrFloatBitWidth() to support both integer and float types (e.g., f32)
+  auto requiredWidth = result.getType().getIntOrFloatBitWidth();
 
   auto firrtlWidth = resultSignal.getWidth();
 

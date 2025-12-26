@@ -1,0 +1,84 @@
+// Sigmoid - Element-wise Sigmoid for 4x4 Matrix
+// Formula: sigmoid(x) = 1 / (1 + exp(-x))
+//
+// Configuration:
+// - ROWS = 4, COLS = 4
+// - Input/Output: 4x4 float32 matrix (16 elements)
+// - Sigmoid applied element-wise
+// - Data loaded from off-chip memory via burst read/write
+
+// ============================================================================
+// Memory Buffers - Partitioned for parallel access
+// ============================================================================
+
+// Input matrix storage (4 x 4 = 16 float32 elements)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static input_mat: [u32; 16];
+
+// Output matrix storage (4 x 4 = 16 float32 elements)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static output_mat: [u32; 16];
+
+// ============================================================================
+// Sigmoid Kernel - Element-wise Computation
+// ============================================================================
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0101011)]
+rtype sigmoid_4x4(rs1: u5, rs2: u5, rd: u5) {
+    // rs1: base address of input matrix (16 float32 = 64 bytes)
+    // rs2: base address for output matrix
+    // rd: receives status (0 = success)
+
+    let addr_in: u32 = _irf[rs1];
+    let addr_out: u32 = _irf[rs2];
+
+    // ========================================================================
+    // Stage 1: Burst Read Input Matrix from Off-chip Memory
+    // ========================================================================
+
+    input_mat[0 +: ] = _burst_read[addr_in +: 32];
+
+    // ========================================================================
+    // Stage 2: Compute Sigmoid Element by Element
+    // sigmoid(x) = 1 / (1 + exp(-x))
+    // ========================================================================
+
+
+    // Loop over all 16 elements
+    [[unroll(4)]]
+    with i: u32 = (0, i_) do {
+        let bits0: u32 = input_mat[i];
+        let x: f32 = bitcast<f32>(bits0);
+
+        // Constants inside loop for hardware compatibility
+        // 1.0f = 0x3F800000, 0.0f = 0x00000000
+        let one_bits: u32 = 1065353216;
+        let zero_bits: u32 = 0;
+        let one_f: f32 = bitcast<f32>(one_bits);
+        let zero_f: f32 = bitcast<f32>(zero_bits);
+
+        // sigmoid(x) = 1 / (1 + exp(-x))
+        let neg_x: f32 = zero_f - x;
+        let exp_neg_x: f32 = exp(neg_x);
+        let denom: f32 = one_f + exp_neg_x;
+        let result: f32 = one_f / denom;
+
+        output_mat[i] = bitcast<u32>(result);
+
+        let i_: u32 = i + 1;
+    } while (i_ < 16);
+
+    // ========================================================================
+    // Stage 3: Burst Write Output Matrix to Off-chip Memory
+    // ========================================================================
+
+    _burst_write[addr_out +: 32] = output_mat[0 +: ];
+
+    // Return success status
+    _irf[rd] = 0;
+}

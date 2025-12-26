@@ -1,0 +1,134 @@
+// LayerNorm - Row-wise Layer Normalization for 4x4 Matrix
+// Formula: y = (x - mean) / sqrt(var + epsilon)
+//   mean = (1/n) * sum(x_i)
+//   var = (1/n) * sum((x_i - mean)^2)
+//
+// Configuration:
+// - ROWS = 4, COLS = 4
+// - Input/Output: 4x4 float32 matrix (16 elements)
+// - LayerNorm computed row-wise (n=4 elements per row)
+// - epsilon = 1e-5 for numerical stability
+// - Data loaded from off-chip memory via burst read/write
+
+// ============================================================================
+// Memory Buffers - Partitioned for parallel access (u32 for HW compatibility)
+// ============================================================================
+
+// Input matrix storage (4 x 4 = 16 elements, stored as u32 bits)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static input_mat: [u32; 16];
+
+// Output matrix storage (4 x 4 = 16 elements, stored as u32 bits)
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static output_mat: [u32; 16];
+
+// ============================================================================
+// LayerNorm Kernel - Row-wise Layer Normalization
+// ============================================================================
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0101100)]
+rtype layernorm_4x4(rs1: u5, rs2: u5, rd: u5) {
+    // rs1: base address of input matrix (16 float32 = 64 bytes)
+    // rs2: base address for output matrix
+    // rd: receives status (0 = success)
+
+    let addr_in: u32 = _irf[rs1];
+    let addr_out: u32 = _irf[rs2];
+
+    // ========================================================================
+    // Stage 1: Burst Read Input Matrix from Off-chip Memory
+    // ========================================================================
+
+    input_mat[0 +: ] = _burst_read[addr_in +: 32];
+
+    // ========================================================================
+    // Stage 2: Compute LayerNorm Row by Row
+    // ========================================================================
+
+    // Constants (as u32 bit patterns, then bitcast to f32)
+    // 0.25f = 0x3E800000, epsilon = 1e-5 = 0x3727C5AC
+    let quarter_bits: u32 = 1048576000;   // 0x3E800000 = 0.25f
+    let epsilon_bits: u32 = 922818988;    // 0x3727C5AC = 1e-5f
+    let quarter: f32 = bitcast<f32>(quarter_bits);
+    let epsilon: f32 = bitcast<f32>(epsilon_bits);
+
+    // Outer loop: iterate over rows
+    with row: u32 = (0, row_) do {
+        let row_base: u32 = row * 4;
+
+        // --------------------------------------------------------------------
+        // Step 2a: Load and convert to float
+        // --------------------------------------------------------------------
+        let idx0: u32 = row_base;
+        let idx1: u32 = row_base + 1;
+        let idx2: u32 = row_base + 2;
+        let idx3: u32 = row_base + 3;
+
+        let bits0: u32 = input_mat[idx0];
+        let bits1: u32 = input_mat[idx1];
+        let bits2: u32 = input_mat[idx2];
+        let bits3: u32 = input_mat[idx3];
+
+        let v0: f32 = bitcast<f32>(bits0);
+        let v1: f32 = bitcast<f32>(bits1);
+        let v2: f32 = bitcast<f32>(bits2);
+        let v3: f32 = bitcast<f32>(bits3);
+
+        // --------------------------------------------------------------------
+        // Step 2b: Compute mean = sum(x) / n
+        // --------------------------------------------------------------------
+        let sum_x: f32 = v0 + v1 + v2 + v3;
+        let mean: f32 = sum_x * quarter;  // mean = sum / 4 = sum * 0.25
+
+        // --------------------------------------------------------------------
+        // Step 2c: Compute variance = sum((x - mean)^2) / n
+        // --------------------------------------------------------------------
+        let d0: f32 = v0 - mean;
+        let d1: f32 = v1 - mean;
+        let d2: f32 = v2 - mean;
+        let d3: f32 = v3 - mean;
+
+        let sq0: f32 = d0 * d0;
+        let sq1: f32 = d1 * d1;
+        let sq2: f32 = d2 * d2;
+        let sq3: f32 = d3 * d3;
+
+        let sum_sq: f32 = sq0 + sq1 + sq2 + sq3;
+        let variance: f32 = sum_sq * quarter;  // var = sum_sq / 4
+
+        // --------------------------------------------------------------------
+        // Step 2d: Compute sqrt(var + epsilon)
+        // --------------------------------------------------------------------
+        let var_eps: f32 = variance + epsilon;
+        let std_dev: f32 = sqrt(var_eps);
+
+        // --------------------------------------------------------------------
+        // Step 2e: Normalize: y = (x - mean) / sqrt(var + epsilon)
+        // --------------------------------------------------------------------
+        let r0: f32 = d0 / std_dev;
+        let r1: f32 = d1 / std_dev;
+        let r2: f32 = d2 / std_dev;
+        let r3: f32 = d3 / std_dev;
+
+        output_mat[idx0] = bitcast<u32>(r0);
+        output_mat[idx1] = bitcast<u32>(r1);
+        output_mat[idx2] = bitcast<u32>(r2);
+        output_mat[idx3] = bitcast<u32>(r3);
+
+        let row_: u32 = row + 1;
+    } while (row_ < 4);
+
+    // ========================================================================
+    // Stage 3: Burst Write Output Matrix to Off-chip Memory
+    // ========================================================================
+
+    _burst_write[addr_out +: 32] = output_mat[0 +: ];
+
+    // Return success status
+    _irf[rd] = 0;
+}

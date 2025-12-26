@@ -1,0 +1,61 @@
+// Comprehensive Float32 Operations Test
+// Tests ALL floating-point operations in a single chained expression:
+// add, sub, mul, div, sqrt, exp, log, fptosi, sitofp, cmpf
+//
+// Formula: result = select(a > b, exp(log(sqrt(a) + b)), (a*b) - (a/b)) + float(int(a * b))
+//
+// This ensures all operations contribute to the final result and cannot be eliminated.
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0101100)]
+rtype float_comprehensive(rs1: u5, rs2: u5, rd: u5) {
+    let a_bits: u32 = _irf[rs1];
+    let b_bits: u32 = _irf[rs2];
+
+    let a: f32 = bitcast<f32>(a_bits);
+    let b: f32 = bitcast<f32>(b_bits);
+
+    // ===== Branch 1: sqrt -> add -> log -> exp =====
+    // sqrtf: compute sqrt(a)
+    let sqrt_a: f32 = sqrt(a);
+
+    // addf: sqrt(a) + b
+    let sum: f32 = sqrt_a + b;
+
+    // logf: log(sqrt(a) + b)
+    // Note: sum must be > 0 for valid log
+    let ln_sum: f32 = log(sum);
+
+    // expf: exp(log(sqrt(a) + b)) ~= sqrt(a) + b
+    let exp_ln: f32 = exp(ln_sum);
+
+    // ===== Branch 2: mul -> div -> sub =====
+    // mulf: a * b
+    let prod: f32 = a * b;
+
+    // divf: a / b
+    let quot: f32 = a / b;
+
+    // subf: (a * b) - (a / b)
+    let diff: f32 = prod - quot;
+
+    // ===== Branch 3: Type conversion chain =====
+    // fptosi: convert float product to int (truncate)
+    let int_val: i32 = $int(prod);
+
+    // sitofp: convert back to float
+    let float_back: f32 = $f32(int_val);
+
+    // ===== Branch 4: Comparison and select =====
+    // cmpf: compare a > b, then select between branches
+    // This ensures both branches are needed
+    let select_val: f32 = if (a > b) {exp_ln} else {diff};
+
+    // ===== Final result combines all branches =====
+    // addf: select_val + float_back
+    // This ensures type conversion result is used
+    let result_f: f32 = select_val + float_back;
+
+    let result: u32 = bitcast<u32>(result_f);
+    _irf[rd] = result;
+}

@@ -1,0 +1,75 @@
+// GELU - Gaussian Error Linear Unit (Exact Version)
+// Formula: gelu(x) = x * 0.5 * (1 + tanh(sqrt(2/π) * (x + 0.044715*x³)))
+// Where tanh(y) = (exp(2y) - 1) / (exp(2y) + 1)
+//
+// Configuration:
+// - Input/Output: 4x4 float32 matrix (16 elements)
+// - Element-wise GELU activation
+
+// ============================================================================
+// Memory Buffers
+// ============================================================================
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static input_mat: [u32; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static output_mat: [u32; 16];
+
+// ============================================================================
+// GELU Kernel (Exact Version)
+// ============================================================================
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0101101)]
+rtype gelu_4x4(rs1: u5, rs2: u5, rd: u5) {
+    let addr_in: u32 = _irf[rs1];
+    let addr_out: u32 = _irf[rs2];
+
+    input_mat[0 +: ] = _burst_read[addr_in +: 32];
+
+    // Constants (as u32 bit patterns)
+    // 0.5f = 0x3F000000, 1.0f = 0x3F800000, 2.0f = 0x40000000
+    // sqrt(2/π) ≈ 0.7978845608 = 0x3F4C422A
+    // 0.044715f = 0x3D372713
+    let half_bits: u32 = 1056964608;
+    let one_bits: u32 = 1065353216;
+    let two_bits: u32 = 1073741824;
+    let sqrt2pi_bits: u32 = 1062827562;
+    let coeff_bits: u32 = 1027296019;
+
+    let half: f32 = bitcast<f32>(half_bits);
+    let one: f32 = bitcast<f32>(one_bits);
+    let two: f32 = bitcast<f32>(two_bits);
+    let sqrt2pi: f32 = bitcast<f32>(sqrt2pi_bits);
+    let coeff: f32 = bitcast<f32>(coeff_bits);
+
+    [[unroll(4)]]
+    with i: u32 = (0, i_) do {
+        let bits: u32 = input_mat[i];
+        let x: f32 = bitcast<f32>(bits);
+
+        // inner = sqrt(2/π) * (x + 0.044715 * x³)
+        let x2: f32 = x * x;
+        let x3: f32 = x2 * x;
+        let inner: f32 = sqrt2pi * (x + coeff * x3);
+
+        // tanh(inner) = (exp(2*inner) - 1) / (exp(2*inner) + 1)
+        let two_inner: f32 = two * inner;
+        let exp_2inner: f32 = exp(two_inner);
+        let tanh_val: f32 = (exp_2inner - one) / (exp_2inner + one);
+
+        // gelu(x) = x * 0.5 * (1 + tanh_val)
+        let result: f32 = x * half * (one + tanh_val);
+
+        output_mat[i] = bitcast<u32>(result);
+        let i_: u32 = i + 1;
+    } while (i_ < 16);
+
+    _burst_write[addr_out +: 32] = output_mat[0 +: ];
+    _irf[rd] = 0;
+}

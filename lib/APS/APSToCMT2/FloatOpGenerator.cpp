@@ -18,7 +18,9 @@ using namespace circt::firrtl;
 
 bool FloatOpGenerator::canHandle(Operation *op) const {
   return isa<tor::AddFOp, tor::SubFOp, tor::MulFOp, tor::DivFOp,
-             tor::CmpFOp, tor::MacFOp, tor::SqrtFOp>(op);
+             tor::CmpFOp, tor::MacFOp, tor::SqrtFOp,
+             tor::ExpFOp, tor::LogFOp,
+             tor::FpToSIOp, tor::SIToFpOp>(op);
 }
 
 unsigned FloatOpGenerator::getLatencyFromOp(Operation *op) {
@@ -32,7 +34,14 @@ unsigned FloatOpGenerator::getLatencyFromOp(Operation *op) {
       return static_cast<unsigned>(latency);
   }
   // Fallback to ResourceDB or default
-  unsigned width = op->getResult(0).getType().getIntOrFloatBitWidth();
+  // For comparison operations (cmpf), use operand width instead of result width
+  // because result is i1 but latency depends on operand precision (float32 = 32)
+  unsigned width;
+  if (auto cmpOp = dyn_cast<tor::CmpFOp>(op)) {
+    width = cmpOp.getLhs().getType().getIntOrFloatBitWidth();
+  } else {
+    width = op->getResult(0).getType().getIntOrFloatBitWidth();
+  }
   return bbHandler->getOperationLatency(op, width);
 }
 
@@ -71,6 +80,14 @@ LogicalResult FloatOpGenerator::generateRule(Operation *op, mlir::OpBuilder &b,
     return handleBinaryFloatOp(op, b, loc, slot, localMap, "div");
   if (isa<tor::SqrtFOp>(op))
     return handleUnaryFloatOp(op, b, loc, slot, localMap, "sqrt");
+  if (isa<tor::ExpFOp>(op))
+    return handleUnaryFloatOp(op, b, loc, slot, localMap, "exp");
+  if (isa<tor::LogFOp>(op))
+    return handleUnaryFloatOp(op, b, loc, slot, localMap, "log");
+  if (isa<tor::SIToFpOp>(op))
+    return handleUnaryFloatOp(op, b, loc, slot, localMap, "i2f");
+  if (isa<tor::FpToSIOp>(op))
+    return handleUnaryFloatOp(op, b, loc, slot, localMap, "f2i");
   if (auto cmpOp = dyn_cast<tor::CmpFOp>(op))
     return handleCmpF(cmpOp, b, loc, slot, localMap);
 
@@ -240,6 +257,14 @@ LogicalResult FloatOpGenerator::handleUnaryFloatOp(
     Module *floatMod = nullptr;
     if (opType == "sqrt")
       floatMod = STLLibrary::createFloatSqrtModule(width, latency, circuit);
+    else if (opType == "exp")
+      floatMod = STLLibrary::createFloatExpModule(width, latency, circuit);
+    else if (opType == "log")
+      floatMod = STLLibrary::createFloatLogModule(width, latency, circuit);
+    else if (opType == "i2f")
+      floatMod = STLLibrary::createInt2FloatModule(width, latency, circuit);
+    else if (opType == "f2i")
+      floatMod = STLLibrary::createFloat2IntModule(width, latency, circuit);
 
     if (!floatMod)
       return failure();
@@ -321,7 +346,8 @@ LogicalResult FloatOpGenerator::handleCmpF(tor::CmpFOp op, mlir::OpBuilder &b,
     Clock clock = bbHandler->getMainClk();
     Reset reset = bbHandler->getMainRst();
 
-    auto *cmpMod = STLLibrary::createFloatCmpFifoModule(width, predicate, latency, circuit);
+    // Use external module (like other float ops) - FloatCmp.v already has FIFO buffering
+    auto *cmpMod = STLLibrary::createFloatCmpModule(width, predicate, latency, circuit);
     if (!cmpMod)
       return failure();
 

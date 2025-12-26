@@ -154,6 +154,49 @@ namespace {
     };
 
     using SqrtFOpConversion = UnaryOpConversionPattern<math::SqrtOp, tor::SqrtFOp>;
+    using ExpFOpConversion = UnaryOpConversionPattern<math::ExpOp, tor::ExpFOp>;
+    using LogFOpConversion = UnaryOpConversionPattern<math::LogOp, tor::LogFOp>;
+
+    // Type conversion operations (float <-> int) - need special handling
+    struct FpToSIOpConversion : public IndexTypeConversionPattern<FPToSIOp> {
+        using IndexTypeConversionPattern<FPToSIOp>::IndexTypeConversionPattern;
+
+        LogicalResult matchAndRewrite(FPToSIOp op, typename FPToSIOp::Adaptor adaptor,
+                                      ConversionPatternRewriter &rewriter) const final {
+            auto operands = this->prepareOperands(op, adaptor, rewriter);
+            auto resType = this->getTypeConverter()->convertType(op->getResult(0).getType());
+
+            auto newOp = rewriter.replaceOpWithNewOp<tor::FpToSIOp>(op, resType, operands[0], 0, 0);
+            if (!op->hasAttr("dump")) {
+                op->setAttr("dump", StringAttr::get(rewriter.getContext(), get_tmp_attr().c_str()));
+            }
+            saveOldAttrWithName(newOp, op, "bind_op_impl");
+            saveOldAttrWithName(newOp, op, "bind_op_latency");
+            saveOldAttrWithName(newOp, op, "bind_op-line");
+            newOp->setAttr("dump", op->getAttr("dump"));
+            return success();
+        }
+    };
+
+    struct SIToFpOpConversion : public IndexTypeConversionPattern<SIToFPOp> {
+        using IndexTypeConversionPattern<SIToFPOp>::IndexTypeConversionPattern;
+
+        LogicalResult matchAndRewrite(SIToFPOp op, typename SIToFPOp::Adaptor adaptor,
+                                      ConversionPatternRewriter &rewriter) const final {
+            auto operands = this->prepareOperands(op, adaptor, rewriter);
+            auto resType = this->getTypeConverter()->convertType(op->getResult(0).getType());
+
+            auto newOp = rewriter.replaceOpWithNewOp<tor::SIToFpOp>(op, resType, operands[0], 0, 0);
+            if (!op->hasAttr("dump")) {
+                op->setAttr("dump", StringAttr::get(rewriter.getContext(), get_tmp_attr().c_str()));
+            }
+            saveOldAttrWithName(newOp, op, "bind_op_impl");
+            saveOldAttrWithName(newOp, op, "bind_op_latency");
+            saveOldAttrWithName(newOp, op, "bind_op-line");
+            newOp->setAttr("dump", op->getAttr("dump"));
+            return success();
+        }
+    };
 
     template<typename SourceOp>
     struct SimpleOpConversion : public IndexTypeConversionPattern<SourceOp> {
@@ -994,7 +1037,6 @@ namespace {
                 target.addDynamicallyLegalOp<DivSIOp>(hasIndexType);
                 target.addDynamicallyLegalOp<RemUIOp>(hasIndexType);
                 target.addDynamicallyLegalOp<RemSIOp>(hasIndexType);
-                target.addDynamicallyLegalOp<SIToFPOp>(hasIndexType);
                 target.addDynamicallyLegalOp<ShRSIOp>(hasIndexType);
                 target.addDynamicallyLegalOp<ShRUIOp>(hasIndexType);
                 target.addDynamicallyLegalOp<ShLIOp>(hasIndexType);
@@ -1018,11 +1060,12 @@ namespace {
                 patterns.add<AddIOpConversion, ConstIndexConversion, MulIOpConversion,
                         SubIOpConversion, CmpIOpConversion, MulFOpConversion,
                         AddFOpConversion, SubFOpConversion, DivFOpConversion,
-                        SqrtFOpConversion,
+                        SqrtFOpConversion, ExpFOpConversion, LogFOpConversion,
+                        FpToSIOpConversion, SIToFpOpConversion,
                         YieldOpConversion, CondOpConversion, WhileOpConversion,
                         IfOpConversion, FuncOpPattern,
                         CmpFOpConversion,
-                        DivUIOpConversion, DivSIOpConversion, RemUIOpConversion, RemSIOpConversion, SIToFPOpConversion,
+                        DivUIOpConversion, DivSIOpConversion, RemUIOpConversion, RemSIOpConversion,
                         ShRSIOpConversion, ShRUIOpConversion,
                         ShiftLeftConversionPattern, OrIConversionPattern, SelectConversionPattern,
                         LoadOpConversion, StoreOpConversion, GuardedStoreOpConversion,
