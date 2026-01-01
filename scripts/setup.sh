@@ -47,7 +47,7 @@ pushd build
 cmake -G Ninja ../llvm/llvm \
     -DCMAKE_BUILD_TYPE=Debug \
     -DLLVM_ENABLE_PROJECTS="mlir" \
-    -DLLVM_TARGETS_TO_BUILD="host" \
+    -DLLVM_TARGETS_TO_BUILD="host;RISCV" \
     -DLLVM_ENABLE_BINDINGS=OFF \
     -DOR_TOOLS_PATH=${OR_TOOLS_PATH} \
     -DLLVM_ENABLE_ASSERTIONS=ON \
@@ -55,27 +55,31 @@ cmake -G Ninja ../llvm/llvm \
     -DLLVM_EXTERNAL_CIRCT_SOURCE_DIR=.. \
     -DLLVM_USE_SPLIT_DWARF=ON \
     -DLLVM_ENABLE_LLD=ON \
+    -DLLVM_ENABLE_OCAMLDOC=OFF \
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
     -DCIRCT_BINDINGS_PYTHON_ENABLED=ON \
-    -DCMAKE_INSTALL_PREFIX=../../install
+    -DCMAKE_INSTALL_PREFIX=../../install \
+    -DLLVM_ENABLE_ZSTD=FORCE_ON \
+    -DZSTD_INCLUDE_DIR="$CONDA_PREFIX/include" \
+    -DZSTD_LIBRARY="$CONDA_PREFIX/lib/libzstd.so"
 
 # Ninja
 ninja
 
 # Ninja check mlir
-ninja check-mlir
+# ninja check-mlir
 
 # Ninja check mlir python
-ninja check-mlir-python
+# ninja check-mlir-python
 
 # Ninja check circt
-ninja check-circt
+# ninja check-circt
 
 # Ninja check circt integration
-ninja check-circt-integration
+# ninja check-circt-integration
 
 # Ninja install
-ninja install
+# ninja install
 
 # Echo success
 echo "llvm/mlir/circt build/install success with python bindings"

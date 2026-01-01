@@ -156,3 +156,51 @@ add_definitions(${LLVM_DEFINITIONS})
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
+
+
+# ============================================================================
+# Build mlir_utils Python Extension For MEGG
+# ============================================================================
+set(MLIR_UTILS_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/megg/csrc/mlir_utils.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/megg/csrc/loop_unroll.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/megg/csrc/loop_unroll_jam.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/megg/csrc/loop_tiling.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/megg/csrc/loop_raise.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/megg/csrc/mlir_ir_builder.cpp
+)
+
+nanobind_add_module(mlir_utils
+  NB_STATIC
+  ${MLIR_UTILS_SOURCES}
+)
+
+target_link_libraries(mlir_utils 
+  PRIVATE
+  MLIRIR
+  MLIRParser
+  MLIRSupport
+  MLIRFuncDialect
+  MLIRFuncInlinerExtension  # For Func dialect inliner extension
+  MLIRAffineDialect
+  MLIRAffineUtils
+  MLIRAffineTransforms
+  MLIRAffineToStandard      # For Affine to Standard/SCF conversion
+  MLIRSCFDialect
+  MLIRSCFUtils
+  MLIRArithDialect
+  MLIRMemRefDialect
+  MLIRTransforms            # For DialectConversion and patterns
+  MLIRLLVMDialect
+  MLIRLLVMIRTransforms      # For LLVM dialect inliner interface
+  MLIRCAPIIR
+)
+
+set_target_properties(mlir_utils PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/megg/megg"
+  OUTPUT_NAME "mlir_utils"
+)
+
+install(TARGETS mlir_utils LIBRARY DESTINATION megg/megg)
+
+message(STATUS "Build configuration complete")
