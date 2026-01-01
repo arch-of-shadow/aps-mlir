@@ -56,18 +56,6 @@ int main(int argc, char **argv) {
         .required()
         .default_value(std::string("examples/resource_ihp130.json"))
         .help("Path to resource.json for scheduling information");
-    program.add_argument("--gensg")
-        .default_value(false)
-        .implicit_value(true)
-        .help("Generate schedule graph and estimate the running cycle");
-    program.add_argument("--genpr")
-        .default_value(false)
-        .implicit_value(true)
-        .help("Generate pragma report");
-    program.add_argument("--genrr")
-        .default_value(false)
-        .implicit_value(true)
-        .help("Generate resource report");
     program.add_argument("--print-ir-after-all")
         .default_value(false)
         .implicit_value(true)
@@ -85,8 +73,6 @@ int main(int argc, char **argv) {
     const auto clockPeriod = program.get<std::string>("--clock");
     const auto resourceFile = program.get<std::string>("--resource");
     const auto outputPath = program.get<std::string>("--output");
-    const auto generateScheduleGraph = program.get<bool>("--gensg");
-    const auto generatePragmaReport = program.get<bool>("--genpr");
     const auto printIrAfterAll = program.get<bool>("--print-ir-after-all");
 
     // Validate input file exists
@@ -185,8 +171,7 @@ int main(int argc, char **argv) {
     if (printIrAfterAll) {
         args.push_back("--mlir-print-ir-after-all");
     }
-    args.push_back("--convert-math-to-call=resource=" + resourceFile);
-    args.push_back("--demangle-func-name");
+    // args.push_back("--convert-math-to-call=resource=" + resourceFile);
     args.push_back("--aps-hoist-readrf");
     args.push_back("--memory-map");
     args.push_back("--scf-for-index-cast");
@@ -208,11 +193,6 @@ int main(int argc, char **argv) {
     args.push_back("--memref-to-aps-mem");
     args.push_back("--arith-muldiv-to-shift");
     args.push_back("--canonicalize");
-
-    if (generateScheduleGraph) {
-        args.push_back("--loop-tripcount");
-    }
-
     // Lower affine to SCF
     args.push_back("--lower-affine-for");
     args.push_back("--canonicalize");
@@ -234,15 +214,6 @@ int main(int argc, char **argv) {
     args.push_back("--tor-time-graph");
     args.push_back("--aps-memload-duplication"); //
     args.push_back("--canonicalize");
-
-    if (generatePragmaReport) {
-        args.push_back("--generate-pragma-report");
-    }
-
-    if (generateScheduleGraph) {
-        // Generate timing graph output
-        args.push_back("--count-cycles=output-dir=" + outputPath);
-    }
 
     // Cmt2!
     args.push_back("--aps-to-cmt2-gen");

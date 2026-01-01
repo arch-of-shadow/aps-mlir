@@ -13,9 +13,6 @@ add_mlir_dialect_library(MLIRTOR
     TORAttrs.cpp
     SCEVAnalysis.cpp
     DependenceAnalysis.cpp
-    
-    UnificationIndexCast.cpp
-
     LowerAffineFor.cpp
     ReinterpretCastLower.cpp
     MinMaxToCmpSelectPass.cpp
@@ -24,17 +21,10 @@ add_mlir_dialect_library(MLIRTOR
     AffineModSimplify.cpp
     NormalizeMemrefIndices.cpp
     CountCycles.cpp
-    GenPragmaReport.cpp
-    AddPragma.cpp
     ArrayOpt.cpp
-    DemangleFuncName.cpp
-    ConvertMathToCall.cpp
-
     TORFuse.cpp
     LoopTripcount.cpp
     ExpressionBalance.cpp
-    MemrefReuse.cpp
-    MemrefGlobalToConstant.cpp
     RaiseToAffine.cpp
 
     ADDITIONAL_HEADER_DIRS

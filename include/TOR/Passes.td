@@ -181,10 +181,10 @@ def HlsUnroll: Pass<"hls-unroll", "mlir::ModuleOp"> {
 //   ];
 // }
 
-def UnificationIndexCast: Pass<"unification-index-cast", "mlir::func::FuncOp"> {
-  let summary = "add trunc or extui before index cast";
-  let constructor = "mlir::createUnificationIndexCastPass()";
-}
+// def UnificationIndexCast: Pass<"unification-index-cast", "mlir::func::FuncOp"> {
+//   let summary = "add trunc or extui before index cast";
+//   let constructor = "mlir::createUnificationIndexCastPass()";
+// }
 
 // def FuseLoop: Pass<"fuse-loop", "mlir::func::FuncOp"> {
 //   let summary = "fuse loop";
@@ -224,18 +224,18 @@ def CountCycles : Pass<"count-cycles", "mlir::ModuleOp"> {
   ];
 }
 
-def GenPragmaReport : Pass<"generate-pragma-report", "mlir::ModuleOp"> {
-  let summary = "Generate pragma usage report";
-  let constructor = "mlir::createGenPragmaReportPass()";
-}
+// def GenPragmaReport : Pass<"generate-pragma-report", "mlir::ModuleOp"> {
+//   let summary = "Generate pragma usage report";
+//   let constructor = "mlir::createGenPragmaReportPass()";
+// }
 
-def AddPragma: Pass<"add-pragma", "mlir::ModuleOp"> {
-  let summary = "add pragma";
-  let constructor = "mlir::createAddPragmaPass()";
-  let options = [
-    Option<"conv_unroll_layers", "conv-unroll-layers", "int", "1", "ONNXQLinearConv and ONNXConv op unroll layers">,
-  ];
-}
+// def AddPragma: Pass<"add-pragma", "mlir::ModuleOp"> {
+//   let summary = "add pragma";
+//   let constructor = "mlir::createAddPragmaPass()";
+//   let options = [
+//     Option<"conv_unroll_layers", "conv-unroll-layers", "int", "1", "ONNXQLinearConv and ONNXConv op unroll layers">,
+//   ];
+// }
 
 def TORFuse : Pass<"tor-fuse", "mlir::tor::DesignOp"> {
   let summary = "tor fuse";
@@ -263,15 +263,15 @@ def LoopTripcount: Pass<"loop-tripcount", "mlir::func::FuncOp"> {
   let constructor = "mlir::createLoopTripcountPass()";
 }
 
-def MemrefReuse: Pass<"memref-reuse", "mlir::func::FuncOp"> {
-  let summary = "memref reuse";
-  let constructor = "mlir::createMemrefReusePass()";
-}
+// def MemrefReuse: Pass<"memref-reuse", "mlir::func::FuncOp"> {
+//   let summary = "memref reuse";
+//   let constructor = "mlir::createMemrefReusePass()";
+// }
 
-def MemrefGlobalToConstant: Pass<"memref-global-to-constant", "mlir::ModuleOp"> {
-  let summary = "memref global to constant";
-  let constructor = "mlir::createMemrefGlobalToConstantPass()";
-}
+// def MemrefGlobalToConstant: Pass<"memref-global-to-constant", "mlir::ModuleOp"> {
+//   let summary = "memref global to constant";
+//   let constructor = "mlir::createMemrefGlobalToConstantPass()";
+// }
 
 // def StructSplit: Pass<"struct-split", "mlir::ModuleOp"> {
 //   let summary = "struct split";
@@ -286,10 +286,10 @@ def MemrefGlobalToConstant: Pass<"memref-global-to-constant", "mlir::ModuleOp"> 
 //   let dependentDialects = ["LLVM::LLVMDialect", "memref::MemRefDialect"];
 // }
 
-def DemangleFuncName : Pass<"demangle-func-name", "mlir::ModuleOp"> {
-  let summary = "Demangle function name, solve cpp mangle";
-  let constructor = "mlir::createDemangleFuncNamePass()";
-}
+// def DemangleFuncName : Pass<"demangle-func-name", "mlir::ModuleOp"> {
+//   let summary = "Demangle function name, solve cpp mangle";
+//   let constructor = "mlir::createDemangleFuncNamePass()";
+// }
 
 // def ONNXLower: Pass<"onnx-lower", "mlir::ModuleOp"> {
 //   let summary = "onnx lower";
@@ -298,14 +298,14 @@ def DemangleFuncName : Pass<"demangle-func-name", "mlir::ModuleOp"> {
 //                            "tensor::TensorDialect", "math::MathDialect"];
 // }
 
-def ConvertMathToCall : Pass<"convert-math-to-call", "mlir::ModuleOp"> {
-  let summary = "Convert Math dialect to lib call";
-  let constructor = "mlir::createConvertMathToCallPass()";
-  let dependentDialects = ["mlir::tor::TORDialect", "affine::AffineDialect"];
-  let options = [
-    Option<"resource", "resource", "std::string", "\"./resource_dynamatic.json\"", "Resource file">
-  ];
-}
+// def ConvertMathToCall : Pass<"convert-math-to-call", "mlir::ModuleOp"> {
+//   let summary = "Convert Math dialect to lib call";
+//   let constructor = "mlir::createConvertMathToCallPass()";
+//   let dependentDialects = ["mlir::tor::TORDialect", "affine::AffineDialect"];
+//   let options = [
+//     Option<"resource", "resource", "std::string", "\"./resource_dynamatic.json\"", "Resource file">
+//   ];
+// }
 
 // def TopFuncArg2Global : Pass<"top-func-arg-to-global", "mlir::ModuleOp"> {
 //   let summary = "Top function argument to global";
