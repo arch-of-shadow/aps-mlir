@@ -46,7 +46,7 @@ void APSToCMT2GenPass::getDependentDialects(DialectRegistry &registry) const {
 
 void APSToCMT2GenPass::runOnOperation() {
   ModuleOp moduleOp = getOperation();
-  llvm::outs() << "DEBUG: APSToCMT2GenPass::runOnOperation() started\n";
+  llvm::dbgs() << "DEBUG: APSToCMT2GenPass::runOnOperation() started\n";
 
   // Find the aps.memorymap operation
   aps::MemoryMapOp memoryMapOp;
@@ -57,7 +57,7 @@ void APSToCMT2GenPass::runOnOperation() {
 
   // Initialize CMT2 module library
   auto &library = ModuleLibrary::getInstance();
-  llvm::outs() << "DEBUG: Initializing CMT2 module library\n";
+  llvm::dbgs() << "DEBUG: Initializing CMT2 module library\n";
 
   // Try to find the module library manifest
   // First try: relative to build directory
@@ -67,21 +67,21 @@ void APSToCMT2GenPass::runOnOperation() {
 
   // Set library base path (parent of manifest)
   if (llvm::sys::fs::exists(manifestPath)) {
-    llvm::outs() << "DEBUG: Found manifest at " << manifestPath << "\n";
+    llvm::dbgs() << "DEBUG: Found manifest at " << manifestPath << "\n";
     llvm::SmallString<256> libraryPath =
         llvm::sys::path::parent_path(manifestPath);
     library.setLibraryPath(libraryPath);
 
     // Load the manifest
     if (mlir::failed(library.loadManifest(manifestPath))) {
-      llvm::outs() << "DEBUG: Failed to load module library manifest\n";
+      llvm::dbgs() << "DEBUG: Failed to load module library manifest\n";
       moduleOp.emitWarning()
           << "Failed to load module library manifest from " << manifestPath;
       return;
     }
-    llvm::outs() << "DEBUG: Successfully loaded module library manifest\n";
+    llvm::dbgs() << "DEBUG: Successfully loaded module library manifest\n";
   } else {
-    llvm::outs() << "DEBUG: Module library manifest not found at "
+    llvm::dbgs() << "DEBUG: Module library manifest not found at "
                  << manifestPath << "\n";
     moduleOp.emitWarning() << "Module library manifest not found. "
                            << "External FIRRTL modules may not work correctly.";
@@ -130,6 +130,7 @@ void APSToCMT2GenPass::runOnOperation() {
 
   // Preserve all original Ops
   auto &targetBlock = moduleOp.getBodyRegion().front();
+  targetBlock.clear();
   auto &generatedOps = generatedModule->getBodyRegion().front().getOperations();
 
   for (auto &op : llvm::make_early_inc_range(generatedOps)) {

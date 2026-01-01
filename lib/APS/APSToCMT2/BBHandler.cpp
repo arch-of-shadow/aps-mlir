@@ -49,7 +49,7 @@ BBHandler::BBHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp fun
 LogicalResult BBHandler::processBasicBlocks() {
   // This method requires a function context
   if (!funcOp) {
-    llvm::outs() << "[BBHandler] Error: processBasicBlocks called without function context\n";
+    llvm::dbgs() << "[BBHandler] Error: processBasicBlocks called without function context\n";
     return failure();
   }
   
@@ -74,7 +74,7 @@ LogicalResult BBHandler::collectOperationsBySlot() {
   // New approach: Identify basic blocks by control flow boundaries
   // Operations within the same basic block can span multiple timeslots naturally
   
-  llvm::outs() << "[BBHandler] Collecting operations by basic block (control-flow based)\n";
+  llvm::dbgs() << "[BBHandler] Collecting operations by basic block (control-flow based)\n";
   
   // First, identify basic blocks based on control flow operations
   llvm::SmallVector<llvm::SmallVector<Operation*, 8>> basicBlocks;
@@ -110,7 +110,7 @@ LogicalResult BBHandler::collectOperationsBySlot() {
     basicBlocks.push_back(std::move(currentBlock));
   }
   
-  llvm::outs() << "[BBHandler] Identified " << basicBlocks.size() << " basic blocks\n";
+  llvm::dbgs() << "[BBHandler] Identified " << basicBlocks.size() << " basic blocks\n";
   
   // Now organize operations by timeslot within each basic block
   // For operations with explicit timeslots, use them; otherwise infer timing
@@ -119,11 +119,11 @@ LogicalResult BBHandler::collectOperationsBySlot() {
       if (auto startAttr = op->getAttrOfType<IntegerAttr>("starttime")) {
         int64_t slot = startAttr.getInt();
         slotMap[slot].ops.push_back(op);
-        llvm::outs() << "[BBHandler] Operation with explicit timeslot: slot " << slot << "\n";
+        llvm::dbgs() << "[BBHandler] Operation with explicit timeslot: slot " << slot << "\n";
       } else {
         // For operations without explicit timeslots, we need to infer timing
         // This will be handled by the basic block's natural flow
-        llvm::outs() << "[BBHandler] Operation without explicit timeslot - will infer timing\n";
+        llvm::dbgs() << "[BBHandler] Operation without explicit timeslot - will infer timing\n";
         // For now, place in slot 0 - this will be refined later
         slotMap[0].ops.push_back(op);
       }
@@ -145,7 +145,7 @@ LogicalResult BBHandler::collectOperationsBySlot() {
 
 LogicalResult BBHandler::collectOperationsFromList(llvm::SmallVector<Operation*> &operations) {
   // Organize the provided operations by their time slots
-  llvm::outs() << "[BBHandler] Organizing " << operations.size() << " operations by time slots\n";
+  llvm::dbgs() << "[BBHandler] Organizing " << operations.size() << " operations by time slots\n";
   
   // Clear existing slot map and order
   slotMap.clear();
@@ -156,11 +156,11 @@ LogicalResult BBHandler::collectOperationsFromList(llvm::SmallVector<Operation*>
     if (auto startAttr = op->getAttrOfType<IntegerAttr>("starttime")) {
       int64_t slot = startAttr.getInt();
       slotMap[slot].ops.push_back(op);
-      llvm::outs() << "[BBHandler] Operation with explicit timeslot: slot " << slot << " - " << op->getName() << "\n";
+      llvm::dbgs() << "[BBHandler] Operation with explicit timeslot: slot " << slot << " - " << op->getName() << "\n";
     } else {
       // For operations without explicit timeslots, place in slot 0
       slotMap[0].ops.push_back(op);
-      llvm::outs() << "[BBHandler] Operation without explicit timeslot - placed in slot 0 - " << op->getName() << "\n";
+      llvm::dbgs() << "[BBHandler] Operation without explicit timeslot - placed in slot 0 - " << op->getName() << "\n";
     }
   }
   
@@ -174,9 +174,9 @@ LogicalResult BBHandler::collectOperationsFromList(llvm::SmallVector<Operation*>
     slotOrder.push_back(0);
   }
   
-  llvm::outs() << "[BBHandler] Organized operations into " << slotOrder.size() << " time slots\n";
+  llvm::dbgs() << "[BBHandler] Organized operations into " << slotOrder.size() << " time slots\n";
   for (int64_t slot : slotOrder) {
-    llvm::outs() << "[BBHandler]   Slot " << slot << " has " << slotMap[slot].ops.size() << " operations\n";
+    llvm::dbgs() << "[BBHandler]   Slot " << slot << " has " << slotMap[slot].ops.size() << " operations\n";
   }
   
   return success();
@@ -230,7 +230,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
 
       // Skip interface operations - their results are dummy tokens that don't need FIFOs
       if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq>(op)) {
-        llvm::outs() << "[FIFO DEBUG] Skipping FIFO creation for interface operation\n";
+        llvm::dbgs() << "[FIFO DEBUG] Skipping FIFO creation for interface operation\n";
         continue;
       }
 
@@ -240,7 +240,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
 
         // Skip constants - they don't need FIFOs since they have no readers
         if (res.getDefiningOp<arith::ConstantOp>()) {
-          llvm::outs() << "[FIFO DEBUG] Skipping FIFO creation for constant value\n";
+          llvm::dbgs() << "[FIFO DEBUG] Skipping FIFO creation for constant value\n";
           continue;
         }
 
@@ -302,7 +302,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
                               std::to_string(consumerSlot) + "_v" + std::to_string(count);
 
           // Debug info: log FIFO creation
-          llvm::outs() << "[FIFO DEBUG] Creating FIFO: " << fifo->instanceName
+          llvm::dbgs() << "[FIFO DEBUG] Creating FIFO: " << fifo->instanceName
                        << " for producer in slot " << slot
                        << " to consumers in slot " << consumerSlot
                        << " with " << fifo->consumers.size() << " consumers\n";
@@ -320,7 +320,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
     // Determine the first slot in this block
     int64_t firstSlot = slotOrder.empty() ? 0 : slotOrder.front();
 
-    llvm::outs() << "[FIFO DEBUG] Processing " << currentBlock->input_fifos.size()
+    llvm::dbgs() << "[FIFO DEBUG] Processing " << currentBlock->input_fifos.size()
                  << " input FIFO values for cross-slot distribution (first slot: "
                  << firstSlot << ")\n";
 
@@ -333,7 +333,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
 
       // Skip constants - they don't need cross-slot FIFOs
       if (inputValue.getDefiningOp<arith::ConstantOp>()) {
-        llvm::outs() << "[FIFO DEBUG] Skipping cross-slot FIFO for constant input value\n";
+        llvm::dbgs() << "[FIFO DEBUG] Skipping cross-slot FIFO for constant input value\n";
         continue;
       }
 
@@ -363,19 +363,19 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
         if (isInCurrentBlock) {
           consumersByStage[consumerSlot].push_back({user, use.getOperandNumber()});
         } else {
-          llvm::outs() << "[FIFO DEBUG] Skipping consumer in slot " << consumerSlot
+          llvm::dbgs() << "[FIFO DEBUG] Skipping consumer in slot " << consumerSlot
                        << " (belongs to different block)\n";
         }
       }
 
       if (consumersByStage.empty()) {
-        llvm::outs() << "[FIFO DEBUG] Input value has no consumers in this block\n";
+        llvm::dbgs() << "[FIFO DEBUG] Input value has no consumers in this block\n";
         continue;
       }
 
       auto firType = toFirrtlType(inputValue.getType(), ctx);
       if (!firType) {
-        llvm::outs() << "[FIFO DEBUG] Input value type unsupported for FIFO\n";
+        llvm::dbgs() << "[FIFO DEBUG] Input value type unsupported for FIFO\n";
         continue;
       }
 
@@ -384,7 +384,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
       for (auto &[consumerSlot, consumers] : consumersByStage) {
         // If consumer is in the first slot, no cross-slot FIFO needed
         if (consumerSlot == firstSlot) {
-          llvm::outs() << "[FIFO DEBUG] Skipping input cross-slot FIFO for consumer in first slot "
+          llvm::dbgs() << "[FIFO DEBUG] Skipping input cross-slot FIFO for consumer in first slot "
                        << consumerSlot << " (no cross-slot needed)\n";
           continue;
         }
@@ -402,7 +402,7 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
         fifo->instanceName = currentBlock->blockName + "_fifo_s" + std::to_string(firstSlot) + "_s" +
                              std::to_string(consumerSlot) + "_v" + std::to_string(count);
 
-        llvm::outs() << "[FIFO DEBUG] Creating input cross-slot FIFO: " << fifo->instanceName
+        llvm::dbgs() << "[FIFO DEBUG] Creating input cross-slot FIFO: " << fifo->instanceName
                      << " for input value to consumers in slot " << consumerSlot
                      << " with " << fifo->consumers.size() << " consumers\n";
 
@@ -428,7 +428,7 @@ LogicalResult BBHandler::createTokenFIFOs() {
     Module *tokenFifoMod;
     if (currentSlot == firstSlot) {
       tokenFifoMod = STLLibrary::createFIFO2IModule(1, circuit);
-      llvm::outs() << "[BBHandler] Using FIFO2I for first slot token FIFO\n";
+      llvm::dbgs() << "[BBHandler] Using FIFO2I for first slot token FIFO\n";
     } else {
       tokenFifoMod = STLLibrary::createFIFO1PushModule(1, circuit);
     }
@@ -437,7 +437,7 @@ LogicalResult BBHandler::createTokenFIFOs() {
     auto *tokenFifo = mainModule->addInstance(tokenFifoName, tokenFifoMod,
                                               {mainClk.getValue(), mainRst.getValue()});
     stageTokenFifos[currentSlot] = tokenFifo;
-    llvm::outs() << "[BBHandler] Created token FIFO for slot " << currentSlot << ": " << tokenFifoName << "\n";
+    llvm::dbgs() << "[BBHandler] Created token FIFO for slot " << currentSlot << ": " << tokenFifoName << "\n";
   }
 
   return success();
@@ -451,11 +451,11 @@ LogicalResult BBHandler::instantiateCrossSlotFIFOs() {
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
 
-  llvm::outs() << "[BBHandler] Instantiating " << fifoStorage.size() << " cross-slot FIFO modules\n";
+  llvm::dbgs() << "[BBHandler] Instantiating " << fifoStorage.size() << " cross-slot FIFO modules\n";
 
   // Determine the first slot in this basic block
   int64_t firstSlot = slotOrder.empty() ? 0 : slotOrder[0];
-  llvm::outs() << "[BBHandler] First slot in basic block: " << firstSlot << "\n";
+  llvm::dbgs() << "[BBHandler] First slot in basic block: " << firstSlot << "\n";
 
   for (auto &fifoPtr : fifoStorage) {
     auto *fifo = fifoPtr.get();
@@ -464,7 +464,7 @@ LogicalResult BBHandler::instantiateCrossSlotFIFOs() {
       width = 1;
 
     // Debug info: log FIFO instantiation
-    llvm::outs() << "[BBHandler] Instantiating FIFO: " << fifo->instanceName
+    llvm::dbgs() << "[BBHandler] Instantiating FIFO: " << fifo->instanceName
                  << " (width=" << width << ", producerSlot=" << fifo->producerSlot << ")\n";
 
     // Create FIFO module with proper clock and reset
@@ -472,10 +472,10 @@ LogicalResult BBHandler::instantiateCrossSlotFIFOs() {
     Module *fifoMod;
     if (fifo->producerSlot == firstSlot) {
       fifoMod = STLLibrary::createFIFO2IModule(width, circuit);
-      llvm::outs() << "[BBHandler] Using FIFO2I for first slot producer in BB\n";
+      llvm::dbgs() << "[BBHandler] Using FIFO2I for first slot producer in BB\n";
     } else {
       fifoMod = STLLibrary::createFIFO1PushModule(width, circuit);
-      llvm::outs() << "[BBHandler] Using FIFO1Push for non-first slot producer\n";
+      llvm::dbgs() << "[BBHandler] Using FIFO1Push for non-first slot producer\n";
     }
     builder.restoreInsertionPoint(savedIP);
     fifo->fifoInstance = mainModule->addInstance(fifo->instanceName, fifoMod,
@@ -576,7 +576,7 @@ LogicalResult BBHandler::generateSlotRules() {
 LogicalResult BBHandler::handleRoCCCommandBundle(mlir::OpBuilder &b, Location loc) {
   // Only handle RoCC commands if we have a function context
   if (!funcOp) {
-    llvm::outs() << "[BBHandler] No function context, skipping RoCC command bundle\n";
+    llvm::dbgs() << "[BBHandler] No function context, skipping RoCC command bundle\n";
     return success();
   }
   
@@ -652,7 +652,7 @@ std::optional<int64_t> BBHandler::getSlotForOp(Operation *op) {
 }
 
 LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
-  llvm::outs() << "[BBHandler] Processing basic block " << block.blockId
+  llvm::dbgs() << "[BBHandler] Processing basic block " << block.blockId
                << " (" << block.blockName << ") with "
                << block.mlirBlock->getOperations().size() << " operations\n";
 
@@ -683,7 +683,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
     blockOperations.push_back(op);
   }
 
-  llvm::outs() << "[BBHandler] Collected " << blockOperations.size() << " operations from block segment (out of "
+  llvm::dbgs() << "[BBHandler] Collected " << blockOperations.size() << " operations from block segment (out of "
                << block.operations.size() << " total in segment)\n";
 
   // PANIC: Empty blocks should not reach BBHandler
@@ -693,7 +693,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
 
   // Phase 2: Organize operations by time slots
   if (failed(collectOperationsFromList(blockOperations))) {
-    llvm::outs() << "[BBHandler] Failed to organize operations by slot\n";
+    llvm::dbgs() << "[BBHandler] Failed to organize operations by slot\n";
     return failure();
   }
 
@@ -728,14 +728,14 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
       auto loc = b.getUnknownLoc();
       localMap.clear();
 
-      llvm::outs() << "[BBHandler] Processing slot " << slot << " with " 
+      llvm::dbgs() << "[BBHandler] Processing slot " << slot << " with " 
                    << slotMap[slot].ops.size() << " operations\n";
 
       // Handle block coordination at the beginning of the first slot
       if (slot == slotOrder.front()) {
         // Dequeue from input token FIFO (token from previous block in sequence)
         if (block_input_token_fifo) {
-          llvm::outs() << "[BBHandler] Dequeuing input token for block " << blockId << " from unified token FIFO\n";
+          llvm::dbgs() << "[BBHandler] Dequeuing input token for block " << blockId << " from unified token FIFO\n";
           auto inputToken = block_input_token_fifo->callMethod("deq", {}, b);
         }
         
@@ -746,7 +746,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
         // Same dequeued value can go to BOTH destinations
         for (auto &[value, fifo] : inputFIFOs) {
           if (fifo) {
-            llvm::outs() << "[BBHandler] Dequeuing cross-block value from input FIFO\n";
+            llvm::dbgs() << "[BBHandler] Dequeuing cross-block value from input FIFO\n";
             auto dequeuedValue = fifo->callMethod("deq", {}, b);
             if (!dequeuedValue.empty()) {
               bool usedInSlot0 = false;
@@ -768,7 +768,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
               // If used in slot 0, store in localMap for immediate use
               if (usedInSlot0) {
                 localMap[value] = dequeuedValue[0];
-                llvm::outs() << "[BBHandler] Stored input value in localMap for slot 0 use\n";
+                llvm::dbgs() << "[BBHandler] Stored input value in localMap for slot 0 use\n";
               }
 
               // Check if value has cross-slot FIFOs (means used in later slots)
@@ -779,14 +779,14 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
                 for (CrossSlotFIFO *crossSlotFifo : it->second) {
                   if (crossSlotFifo->fifoInstance) {
                     crossSlotFifo->fifoInstance->callMethod("enq", {dequeuedValue[0]}, b);
-                    llvm::outs() << "[BBHandler] Enqueued input value to cross-slot FIFO: "
+                    llvm::dbgs() << "[BBHandler] Enqueued input value to cross-slot FIFO: "
                                  << crossSlotFifo->instanceName << " for later slot use\n";
                   }
                 }
               }
 
               if (!usedInSlot0 && !usedInLaterSlots) {
-                llvm::outs() << "[BBHandler] WARNING: Input value not used in any slot of this block\n";
+                llvm::dbgs() << "[BBHandler] WARNING: Input value not used in any slot of this block\n";
               }
             }
           }
@@ -806,7 +806,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
       // Process all operations in this time slot using existing operation generators
       for (Operation *op : slotMap[slot].ops) {
         if (failed(generateRuleForOperation(op, b, loc, slot, localMap))) {
-          llvm::outs() << "[BBHandler] Failed to process operation: " << *op << "\n";
+          llvm::dbgs() << "[BBHandler] Failed to process operation: " << *op << "\n";
           return;
         }
       }
@@ -827,7 +827,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
             for (CrossSlotFIFO *fifo : fifoIt->second) {
               if (fifo->fifoInstance) {
                 fifo->fifoInstance->callMethod("enq", {valueIt->second}, b);
-                llvm::outs() << "[BBHandler] Enqueued value to cross-slot FIFO\n";
+                llvm::dbgs() << "[BBHandler] Enqueued value to cross-slot FIFO\n";
               }
             }
           }
@@ -839,7 +839,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
             for (const auto &[consumerBlock, fifo] : outputIt->second) {
               if (fifo) {
                 fifo->callMethod("enq", {valueIt->second}, b);
-                llvm::outs() << "[BBHandler] Enqueued value to cross-block output FIFO for consumer block "
+                llvm::dbgs() << "[BBHandler] Enqueued value to cross-block output FIFO for consumer block "
                              << consumerBlock->blockId << "\n";
               }
             }
@@ -858,7 +858,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
 
         // Enqueue output token to unified token FIFO (token to next block in sequence)
         if (block_output_token_fifo) {
-          llvm::outs() << "[BBHandler] Enqueuing output token for block " << blockId << " to unified token FIFO\n";
+          llvm::dbgs() << "[BBHandler] Enqueuing output token for block " << blockId << " to unified token FIFO\n";
           auto outputToken = UInt::constant(1, 1, b, loc);
           block_output_token_fifo->callMethod("enq", {outputToken.getValue()}, b);
         }
@@ -869,7 +869,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
 
     rule->finalize();
 
-    llvm::outs() << "[BBHandler] Generated rule for slot " << slot << " in block " << blockId << "\n";
+    llvm::dbgs() << "[BBHandler] Generated rule for slot " << slot << " in block " << blockId << "\n";
   }
 
   // Set precedence for rules: later slots have higher priority
@@ -890,12 +890,12 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
 
     if (!precedencePairs.empty()) {
       mainModule->setPrecedence(precedencePairs);
-      llvm::outs() << "[BBHandler] Set precedence for " << precedencePairs.size()
+      llvm::dbgs() << "[BBHandler] Set precedence for " << precedencePairs.size()
                    << " rule pairs (later slots have higher priority)\n";
     }
   }
 
-  llvm::outs() << "[BBHandler] Successfully generated " << slotOrder.size() << " rules for basic block " << blockId << "\n";
+  llvm::dbgs() << "[BBHandler] Successfully generated " << slotOrder.size() << " rules for basic block " << blockId << "\n";
   return success();
 }
 
@@ -968,7 +968,7 @@ FailureOr<mlir::Value> OperationGenerator::getValueInRule(mlir::Value v, Operati
 
         for (auto [consumerOp, opIndex] : fifo->consumers) {
           if (consumerOp == currentOp) {
-            llvm::outs() << "Index available: " << opIndex << '\n';
+            llvm::dbgs() << "Index available: " << opIndex << '\n';
           }
           if (consumerOp == currentOp && opIndex == operandIndex) {
             auto result = fifo->fifoInstance->callValue("deq", b);

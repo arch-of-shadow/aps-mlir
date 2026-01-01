@@ -517,29 +517,29 @@ void CountAttribute(mlir::ModuleOp &moduleOp){
     llvm::StringRef fn("module");
     traverseOp(moduleOp,0,fn);
     llvm::StringRef fm("main");
-    if(hasWhileOp)llvm::outs()<<"WARNING: whileOp can't calculate TripCount\n";
-    llvm::outs() << "------------------------------------------------------------------------------------------------------------------------\n";
-    llvm::outs() <<"|"<< formatwidth(60 ,' '," ")<<"    |"<<formatwidth(10,' ',"cycle") << "     |"<<formatwidth(10,' ',"TripCount") << " |"<<formatwidth(8,' ',"II") << "      |"<<formatwidth(10,' ',"PIPELINE") << "|\n";
+    if(hasWhileOp)llvm::dbgs()<<"WARNING: whileOp can't calculate TripCount\n";
+    llvm::dbgs() << "------------------------------------------------------------------------------------------------------------------------\n";
+    llvm::dbgs() <<"|"<< formatwidth(60 ,' '," ")<<"    |"<<formatwidth(10,' ',"cycle") << "     |"<<formatwidth(10,' ',"TripCount") << " |"<<formatwidth(8,' ',"II") << "      |"<<formatwidth(10,' ',"PIPELINE") << "|\n";
 
     for(auto nod : q[fm]){
-      llvm::outs() << "|";
+      llvm::dbgs() << "|";
       for (int i = 0; i < nod.pl; i++){
-        llvm::outs() << "    ";
+        llvm::dbgs() << "    ";
       }
-      llvm::outs() << nod.id;
-      llvm::outs() << formatwidth(60 - 4 * nod.pl - nod.id.size(),' '," ")<<"    |";
-      if(nod.cycle > 0&&nod.number != -2)llvm::outs() << formatwidth(15,' ',nod.cycle) << "|";
-      else if(nod.cycle > 0)llvm::outs() << "(one trip)" << formatwidth(5,' ',nod.cycle) << "|";
-      else llvm::outs() << "               |";
-      if(nod.number > 0)llvm::outs() << formatwidth(10,' ',nod.number)  << " |";
-      else if(nod.number == -2) llvm::outs() << formatwidth(10,' ',"inf")  << " |";
-      else llvm::outs() << "           |";
-      if(nod.II > 0)llvm::outs() << formatwidth(8,' ',nod.II)  << "      |";
-      else llvm::outs() << "              |";
-      if(nod.pipe)llvm::outs() << "       Yes|\n";
-      else llvm::outs() << "        No|\n";
+      llvm::dbgs() << nod.id;
+      llvm::dbgs() << formatwidth(60 - 4 * nod.pl - nod.id.size(),' '," ")<<"    |";
+      if(nod.cycle > 0&&nod.number != -2)llvm::dbgs() << formatwidth(15,' ',nod.cycle) << "|";
+      else if(nod.cycle > 0)llvm::dbgs() << "(one trip)" << formatwidth(5,' ',nod.cycle) << "|";
+      else llvm::dbgs() << "               |";
+      if(nod.number > 0)llvm::dbgs() << formatwidth(10,' ',nod.number)  << " |";
+      else if(nod.number == -2) llvm::dbgs() << formatwidth(10,' ',"inf")  << " |";
+      else llvm::dbgs() << "           |";
+      if(nod.II > 0)llvm::dbgs() << formatwidth(8,' ',nod.II)  << "      |";
+      else llvm::dbgs() << "              |";
+      if(nod.pipe)llvm::dbgs() << "       Yes|\n";
+      else llvm::dbgs() << "        No|\n";
      }
-    llvm::outs() << "------------------------------------------------------------------------------------------------------------------------\n";
+    llvm::dbgs() << "------------------------------------------------------------------------------------------------------------------------\n";
 }
 
 struct CountCyclesPass : CountCyclesBase<CountCyclesPass> {
@@ -553,7 +553,7 @@ struct CountCyclesPass : CountCyclesBase<CountCyclesPass> {
       designOp = dyn_cast<tor::DesignOp>(funcOp->getParentOp());
     });
     if (funcOpCycleMap.count("main")) {
-      llvm::outs() << designOp.getSymbol() << " cycle is "
+      llvm::dbgs() << designOp.getSymbol() << " cycle is "
                    << funcOpCycleMap["main"] << "\n";
       designOp->setAttr("cycle",
                         mlir::IntegerAttr::get(
@@ -561,7 +561,7 @@ struct CountCyclesPass : CountCyclesBase<CountCyclesPass> {
                             funcOpCycleMap["main"]));
     }
     if ((this->output_dir).getValue().length() != 0) {
-      llvm::outs() << "the approximate cycle file is located in "
+      llvm::dbgs() << "the approximate cycle file is located in "
                    << this->output_dir << "/timegraph.txt\n";
       GenTimgraph(getOperation(), (this->output_dir).getValue())
           .writeTimegraph();

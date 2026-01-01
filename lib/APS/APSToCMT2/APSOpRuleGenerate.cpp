@@ -40,7 +40,7 @@ void APSToCMT2GenPass::generateRulesForFunction(
   });
 
   // Unified entry point: Always use BlockHandler, regardless of whether there are loops
-  llvm::outs() << "[RuleGen] Function " << funcOp.getName()
+  llvm::dbgs() << "[RuleGen] Function " << funcOp.getName()
                << " - using unified BlockHandler for all processing\n";
 
   // Create reg_rd register instance (one per opcode, shared across all blocks)
@@ -50,7 +50,7 @@ void APSToCMT2GenPass::generateRulesForFunction(
   Instance *regRdInstance = mainModule->addInstance("reg_rd_" + std::to_string(opcode), regRdMod,
                                                     {mainClk.getValue(), mainRst.getValue()});
   builder.restoreInsertionPoint(savedIP);
-  llvm::outs() << "[RuleGen] Created shared reg_rd instance: reg_rd_" << opcode << "\n";
+  llvm::dbgs() << "[RuleGen] Created shared reg_rd instance: reg_rd_" << opcode << "\n";
 
   // For top-level function processing, we don't have external FIFOs
   // Token FIFOs and value FIFOs will be created internally by BlockHandler
@@ -73,7 +73,7 @@ void APSToCMT2GenPass::generateRulesForFunction(
     return;
   }
 
-  llvm::outs() << "[BlockHandler] Successfully processed all blocks for function "
+  llvm::dbgs() << "[BlockHandler] Successfully processed all blocks for function "
                << funcOp.getName() << "\n";
 }
 

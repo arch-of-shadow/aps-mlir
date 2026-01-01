@@ -934,7 +934,7 @@ void APSToCMT2GenPass::addRoCCAndMemoryMethodToMainModule(
 memref::GlobalOp APSToCMT2GenPass::getGlobalMemRef(mlir::Operation *scope,
                                                    StringRef symbolName) {
   if (!scope) {
-    llvm::outs() << "DEBUG getGlobalMemRef: scope is null\n";
+    llvm::dbgs() << "DEBUG getGlobalMemRef: scope is null\n";
     return nullptr;
   }
   memref::GlobalOp foundOp = nullptr;
@@ -947,7 +947,7 @@ memref::GlobalOp APSToCMT2GenPass::getGlobalMemRef(mlir::Operation *scope,
   });
 
   if (foundOp) {
-    llvm::outs() << "DEBUG: Found symbol via manual walk\n";
+    llvm::dbgs() << "DEBUG: Found symbol via manual walk\n";
   }
   
   return foundOp;
@@ -957,16 +957,16 @@ memref::GlobalOp APSToCMT2GenPass::getGlobalMemRef(mlir::Operation *scope,
 MemoryPoolResult
 APSToCMT2GenPass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
                                      aps::MemoryMapOp memoryMapOp) {
-  llvm::outs() << "DEBUG: generateMemoryPool() started\n";
+  llvm::dbgs() << "DEBUG: generateMemoryPool() started\n";
   MLIRContext *context = moduleOp.getContext();
   OpBuilder builder(context);
 
   // Collect all memory entries
   llvm::SmallVector<aps::MemEntryOp> memEntries;
-  llvm::outs() << "DEBUG: About to collect memory entries\n";
+  llvm::dbgs() << "DEBUG: About to collect memory entries\n";
 
   if (memoryMapOp) {
-    llvm::outs() << "DEBUG: Memory map region has "
+    llvm::dbgs() << "DEBUG: Memory map region has "
                  << memoryMapOp.getRegion().getBlocks().size() << " blocks\n";
 
     // Safely iterate through operations
@@ -974,27 +974,27 @@ APSToCMT2GenPass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
       for (auto &op : block) {
         if (auto entry = dyn_cast<aps::MemEntryOp>(op)) {
           memEntries.push_back(entry);
-          llvm::outs() << "DEBUG: Found memory entry: " << entry.getName()
+          llvm::dbgs() << "DEBUG: Found memory entry: " << entry.getName()
                        << "\n";
         }
       }
     }
 
-    llvm::outs() << "DEBUG: Collected " << memEntries.size()
+    llvm::dbgs() << "DEBUG: Collected " << memEntries.size()
                  << " memory entries\n";
   }
 
   if (memEntries.empty()) {
-    llvm::outs() << "DEBUG: No memory entries found, will generate rules "
+    llvm::dbgs() << "DEBUG: No memory entries found, will generate rules "
                     "without memory\n";
   }
 
   // Generate memory pool module
-  llvm::outs() << "DEBUG: Creating ScratchpadMemoryPool module\n";
+  llvm::dbgs() << "DEBUG: Creating ScratchpadMemoryPool module\n";
   auto *poolModule = circuit.addModule("ScratchpadMemoryPool");
 
   // Add clock and reset
-  llvm::outs() << "DEBUG: Adding clock and reset arguments\n";
+  llvm::dbgs() << "DEBUG: Adding clock and reset arguments\n";
   Clock clk = poolModule->addClockArgument("clk");
   Reset rst = poolModule->addResetArgument("rst");
 
@@ -1027,7 +1027,7 @@ APSToCMT2GenPass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
 
     // Look up the memref.global for this bank
     StringRef bankSymbolName = firstBankSymAttr.getValue();
-    llvm::outs() << "DEBUG: Looking up memref.global for bank symbol: '" << bankSymbolName << "'\n";
+    llvm::dbgs() << "DEBUG: Looking up memref.global for bank symbol: '" << bankSymbolName << "'\n";
 
     auto globalOp = getGlobalMemRef(moduleOp, bankSymbolName);
     if (!globalOp) {

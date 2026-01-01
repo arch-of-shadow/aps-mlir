@@ -66,7 +66,7 @@ LogicalResult MemoryOpGenerator::generateGlobalMemLoad(
   // Build the rule name: convert @count -> count_read
   std::string memoryBankRule = (globalName + "_read").str();
 
-  llvm::outs() << "DEBUG: Global load from scalar global " << globalName
+  llvm::dbgs() << "DEBUG: Global load from scalar global " << globalName
                << " using rule " << memoryBankRule << "\n";
 
   // For scalar globals, we need to get the base address from the memory entry map
@@ -109,7 +109,7 @@ LogicalResult MemoryOpGenerator::generateGlobalMemStore(
   // Build the rule name: convert @count -> count_read
   std::string memoryBankRule = (globalName + "_write").str();
 
-  llvm::outs() << "DEBUG: Global load from scalar global " << globalName
+  llvm::dbgs() << "DEBUG: Global load from scalar global " << globalName
                << " using rule " << memoryBankRule << "\n";
 
   // For scalar globals, we need to get the base address from the memory entry map
@@ -170,7 +170,7 @@ LogicalResult MemoryOpGenerator::generateMemLoad(
     // Convert @mem_a_0 -> mem_a_0_read
     memoryBankRule = (globalName + "_read")
                          .str(); // Remove @ prefix and add _read
-    llvm::outs() << "DEBUG: Memory load from global " << globalName
+    llvm::dbgs() << "DEBUG: Memory load from global " << globalName
                  << " using rule " << memoryBankRule << "\n";
   }
 
@@ -199,7 +199,7 @@ LogicalResult MemoryOpGenerator::generateMemLoad(
   int64_t arraySize = shape[0];
   unsigned addrWidth = arraySize <= 1 ? 1 : (unsigned)std::ceil(std::log2(arraySize));
 
-  llvm::outs() << "DEBUG: Memory load - array size: " << arraySize
+  llvm::dbgs() << "DEBUG: Memory load - array size: " << arraySize
                << ", addr width: " << addrWidth
                << ", result width: " << resultWidth << "\n";
 
@@ -253,7 +253,7 @@ LogicalResult MemoryOpGenerator::generateMemStore(
     StringRef globalName = getGlobalOp.getName();
     // Convert @mem_a_0 -> mem_a_0_write
     memoryBankRule = (globalName + "_write").str();
-    llvm::outs() << "DEBUG: Memory store to global " << globalName
+    llvm::dbgs() << "DEBUG: Memory store to global " << globalName
                  << " using rule " << memoryBankRule << "\n";
   }
 
@@ -282,7 +282,7 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   int64_t arraySize = shape[0];
   unsigned addrWidth = arraySize <= 1 ? 1 : (unsigned)std::ceil(std::log2(arraySize));
 
-  llvm::outs() << "DEBUG: Memory store - array size: " << arraySize
+  llvm::dbgs() << "DEBUG: Memory store - array size: " << arraySize
                << ", addr width: " << addrWidth
                << ", data width: " << dataWidth << "\n";
 
@@ -306,7 +306,7 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   Value cpuAddr = op.getCpuAddr();
   Value memRef = op.getMemrefs()[0];
   Value start = op.getStart();
-  llvm::outs() << start.getType();
+  llvm::dbgs() << start.getType();
   Value numOfElements = op.getLength();
 
   // Calculate operand indices accounting for variadic memrefs

@@ -62,9 +62,9 @@ LogicalResult LoopHandler::processLoopBlock(BlockInfo &loopBlock) {
   }
 
   if (!forOp) {
-    llvm::outs() << "[LoopHandler] ERROR: Loop block segment contains " << loopBlock.operations.size() << " operations:\n";
+    llvm::dbgs() << "[LoopHandler] ERROR: Loop block segment contains " << loopBlock.operations.size() << " operations:\n";
     for (Operation *op : loopBlock.operations) {
-      llvm::outs() << "  - " << op->getName() << "\n";
+      llvm::dbgs() << "  - " << op->getName() << "\n";
     }
     llvm::report_fatal_error("Loop block segment does not contain tor.for operation");
   }
@@ -102,7 +102,7 @@ LogicalResult LoopHandler::processLoopBlock(BlockInfo &loopBlock) {
 }
 
 LogicalResult LoopHandler::processBlock(BlockInfo &block) {
-  llvm::outs() << "[LoopHandler] Processing block " << block.blockId
+  llvm::dbgs() << "[LoopHandler] Processing block " << block.blockId
                << " as loop block\n";
 
   // Delegate to processLoopBlock for loop-specific processing
@@ -111,7 +111,7 @@ LogicalResult LoopHandler::processBlock(BlockInfo &block) {
 
 LogicalResult LoopHandler::generateCanonicalLoopRules(BlockInfo &loopBlock) {
   // Generate exactly 2 rules per Blockgen.md: entry rule and next rule
-  llvm::outs() << "[LoopHandler] Generating canonical loop rules (entry + "
+  llvm::dbgs() << "[LoopHandler] Generating canonical loop rules (entry + "
                   "next) for loop "
                << loop.loopName << "\n";
 
@@ -141,15 +141,15 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
   rule->body([&](mlir::OpBuilder &b) {
     auto loc = b.getUnknownLoc();
 
-    llvm::outs() << "[LoopHandler] Generating entry rule for loop "
+    llvm::dbgs() << "[LoopHandler] Generating entry rule for loop "
                  << loop.loopName << "\n";
 
     // 1. Dequeue token from previous block (token input fifo)
     if (inputTokenFIFO) {
       auto prevToken = inputTokenFIFO->callMethod("deq", {}, b);
-      llvm::outs() << "[LoopHandler] Dequeued token from previous block\n";
+      llvm::dbgs() << "[LoopHandler] Dequeued token from previous block\n";
     } else {
-      llvm::outs() << "[LoopHandler] No input token FIFO (top-level loop)\n";
+      llvm::dbgs() << "[LoopHandler] No input token FIFO (top-level loop)\n";
     }
 
     // 2. Handle cross-block value consumption from input fifos
@@ -161,7 +161,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
 
       // Skip constants - they don't need to be dequeued
       if (value.getDefiningOp<arith::ConstantOp>()) {
-        llvm::outs() << "[LoopHandler] Skipping constant value in entry rule\n";
+        llvm::dbgs() << "[LoopHandler] Skipping constant value in entry rule\n";
         continue;
       }
 
@@ -171,26 +171,26 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
       bool hasStateRegister = loop.input_state_registers.count(value) > 0;
 
       if (!hasLoopToBodyFifo && !hasStateRegister) {
-        llvm::outs() << "[LoopHandler] Skipping input FIFO - value not used by loop\n";
+        llvm::dbgs() << "[LoopHandler] Skipping input FIFO - value not used by loop\n";
         continue;
       }
 
       // Dequeue only if value is actually used by the loop
       auto dequeuedValue = fifo->callMethod("deq", {}, b)[0];
-      llvm::outs() << "[LoopHandler] Dequeued cross-block value from input FIFO\n";
+      llvm::dbgs() << "[LoopHandler] Dequeued cross-block value from input FIFO\n";
 
       // Write to state register for persistent storage (used by next rule)
       if (hasStateRegister) {
         Instance *stateReg = loop.input_state_registers[value];
         stateReg->callMethod("write", {dequeuedValue}, b);
-        llvm::outs() << "[LoopHandler] Wrote dequeued value to state register\n";
+        llvm::dbgs() << "[LoopHandler] Wrote dequeued value to state register\n";
       }
 
       // Enqueue to loop-to-body FIFO for first iteration
       if (hasLoopToBodyFifo) {
         Instance *loopToBodyFifo = loop.loop_to_body_fifos[value];
         loopToBodyFifo->callMethod("enq", {dequeuedValue}, b);
-        llvm::outs() << "[LoopHandler] Enqueued value to loop-to-body FIFO for first iteration\n";
+        llvm::dbgs() << "[LoopHandler] Enqueued value to loop-to-body FIFO for first iteration\n";
       }
     }
 
@@ -221,7 +221,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
     // }
 
     loop.loop_state_fifo->callMethod("enq", {loopState.getValue()}, b);
-    llvm::outs() << "[LoopHandler] Initialized loop state FIFO\n";
+    llvm::dbgs() << "[LoopHandler] Initialized loop state FIFO\n";
 
     // 4. Extract and enqueue loop variables for the loop body
     // Extract induction variable from loop state and enqueue to its FIFO
@@ -230,7 +230,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
       Signal stateSig(loopState.getValue(), &b, loc);
       auto inductionVar = stateSig.bits(95, 64);
       inductionVarFIFO->callMethod("enq", {inductionVar.getValue()}, b);
-      llvm::outs() << "[LoopHandler] Enqueued induction variable to its FIFO\n";
+      llvm::dbgs() << "[LoopHandler] Enqueued induction variable to its FIFO\n";
     }
 
     // 6. Signal loop body to start using token coordination
@@ -238,7 +238,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
     auto startToken = UInt::constant(1, 1, b, loc);
     if (loop.token_fifos.to_body) {
       loop.token_fifos.to_body->callMethod("enq", {startToken.getValue()}, b);
-      llvm::outs()
+      llvm::dbgs()
           << "[LoopHandler] Signaled loop body to start via token FIFO\n";
     }
 
@@ -246,7 +246,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
   });
 
   rule->finalize();
-  llvm::outs() << "[LoopHandler] Generated entry rule for loop "
+  llvm::dbgs() << "[LoopHandler] Generated entry rule for loop "
                << loop.loopName << "\n";
   return success();
 }
@@ -265,7 +265,7 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
     auto loc = b.getUnknownLoc();
 
     // Canonical next rule: handle iteration logic and loop termination
-    llvm::outs()
+    llvm::dbgs()
         << "[LoopHandler] Generating canonical next rule body for loop "
         << loop.loopName << "\n";
 
@@ -273,7 +273,7 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
     if (loop.token_fifos.body_to_next) {
       auto bodyCompleteToken =
           loop.token_fifos.body_to_next->callMethod("deq", {}, b);
-      llvm::outs() << "[LoopHandler] Dequeued body completion token\n";
+      llvm::dbgs() << "[LoopHandler] Dequeued body completion token\n";
     }
 
     // 2. Dequeue loop state from previous iteration
@@ -306,7 +306,7 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
 
       // 3. Check if loop should continue: counter <= upper_bound
       auto shouldContinue = nextCounter <= upperBound;
-      llvm::outs()
+      llvm::dbgs()
           << "[LoopHandler] Next rule: checking if counter < upper_bound\n";
 
       // 5. Update loop state and either continue or exit using ECMT2 If
@@ -315,7 +315,7 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
           shouldContinue,
           // Then branch: Continue looping
           [&](mlir::OpBuilder &b) {
-            llvm::outs() << "[LoopHandler] Next rule: continuing loop, counter "
+            llvm::dbgs() << "[LoopHandler] Next rule: continuing loop, counter "
                             "updated\n";
 
             // Pack updated state: [nextCounter][upperBound][step][iterArgs...]
@@ -345,7 +345,7 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
                 auto storedValue = stateReg->callMethod("read", {}, b)[0];
                 Instance *loopToBodyFifo = loop.loop_to_body_fifos[value];
                 loopToBodyFifo->callMethod("enq", {storedValue}, b);
-                llvm::outs() << "[LoopHandler] Next rule: read from state register and enqueued to loop-to-body FIFO\n";
+                llvm::dbgs() << "[LoopHandler] Next rule: read from state register and enqueued to loop-to-body FIFO\n";
               }
             }
 
@@ -354,7 +354,7 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
               Signal stateSig(updatedState.getValue(), &b, loc);
               auto inductionVar = nextCounter.bits(31, 0);
               inductionVarFIFO->callMethod("enq", {inductionVar.getValue()}, b);
-              llvm::outs() << "[LoopHandler] Enqueued induction variable to its FIFO\n";
+              llvm::dbgs() << "[LoopHandler] Enqueued induction variable to its FIFO\n";
             }
 
             // Signal next iteration via token FIFO coordination
@@ -362,13 +362,13 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
               auto continueToken = UInt::constant(1, 1, b, loc);
               loop.token_fifos.to_body->callMethod(
                   "enq", {continueToken.getValue()}, b);
-              llvm::outs() << "[LoopHandler] Next rule: signaling next "
+              llvm::dbgs() << "[LoopHandler] Next rule: signaling next "
                               "iteration via token FIFO\n";
             }
           },
           // Else branch: Loop complete
           [&](mlir::OpBuilder &b) {
-            llvm::outs()
+            llvm::dbgs()
                 << "[LoopHandler] Next rule: loop complete, signaling exit\n";
 
             // Signal loop completion directly to next block via output token FIFO
@@ -376,15 +376,15 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
             if (outputTokenFIFO) {
               auto outputExitToken = UInt::constant(1, 1, b, loc);
               outputTokenFIFO->callMethod("enq", {outputExitToken.getValue()}, b);
-              llvm::outs() << "[LoopHandler] Next rule: enqueued output token to next block\n";
+              llvm::dbgs() << "[LoopHandler] Next rule: enqueued output token to next block\n";
             } else {
-              llvm::outs() << "[LoopHandler] No output token FIFO (top-level loop exit)\n";
+              llvm::dbgs() << "[LoopHandler] No output token FIFO (top-level loop exit)\n";
             }
 
             // Pass loop results to next block via output FIFOs
             // For now, just pass the iter_args as results
             for (unsigned i = 0; i < loop.iterArgs.size(); i++) {
-              llvm::outs() << "[LoopHandler] Passing iter_arg " << i
+              llvm::dbgs() << "[LoopHandler] Passing iter_arg " << i
                            << " to next block\n";
             }
           },
@@ -397,13 +397,13 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
 
   rule->finalize();
 
-  llvm::outs() << "[LoopHandler] Generated canonical loop next rule for loop "
+  llvm::dbgs() << "[LoopHandler] Generated canonical loop next rule for loop "
               << loop.loopName << "\n";
   return success();
 }
 
 LogicalResult LoopHandler::createLoopInfrastructure() {
-  llvm::outs() << "[LoopHandler] Creating loop infrastructure for loop "
+  llvm::dbgs() << "[LoopHandler] Creating loop infrastructure for loop "
                << loop.loopName << "\n";
 
   auto &builder = mainModule->getBuilder();
@@ -417,7 +417,7 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
   loop.token_fifos.to_body =
       mainModule->addInstance(entryToBodyName, entryToBodyMod,
                               {mainClk.getValue(), mainRst.getValue()});
-  llvm::outs() << "[LoopHandler] Created entry-to-body token FIFO: "
+  llvm::dbgs() << "[LoopHandler] Created entry-to-body token FIFO: "
                << entryToBodyName << "\n";
 
   // Body -> Next: signals that body execution is complete
@@ -426,7 +426,7 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
   std::string bodyToNextName = loop.loopName + "_token_body_to_next";
   loop.token_fifos.body_to_next = mainModule->addInstance(
       bodyToNextName, bodyToNextMod, {mainClk.getValue(), mainRst.getValue()});
-  llvm::outs() << "[LoopHandler] Created body-to-next token FIFO: "
+  llvm::dbgs() << "[LoopHandler] Created body-to-next token FIFO: "
                << bodyToNextName << "\n";
 
   // Note: next_to_exit is NOT created - we use the loop block's outputTokenFIFO instead
@@ -445,7 +445,7 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
   std::string stateName = loop.loopName + "_state_fifo";
   loop.loop_state_fifo = mainModule->addInstance(
       stateName, stateMod, {mainClk.getValue(), mainRst.getValue()});
-  llvm::outs() << "[LoopHandler] Created loop state FIFO: " << stateName
+  llvm::dbgs() << "[LoopHandler] Created loop state FIFO: " << stateName
                << " (width=" << stateWidth << ")\n";
 
   // Create FIFO for induction variable that will be used by the entry rule
@@ -454,16 +454,16 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
     // Get the loop body to check if induction variable is used
     Block *loopBody = loop.forOp ? loop.forOp.getBody() : nullptr;
     if (loopBody && isValueUsedInLoopBody(loop.inductionVar, loopBody)) {
-      llvm::outs() << "[LoopHandler] Creating FIFO for induction variable (used in loop body)\n";
+      llvm::dbgs() << "[LoopHandler] Creating FIFO for induction variable (used in loop body)\n";
       auto *indVarMod = STLLibrary::createFIFO2IModule(
           getBitWidth(loop.inductionVar.getType()), circuit);
       builder.restoreInsertionPoint(savedIP);
       std::string indVarName = loop.loopName + "_induction_var";
       inductionVarFIFO = mainModule->addInstance(
           indVarName, indVarMod, {mainClk.getValue(), mainRst.getValue()});
-      llvm::outs() << "[LoopHandler] Created induction variable FIFO: " << indVarName << "\n";
+      llvm::dbgs() << "[LoopHandler] Created induction variable FIFO: " << indVarName << "\n";
     } else {
-      llvm::outs() << "[LoopHandler] Skipping induction variable FIFO creation (not used in loop body)\n";
+      llvm::dbgs() << "[LoopHandler] Skipping induction variable FIFO creation (not used in loop body)\n";
     }
   }
 
@@ -472,18 +472,18 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
   // State registers: store values for reuse across iterations (used in next rule)
   // Loop-to-body FIFOs: separate FIFOs that loop body reads from (fed by entry/next rules)
   Block *loopBody = loop.forOp.getBody();
-  llvm::outs() << "[LoopHandler] Creating state registers and loop-to-body FIFOs for input values used in loop body\n";
+  llvm::dbgs() << "[LoopHandler] Creating state registers and loop-to-body FIFOs for input values used in loop body\n";
   for (auto &[value, fifo] : input_fifos) {
     if (fifo) {
       // Skip constants - they don't need FIFOs since there will be no readers
       if (value.getDefiningOp<arith::ConstantOp>()) {
-        llvm::outs() << "[LoopHandler] Skipping constant value (constants don't need FIFOs)\n";
+        llvm::dbgs() << "[LoopHandler] Skipping constant value (constants don't need FIFOs)\n";
         continue;
       }
 
       // Check if this value is actually used in the loop body
       if (!isValueUsedInLoopBody(value, loopBody)) {
-        llvm::outs() << "[LoopHandler] Skipping value (not used in loop body)\n";
+        llvm::dbgs() << "[LoopHandler] Skipping value (not used in loop body)\n";
         continue;
       }
 
@@ -496,7 +496,7 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
       Instance *regInstance = mainModule->addInstance(
           regName, regMod, {mainClk.getValue(), mainRst.getValue()});
       loop.input_state_registers[value] = regInstance;
-      llvm::outs() << "[LoopHandler] Created state register: " << regName << " (width=" << bitWidth << ")\n";
+      llvm::dbgs() << "[LoopHandler] Created state register: " << regName << " (width=" << bitWidth << ")\n";
 
       // Create loop-to-body FIFO for loop body to consume from
       auto *loopToBodyFifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
@@ -505,7 +505,7 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
       Instance *loopToBodyFifo = mainModule->addInstance(
           loopToBodyFifoName, loopToBodyFifoMod, {mainClk.getValue(), mainRst.getValue()});
       loop.loop_to_body_fifos[value] = loopToBodyFifo;
-      llvm::outs() << "[LoopHandler] Created loop-to-body FIFO: " << loopToBodyFifoName << " (width=" << bitWidth << ")\n";
+      llvm::dbgs() << "[LoopHandler] Created loop-to-body FIFO: " << loopToBodyFifoName << " (width=" << bitWidth << ")\n";
     }
   }
 
@@ -547,7 +547,7 @@ bool LoopHandler::isValueUsedInLoopBody(Value value, Block *loopBody) {
 }
 
 LogicalResult LoopHandler::processLoopBodyOperations(tor::ForOp forOp, BlockInfo &loopBlock) {
-  llvm::outs() << "[LoopHandler] Processing loop body operations for loop " << loop.loopName << "\n";
+  llvm::dbgs() << "[LoopHandler] Processing loop body operations for loop " << loop.loopName << "\n";
 
   // Get the loop body block
   Block *loopBody = forOp.getBody();
@@ -561,7 +561,7 @@ LogicalResult LoopHandler::processLoopBodyOperations(tor::ForOp forOp, BlockInfo
 
   // Add the induction variable FIFO (created in createLoopInfrastructure) to the input map
   if (loop.inductionVar && inductionVarFIFO) {
-    llvm::outs() << "[LoopHandler] Adding induction variable FIFO to loop body inputs\n";
+    llvm::dbgs() << "[LoopHandler] Adding induction variable FIFO to loop body inputs\n";
     loopBodyInputFIFOs[loop.inductionVar] = inductionVarFIFO;
   }
 
@@ -577,14 +577,14 @@ LogicalResult LoopHandler::processLoopBodyOperations(tor::ForOp forOp, BlockInfo
       loop.loopName + "_"            // Name prefix for nested blocks
   );
 
-  llvm::outs() << "[LoopHandler] Processing loop body using BlockHandler::processLoopBodyAsBlocks\n";
+  llvm::dbgs() << "[LoopHandler] Processing loop body using BlockHandler::processLoopBodyAsBlocks\n";
 
   if (failed(loopBodyHandler.processLoopBodyAsBlocks(forOp))) {
-    llvm::outs() << "[LoopHandler] Failed to process loop body operations\n";
+    llvm::dbgs() << "[LoopHandler] Failed to process loop body operations\n";
     return failure();
   }
 
-  llvm::outs() << "[LoopHandler] Successfully processed loop body operations\n";
+  llvm::dbgs() << "[LoopHandler] Successfully processed loop body operations\n";
   return success();
 }
 

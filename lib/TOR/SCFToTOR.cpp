@@ -627,8 +627,8 @@ namespace {
                         auto yieldOp = rewriter.create<tor::YieldOp>(guardStoreOp->getLoc());
                         user->replaceAllUsesWith(axiWriteOp->getResults());
                     } else {
-                        llvm::outs() << *user << "\n";
-                        llvm::outs().flush();
+                        llvm::dbgs() << *user << "\n";
+                        llvm::dbgs().flush();
                         assert(false && "unknown user op type of alloc op");
                     }
                     rewriter.eraseOp(user);

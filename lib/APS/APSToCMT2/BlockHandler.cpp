@@ -50,14 +50,14 @@ BlockHandler::BlockHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::Func
 }
 
 LogicalResult BlockHandler::processFunctionAsBlocks() {
-  llvm::outs() << "[BlockHandler] Processing function as unified blocks\n";
+  llvm::dbgs() << "[BlockHandler] Processing function as unified blocks\n";
 
   // Phase 1: Block Analysis
   if (failed(identifyBlocksByFuncOp()))
     return failure();
 
   if (blocks.empty()) {
-    llvm::outs() << "[BlockHandler] No blocks found in function\n";
+    llvm::dbgs() << "[BlockHandler] No blocks found in function\n";
     return success();
   }
 
@@ -96,19 +96,19 @@ LogicalResult BlockHandler::processFunctionAsBlocks() {
 }
 
 LogicalResult BlockHandler::identifyBlocksByLoop(tor::ForOp loopOp) {
-  llvm::outs() << "[BlockHandler] Identifying blocks in loop body\n";
+  llvm::dbgs() << "[BlockHandler] Identifying blocks in loop body\n";
 
   unsigned blockId = 0;
 
   // Get the loop body block from the tor::ForOp
   Block *loopBody = loopOp.getBody();
   if (!loopBody) {
-    llvm::outs() << "[BlockHandler] Loop has no body block\n";
+    llvm::dbgs() << "[BlockHandler] Loop has no body block\n";
     return success();
   }
 
   // Debug: print loop body structure
-  llvm::outs() << "[BlockHandler] Loop body has " << loopBody->getNumArguments()
+  llvm::dbgs() << "[BlockHandler] Loop body has " << loopBody->getNumArguments()
                << " arguments and " << loopBody->getOperations().size() << " operations\n";
 
   // Process the loop body block specifically
@@ -117,19 +117,19 @@ LogicalResult BlockHandler::identifyBlocksByLoop(tor::ForOp loopOp) {
     return failure();
   }
 
-  llvm::outs() << "[BlockHandler] Identified " << blocks.size() << " blocks in loop body\n";
+  llvm::dbgs() << "[BlockHandler] Identified " << blocks.size() << " blocks in loop body\n";
   return success();
 }
 
 LogicalResult BlockHandler::processLoopBodyAsBlocks(tor::ForOp loopOp) {
-  llvm::outs() << "[BlockHandler] Processing loop body as unified blocks\n";
+  llvm::dbgs() << "[BlockHandler] Processing loop body as unified blocks\n";
 
   // Phase 1: Block Analysis
   if (failed(identifyBlocksByLoop(loopOp)))
     return failure();
 
   if (blocks.empty()) {
-    llvm::outs() << "[BlockHandler] No blocks found in function\n";
+    llvm::dbgs() << "[BlockHandler] No blocks found in function\n";
     return success();
   }
 
@@ -204,17 +204,17 @@ LogicalResult BlockHandler::createBlockTokenFIFOs() {
 }
 
 LogicalResult BlockHandler::identifyBlocksByFuncOp() {
-  llvm::outs() << "[BlockHandler] Identifying blocks in function\n";
+  llvm::dbgs() << "[BlockHandler] Identifying blocks in function\n";
 
   unsigned blockId = 0;
 
   // Debug: print function structure
-  llvm::outs() << "[BlockHandler] Function " << funcOp.getName() << " has "
+  llvm::dbgs() << "[BlockHandler] Function " << funcOp.getName() << " has "
                << funcOp.getBody().getBlocks().size() << " top-level blocks\n";
 
   // Process each basic block in the function
   for (Block &mlirBlock : funcOp.getBody().getBlocks()) {
-    llvm::outs() << "[BlockHandler] Processing top-level block with " << mlirBlock.getNumArguments()
+    llvm::dbgs() << "[BlockHandler] Processing top-level block with " << mlirBlock.getNumArguments()
                  << " arguments and " << mlirBlock.getOperations().size() << " operations\n";
     // Now properly segment the block based on control flow operations
     if (failed(segmentBlockIntoBlocks(&mlirBlock, blockId))) {
@@ -222,7 +222,7 @@ LogicalResult BlockHandler::identifyBlocksByFuncOp() {
     }
   }
 
-  llvm::outs() << "[BlockHandler] Identified " << blocks.size() << " blocks\n";
+  llvm::dbgs() << "[BlockHandler] Identified " << blocks.size() << " blocks\n";
   return success();
 }
 
@@ -331,19 +331,19 @@ LogicalResult BlockHandler::segmentBlockIntoBlocks(Block *mlirBlock, unsigned &b
 
     // Check if this operation is a control flow boundary
     if (isa<tor::ForOp>(&op) || isa<tor::IfOp>(&op) || isa<tor::WhileOp>(&op)) {
-      llvm::outs() << "[BlockHandler] Found control flow op: " << op.getName() << ", currentSegment has "
+      llvm::dbgs() << "[BlockHandler] Found control flow op: " << op.getName() << ", currentSegment has "
                    << currentSegment.size() << " ops\n";
       // End current segment if not empty (operations BEFORE control flow)
       if (!currentSegment.empty()) {
         blockSegments.push_back(std::move(currentSegment));
         currentSegment.clear();
-        llvm::outs() << "[BlockHandler] Created segment for ops before control flow\n";
+        llvm::dbgs() << "[BlockHandler] Created segment for ops before control flow\n";
       }
       // Control flow operations get their own segment
       llvm::SmallVector<Operation*, 8> controlFlowSegment;
       controlFlowSegment.push_back(&op);
       blockSegments.push_back(std::move(controlFlowSegment));
-      llvm::outs() << "[BlockHandler] Created segment for control flow op\n";
+      llvm::dbgs() << "[BlockHandler] Created segment for control flow op\n";
       // Start new segment for operations AFTER control flow
       // (currentSegment is already empty)
     } else {
@@ -352,15 +352,15 @@ LogicalResult BlockHandler::segmentBlockIntoBlocks(Block *mlirBlock, unsigned &b
     }
   }
 
-  llvm::outs() << "[BlockHandler] After loop: currentSegment has " << currentSegment.size() << " ops\n";
+  llvm::dbgs() << "[BlockHandler] After loop: currentSegment has " << currentSegment.size() << " ops\n";
   
   // Add final segment if not empty
   if (!currentSegment.empty()) {
     blockSegments.push_back(std::move(currentSegment));
-    llvm::outs() << "[BlockHandler] Created final segment for ops after control flow\n";
+    llvm::dbgs() << "[BlockHandler] Created final segment for ops after control flow\n";
   }
 
-  llvm::outs() << "[BlockHandler] Total segments created: " << blockSegments.size() << "\n";
+  llvm::dbgs() << "[BlockHandler] Total segments created: " << blockSegments.size() << "\n";
 
   // If no segments found, treat entire block as single block
   if (blockSegments.empty()) {
@@ -413,9 +413,9 @@ LogicalResult BlockHandler::segmentBlockIntoBlocks(Block *mlirBlock, unsigned &b
         // Check if this value is actually used in this segment
         if (isValueUsedInBlock(value, block)) {
             block.input_fifos[value] = fifo;
-            llvm::outs() << "[BlockHandler] Segment " << blockId << " uses input value, adding to input_fifos\n";
+            llvm::dbgs() << "[BlockHandler] Segment " << blockId << " uses input value, adding to input_fifos\n";
         } else {
-            llvm::outs() << "[BlockHandler] Segment " << blockId << " does NOT use input value, skipping\n";
+            llvm::dbgs() << "[BlockHandler] Segment " << blockId << " does NOT use input value, skipping\n";
         }
     }
 
@@ -466,7 +466,7 @@ LogicalResult BlockHandler::processBlock(BlockInfo& block) {
   // Check if this is a loop block and handle it with LoopHandler
   if (block.is_loop_block || block.type == BlockType::LOOP_HEADER) {
     // Token FIFOs may be nullptr for top-level blocks (handled gracefully in LoopHandler)
-    llvm::outs() << "[BlockHandler] Processing loop block with token FIFOs: "
+    llvm::dbgs() << "[BlockHandler] Processing loop block with token FIFOs: "
                  << "input=" << (block.input_token_fifo ? "present" : "null")
                  << ", output=" << (block.output_token_fifo ? "present" : "null") << "\n";
 
@@ -490,7 +490,7 @@ LogicalResult BlockHandler::processBlock(BlockInfo& block) {
   if (block.is_conditional_block || block.type == BlockType::CONDITIONAL_THEN ||
       block.type == BlockType::CONDITIONAL_ELSE) {
     // Token FIFOs may be nullptr for top-level blocks (handled gracefully in handlers)
-    llvm::outs() << "[BlockHandler] Processing conditional block with token FIFOs: "
+    llvm::dbgs() << "[BlockHandler] Processing conditional block with token FIFOs: "
                  << "input=" << (block.input_token_fifo ? "present" : "null")
                  << ", output=" << (block.output_token_fifo ? "present" : "null") << "\n";
 
@@ -499,7 +499,7 @@ LogicalResult BlockHandler::processBlock(BlockInfo& block) {
   }
 
   // Regular block - Token FIFOs may be nullptr for top-level blocks (handled gracefully in BBHandler)
-  llvm::outs() << "[BlockHandler] Processing regular block with token FIFOs: "
+  llvm::dbgs() << "[BlockHandler] Processing regular block with token FIFOs: "
                << "input=" << (block.input_token_fifo ? "present" : "null")
                << ", output=" << (block.output_token_fifo ? "present" : "null") << "\n";
 
@@ -530,7 +530,7 @@ LogicalResult BlockHandler::createProducerFIFOs() {
 
     // Skip constants - they don't need FIFOs since there will be no readers
     if (value.getDefiningOp<arith::ConstantOp>()) {
-      llvm::outs() << "[BlockHandler] Skipping FIFO creation for constant value\n";
+      llvm::dbgs() << "[BlockHandler] Skipping FIFO creation for constant value\n";
       continue;
     }
 
@@ -680,7 +680,7 @@ unsigned BlockHandler::getBitWidth(mlir::Type type) {
 }
 
 LogicalResult BlockHandler::processAllBlocks() {
-  llvm::outs() << "[BlockHandler] Processing all blocks through specialized handlers\n";
+  llvm::dbgs() << "[BlockHandler] Processing all blocks through specialized handlers\n";
 
   // Update token and input FIFOs for sub-blocks based on distribution
   for (unsigned i = 0; i < blocks.size(); i++) {
@@ -694,16 +694,16 @@ LogicalResult BlockHandler::processAllBlocks() {
         // Distribution rule enqueues to input_distribution_token_fifo
         // First sub-block dequeues from input_distribution_token_fifo
         block.input_token_fifo = input_distribution_token_fifo;
-        llvm::outs() << "[BlockHandler] First sub-block uses distribution token FIFO\n";
+        llvm::dbgs() << "[BlockHandler] First sub-block uses distribution token FIFO\n";
       } else {
         // No distribution needed - first sub-block directly uses parent's inputTokenFIFO
         block.input_token_fifo = inputTokenFIFO;
-        llvm::outs() << "[BlockHandler] First sub-block uses parent input token FIFO\n";
+        llvm::dbgs() << "[BlockHandler] First sub-block uses parent input token FIFO\n";
       }
     } else {
       // Subsequent sub-blocks receive token from previous sub-block
       block.input_token_fifo = blocks[i-1].output_token_fifo;
-      llvm::outs() << "[BlockHandler] Sub-block " << i
+      llvm::dbgs() << "[BlockHandler] Sub-block " << i
                    << " uses previous sub-block's output token FIFO\n";
     }
 
@@ -722,20 +722,20 @@ LogicalResult BlockHandler::processAllBlocks() {
       for (auto &[inputValue, subBlockMap] : input_distribution_fifos) {
         if (subBlockMap.count(i)) {
           block.input_fifos[inputValue] = subBlockMap[i];
-          llvm::outs() << "[BlockHandler] First sub-block uses distribution FIFO for value\n";
+          llvm::dbgs() << "[BlockHandler] First sub-block uses distribution FIFO for value\n";
         }
       }
     } else if (i == 0 && !needsInputDistribution) {
       // First sub-block without distribution: use parent's input_fifos directly
       block.input_fifos = input_fifos;
-      llvm::outs() << "[BlockHandler] First sub-block uses parent input FIFOs directly\n";
+      llvm::dbgs() << "[BlockHandler] First sub-block uses parent input FIFOs directly\n";
     } else if (i > 0 && needsInputDistribution) {
       // Subsequent sub-blocks with distribution: use distribution FIFOs (if they need the values)
       // Also use cross-block FIFOs created by analyzeCrossBlockDataflow
       for (auto &[inputValue, subBlockMap] : input_distribution_fifos) {
         if (subBlockMap.count(i)) {
           block.input_fifos[inputValue] = subBlockMap[i];
-          llvm::outs() << "[BlockHandler] Sub-block " << i
+          llvm::dbgs() << "[BlockHandler] Sub-block " << i
                        << " uses distribution FIFO for value\n";
         }
       }
@@ -872,11 +872,11 @@ std::string BlockHandler::generateBlockName(unsigned blockId, BlockType type, co
 //===----------------------------------------------------------------------===//
 
 LogicalResult BlockHandler::analyzeInputDistributionNeeds() {
-  llvm::outs() << "[BlockHandler] Analyzing input distribution needs for sub-blocks\n";
+  llvm::dbgs() << "[BlockHandler] Analyzing input distribution needs for sub-blocks\n";
 
   // If we don't have multiple sub-blocks, no distribution needed
   if (blocks.size() <= 1) {
-    llvm::outs() << "[BlockHandler] Only " << blocks.size() << " sub-block(s), no distribution needed\n";
+    llvm::dbgs() << "[BlockHandler] Only " << blocks.size() << " sub-block(s), no distribution needed\n";
     needsInputDistribution = false;
     return success();
   }
@@ -893,7 +893,7 @@ LogicalResult BlockHandler::analyzeInputDistributionNeeds() {
       BlockInfo &subBlock = blocks[i];
       if (isValueUsedInBlock(inputValue, subBlock)) {
         subBlocksUsingValue.push_back(i);
-        llvm::outs() << "[BlockHandler] Input value used by sub-block " << i << "\n";
+        llvm::dbgs() << "[BlockHandler] Input value used by sub-block " << i << "\n";
       }
     }
 
@@ -901,7 +901,7 @@ LogicalResult BlockHandler::analyzeInputDistributionNeeds() {
     // If only 0 or 1 sub-block uses it, normal cross-block FIFO is sufficient
     if (subBlocksUsingValue.size() >= 2) {
       needsInputDistribution = true;
-      llvm::outs() << "[BlockHandler] Input value needs distribution to "
+      llvm::dbgs() << "[BlockHandler] Input value needs distribution to "
                    << subBlocksUsingValue.size() << " sub-blocks (MULTIPLE consumers)\n";
 
       // Record which sub-blocks need this value (for later FIFO creation)
@@ -911,16 +911,16 @@ LogicalResult BlockHandler::analyzeInputDistributionNeeds() {
         input_distribution_fifos[inputValue][subBlockIdx] = nullptr;
       }
     } else if (subBlocksUsingValue.size() == 1) {
-      llvm::outs() << "[BlockHandler] Input value used by only 1 sub-block, no distribution needed (use normal cross-block FIFO)\n";
+      llvm::dbgs() << "[BlockHandler] Input value used by only 1 sub-block, no distribution needed (use normal cross-block FIFO)\n";
     } else {
-      llvm::outs() << "[BlockHandler] Input value not used by any sub-block\n";
+      llvm::dbgs() << "[BlockHandler] Input value not used by any sub-block\n";
     }
   }
 
   if (needsInputDistribution) {
-    llvm::outs() << "[BlockHandler] Input distribution IS needed (some values have multiple consumers)\n";
+    llvm::dbgs() << "[BlockHandler] Input distribution IS needed (some values have multiple consumers)\n";
   } else {
-    llvm::outs() << "[BlockHandler] Input distribution NOT needed (no values with multiple consumers)\n";
+    llvm::dbgs() << "[BlockHandler] Input distribution NOT needed (no values with multiple consumers)\n";
   }
 
   return success();
@@ -928,11 +928,11 @@ LogicalResult BlockHandler::analyzeInputDistributionNeeds() {
 
 LogicalResult BlockHandler::createInputDistributionInfrastructure() {
   if (!needsInputDistribution) {
-    llvm::outs() << "[BlockHandler] No input distribution needed, skipping infrastructure\n";
+    llvm::dbgs() << "[BlockHandler] No input distribution needed, skipping infrastructure\n";
     return success();
   }
 
-  llvm::outs() << "[BlockHandler] Creating input distribution infrastructure\n";
+  llvm::dbgs() << "[BlockHandler] Creating input distribution infrastructure\n";
 
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
@@ -943,7 +943,7 @@ LogicalResult BlockHandler::createInputDistributionInfrastructure() {
   std::string tokenFifoName = namePrefix + "dist_token_fifo";
   input_distribution_token_fifo = mainModule->addInstance(
       tokenFifoName, tokenFifoMod, {mainClk.getValue(), mainRst.getValue()});
-  llvm::outs() << "[BlockHandler] Created distribution token FIFO: " << tokenFifoName << "\n";
+  llvm::dbgs() << "[BlockHandler] Created distribution token FIFO: " << tokenFifoName << "\n";
 
   // 2. For each input value used by sub-blocks, create distribution FIFOs
   for (auto &[inputValue, subBlockMap] : input_distribution_fifos) {
@@ -962,7 +962,7 @@ LogicalResult BlockHandler::createInputDistributionInfrastructure() {
 
       input_distribution_fifos[inputValue][subBlockIdx] = distFifo;
 
-      llvm::outs() << "[BlockHandler] Created distribution FIFO: " << fifoName
+      llvm::dbgs() << "[BlockHandler] Created distribution FIFO: " << fifoName
                    << " for sub-block " << subBlockIdx << " (width=" << bitWidth << ")\n";
     }
   }
@@ -972,11 +972,11 @@ LogicalResult BlockHandler::createInputDistributionInfrastructure() {
 
 LogicalResult BlockHandler::generateInputDistributionRule() {
   if (!needsInputDistribution) {
-    llvm::outs() << "[BlockHandler] No input distribution rule needed\n";
+    llvm::dbgs() << "[BlockHandler] No input distribution rule needed\n";
     return success();
   }
 
-  llvm::outs() << "[BlockHandler] Generating input distribution rule\n";
+  llvm::dbgs() << "[BlockHandler] Generating input distribution rule\n";
 
   std::string ruleName = namePrefix + "input_distribution";
   auto *rule = mainModule->addRule(ruleName);
@@ -994,12 +994,12 @@ LogicalResult BlockHandler::generateInputDistributionRule() {
   rule->body([&](mlir::OpBuilder &b) {
     auto loc = b.getUnknownLoc();
 
-    llvm::outs() << "[BlockHandler] Generating distribution rule body\n";
+    llvm::dbgs() << "[BlockHandler] Generating distribution rule body\n";
 
     // 1. Dequeue input token from parent
     if (inputTokenFIFO) {
       inputTokenFIFO->callMethod("deq", {}, b);
-      llvm::outs() << "[BlockHandler] Distribution rule: dequeued input token\n";
+      llvm::dbgs() << "[BlockHandler] Distribution rule: dequeued input token\n";
     }
 
     // 2. For each input value, dequeue once and distribute to all sub-blocks
@@ -1012,13 +1012,13 @@ LogicalResult BlockHandler::generateInputDistributionRule() {
 
       // Dequeue ONCE from input FIFO
       auto dequeuedValue = inputFIFO->callMethod("deq", {}, b)[0];
-      llvm::outs() << "[BlockHandler] Distribution rule: dequeued input value\n";
+      llvm::dbgs() << "[BlockHandler] Distribution rule: dequeued input value\n";
 
       // Enqueue to ALL sub-block distribution FIFOs that need it
       for (auto &[subBlockIdx, distFifo] : subBlockMap) {
         if (distFifo) {
           distFifo->callMethod("enq", {dequeuedValue}, b);
-          llvm::outs() << "[BlockHandler] Distribution rule: enqueued to sub-block "
+          llvm::dbgs() << "[BlockHandler] Distribution rule: enqueued to sub-block "
                        << subBlockIdx << " FIFO\n";
         }
       }
@@ -1028,7 +1028,7 @@ LogicalResult BlockHandler::generateInputDistributionRule() {
     if (input_distribution_token_fifo) {
       auto tokenVal = UInt::constant(1, 1, b, loc);
       input_distribution_token_fifo->callMethod("enq", {tokenVal.getValue()}, b);
-      llvm::outs() << "[BlockHandler] Distribution rule: enqueued distribution token\n";
+      llvm::dbgs() << "[BlockHandler] Distribution rule: enqueued distribution token\n";
     }
 
     b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{});
@@ -1036,7 +1036,7 @@ LogicalResult BlockHandler::generateInputDistributionRule() {
 
   rule->finalize();
 
-  llvm::outs() << "[BlockHandler] Input distribution rule generated: " << ruleName << "\n";
+  llvm::dbgs() << "[BlockHandler] Input distribution rule generated: " << ruleName << "\n";
 
   return success();
 }

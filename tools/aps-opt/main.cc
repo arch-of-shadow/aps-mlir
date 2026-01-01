@@ -243,6 +243,9 @@ int main(int argc, char **argv) {
         args.push_back("--count-cycles=output-dir=" + outputPath);
     }
 
+    // Cmt2!
+    args.push_back("--aps-to-cmt2-gen");
+
     // Convert std::vector<std::string> to char** for C-style API
     std::vector<char *> hectorArgv;
     hectorArgv.reserve(args.size());
