@@ -107,7 +107,7 @@ namespace {
                 }
                 color++;
             }
-            llvm::outs() << "alloca reuse number: " << number << ", reuse memory: " << memory << " bytes" << "\n";
+            llvm::dbgs() << "alloca reuse number: " << number << ", reuse memory: " << memory << " bytes" << "\n";
             return success();
         }
 
@@ -148,9 +148,9 @@ namespace {
                 memory1 += computeMemory<memref::GetGlobalOp>(op);
                 totalMemory += computeMemory<memref::GetGlobalOp>(op);
             });
-            llvm::outs() << llvm::formatv("alloca memory: {0} bytes({1:f2} MB)\n", memory0, memory0 / 1024.0 / 1024);
-            llvm::outs() << llvm::formatv("global memory: {0} bytes({1:f2} MB)\n", memory1, memory1 / 1024.0 / 1024);
-            llvm::outs() << llvm::formatv("total memory: {0} bytes({1:f2} MB)\n", totalMemory, totalMemory / 1024.0 / 1024);
+            llvm::dbgs() << llvm::formatv("alloca memory: {0} bytes({1:f2} MB)\n", memory0, memory0 / 1024.0 / 1024);
+            llvm::dbgs() << llvm::formatv("global memory: {0} bytes({1:f2} MB)\n", memory1, memory1 / 1024.0 / 1024);
+            llvm::dbgs() << llvm::formatv("total memory: {0} bytes({1:f2} MB)\n", totalMemory, totalMemory / 1024.0 / 1024);
             return success();
         }
     };

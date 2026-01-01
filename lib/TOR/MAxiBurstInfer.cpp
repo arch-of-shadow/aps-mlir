@@ -639,7 +639,7 @@ namespace
             std::vector<mlir::Operation*>& mergedWriteOps) {
             int numOfIteration = getNumOfIteration(forOp);
             if (numOfIteration < 0) {
-                // llvm::outs() << "for loop number of iteration can not be determinied \n";
+                // llvm::dbgs() << "for loop number of iteration can not be determinied \n";
                 return;
             }
 
