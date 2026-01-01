@@ -35,12 +35,14 @@ static bool isAffineForInductionVar(Value val) {
   return false;
 }
 
-// Try to express a value as a linear combination of induction variables + constant
-// Returns: {found, inductionVars, coefficients, constant}
+// Try to express a value as a linear combination of induction variables + symbols + constant
+// Returns: {found, inductionVars, coefficients, symbols, symbolCoefficients, constant}
 struct MultiDimAffineInfo {
   bool found = false;
   SmallVector<Value> inductionVars;         // List of IVs [i, j, ...]
-  SmallVector<int64_t> coefficients;        // Coefficients [a, b, ...]
+  SmallVector<int64_t> coefficients;        // Coefficients for IVs [a, b, ...]
+  SmallVector<Value> symbols;               // Loop-invariant values [s0, s1, ...]
+  SmallVector<int64_t> symbolCoefficients;  // Coefficients for symbols [c, d, ...]
   int64_t constant = 0;                     // Constant offset
 };
 
@@ -90,87 +92,6 @@ static Value findInductionVar(Value val) {
   return Value();
 }
 
-// Analyze multi-dimensional affine expression: a*i + b*j + ... + c
-static MultiDimAffineInfo analyzeMultiDimIndex(Value index) {
-  MultiDimAffineInfo info;
-
-  // Trace through index_cast operations
-  Value current = index;
-  while (auto castOp = current.getDefiningOp<arith::IndexCastOp>()) {
-    current = castOp.getIn();
-  }
-
-  // Map from induction variable to its coefficient
-  llvm::DenseMap<Value, int64_t> ivCoefficients;
-  int64_t constantTerm = 0;
-
-  // Recursively decompose additions
-  std::function<bool(Value)> decomposeAdditions = [&](Value val) -> bool {
-    // Trace through index_cast
-    while (auto castOp = val.getDefiningOp<arith::IndexCastOp>()) {
-      val = castOp.getIn();
-    }
-
-    // Check if it's a constant
-    if (auto constVal = getConstantIntValue(val)) {
-      constantTerm += *constVal;
-      return true;
-    }
-
-    // Check if it's an IV directly (coefficient = 1)
-    if (Value iv = findInductionVar(val)) {
-      ivCoefficients[iv] = ivCoefficients.lookup(iv) + 1;
-      return true;
-    }
-
-    // Check for multiplication: a * IV
-    if (auto mulOp = val.getDefiningOp<arith::MulIOp>()) {
-      Value lhs = mulOp.getLhs();
-      Value rhs = mulOp.getRhs();
-
-      // Try lhs = constant, rhs = IV
-      if (auto coeff = getConstantIntValue(lhs)) {
-        if (Value iv = findInductionVar(rhs)) {
-          ivCoefficients[iv] = ivCoefficients.lookup(iv) + *coeff;
-          return true;
-        }
-      }
-
-      // Try lhs = IV, rhs = constant
-      if (auto coeff = getConstantIntValue(rhs)) {
-        if (Value iv = findInductionVar(lhs)) {
-          ivCoefficients[iv] = ivCoefficients.lookup(iv) + *coeff;
-          return true;
-        }
-      }
-    }
-
-    // Check for addition: decompose both sides
-    if (auto addOp = val.getDefiningOp<arith::AddIOp>()) {
-      return decomposeAdditions(addOp.getLhs()) &&
-             decomposeAdditions(addOp.getRhs());
-    }
-
-    return false;
-  };
-
-  // Try to decompose the expression
-  if (!decomposeAdditions(current) || ivCoefficients.empty()) {
-    info.found = false;
-    return info;
-  }
-
-  // Build the result
-  info.found = true;
-  info.constant = constantTerm;
-  for (auto &pair : ivCoefficients) {
-    info.inductionVars.push_back(pair.first);
-    info.coefficients.push_back(pair.second);
-  }
-
-  return info;
-}
-
 // Try to evaluate a value as a compile-time constant by tracing through arithmetic ops
 static std::optional<int64_t> tryEvaluateConstant(Value val) {
   // Direct constant check
@@ -210,6 +131,188 @@ static std::optional<int64_t> tryEvaluateConstant(Value val) {
   }
 
   return std::nullopt;
+}
+
+// Helper to check if a value is defined outside all enclosing affine.for loops
+static bool isLoopInvariant(Value val, Operation *contextOp) {
+  // Find all enclosing affine.for operations
+  Operation *current = contextOp->getParentOp();
+  while (current) {
+    if (auto forOp = dyn_cast<AffineForOp>(current)) {
+      // Check if val is defined inside this loop's region
+      if (auto *defOp = val.getDefiningOp()) {
+        if (forOp.getRegion().isAncestor(defOp->getParentRegion()))
+          return false;  // Defined inside the loop, not invariant
+      }
+      if (auto blockArg = llvm::dyn_cast<BlockArgument>(val)) {
+        if (forOp.getRegion().isAncestor(blockArg.getOwner()->getParent()))
+          return false;  // Block argument inside the loop
+      }
+    }
+    current = current->getParentOp();
+  }
+  return true;  // Defined outside all loops
+}
+
+// Analyze multi-dimensional affine expression: a*i + b*j + ... + c*s0 + d*s1 + ... + e
+static MultiDimAffineInfo analyzeMultiDimIndex(Value index, Operation *contextOp) {
+  MultiDimAffineInfo info;
+
+  // Trace through index_cast operations
+  Value current = index;
+  while (auto castOp = current.getDefiningOp<arith::IndexCastOp>()) {
+    current = castOp.getIn();
+  }
+
+  // Map from induction variable to its coefficient
+  llvm::DenseMap<Value, int64_t> ivCoefficients;
+  // Map from symbol (loop-invariant value) to its coefficient
+  llvm::DenseMap<Value, int64_t> symbolCoefficients;
+  int64_t constantTerm = 0;
+
+  // Recursively decompose additions
+  std::function<bool(Value)> decomposeAdditions = [&](Value val) -> bool {
+    // Trace through index_cast and other cast operations
+    while (true) {
+      if (auto castOp = val.getDefiningOp<arith::IndexCastOp>()) {
+        val = castOp.getIn();
+        continue;
+      }
+      if (auto extOp = val.getDefiningOp<arith::ExtSIOp>()) {
+        val = extOp.getIn();
+        continue;
+      }
+      if (auto extOp = val.getDefiningOp<arith::ExtUIOp>()) {
+        val = extOp.getIn();
+        continue;
+      }
+      if (auto truncOp = val.getDefiningOp<arith::TruncIOp>()) {
+        val = truncOp.getIn();
+        continue;
+      }
+      break;
+    }
+
+    // Check if it's a constant
+    if (auto constVal = getConstantIntValue(val)) {
+      constantTerm += *constVal;
+      return true;
+    }
+
+    // Check if it's an IV directly (coefficient = 1)
+    if (Value iv = findInductionVar(val)) {
+      ivCoefficients[iv] = ivCoefficients.lookup(iv) + 1;
+      return true;
+    }
+
+    // Check for multiplication: a * IV or a * symbol
+    if (auto mulOp = val.getDefiningOp<arith::MulIOp>()) {
+      Value lhs = mulOp.getLhs();
+      Value rhs = mulOp.getRhs();
+
+      // Try lhs = constant, rhs = IV
+      if (auto coeff = tryEvaluateConstant(lhs)) {
+        if (Value iv = findInductionVar(rhs)) {
+          ivCoefficients[iv] = ivCoefficients.lookup(iv) + *coeff;
+          return true;
+        }
+      }
+
+      // Try lhs = IV, rhs = constant
+      if (auto coeff = tryEvaluateConstant(rhs)) {
+        if (Value iv = findInductionVar(lhs)) {
+          ivCoefficients[iv] = ivCoefficients.lookup(iv) + *coeff;
+          return true;
+        }
+      }
+
+      // Try lhs = constant, rhs = loop-invariant symbol
+      // Trace through casts on rhs to find the underlying loop-invariant value
+      if (auto coeff = tryEvaluateConstant(lhs)) {
+        Value rhsTraced = rhs;
+        while (true) {
+          if (auto castOp = rhsTraced.getDefiningOp<arith::IndexCastOp>()) {
+            rhsTraced = castOp.getIn();
+          } else if (auto extOp = rhsTraced.getDefiningOp<arith::ExtSIOp>()) {
+            rhsTraced = extOp.getIn();
+          } else if (auto extOp = rhsTraced.getDefiningOp<arith::ExtUIOp>()) {
+            rhsTraced = extOp.getIn();
+          } else if (auto truncOp = rhsTraced.getDefiningOp<arith::TruncIOp>()) {
+            rhsTraced = truncOp.getIn();
+          } else {
+            break;
+          }
+        }
+        if (isLoopInvariant(rhsTraced, contextOp)) {
+          symbolCoefficients[rhsTraced] = symbolCoefficients.lookup(rhsTraced) + *coeff;
+          return true;
+        }
+      }
+
+      // Try lhs = loop-invariant symbol, rhs = constant
+      // Trace through casts on lhs to find the underlying loop-invariant value
+      if (auto coeff = tryEvaluateConstant(rhs)) {
+        Value lhsTraced = lhs;
+        while (true) {
+          if (auto castOp = lhsTraced.getDefiningOp<arith::IndexCastOp>()) {
+            lhsTraced = castOp.getIn();
+          } else if (auto extOp = lhsTraced.getDefiningOp<arith::ExtSIOp>()) {
+            lhsTraced = extOp.getIn();
+          } else if (auto extOp = lhsTraced.getDefiningOp<arith::ExtUIOp>()) {
+            lhsTraced = extOp.getIn();
+          } else if (auto truncOp = lhsTraced.getDefiningOp<arith::TruncIOp>()) {
+            lhsTraced = truncOp.getIn();
+          } else {
+            break;
+          }
+        }
+        if (isLoopInvariant(lhsTraced, contextOp)) {
+          symbolCoefficients[lhsTraced] = symbolCoefficients.lookup(lhsTraced) + *coeff;
+          return true;
+        }
+      }
+    }
+
+    // Check for addition: decompose both sides
+    if (auto addOp = val.getDefiningOp<arith::AddIOp>()) {
+      return decomposeAdditions(addOp.getLhs()) &&
+             decomposeAdditions(addOp.getRhs());
+    }
+
+    // If nothing else matched, check if it's a loop-invariant symbol (coefficient = 1)
+    if (isLoopInvariant(val, contextOp)) {
+      symbolCoefficients[val] = symbolCoefficients.lookup(val) + 1;
+      return true;
+    }
+
+    return false;
+  };
+
+  // Try to decompose the expression
+  if (!decomposeAdditions(current)) {
+    info.found = false;
+    return info;
+  }
+
+  // Must have at least one IV for affine analysis to be useful
+  if (ivCoefficients.empty()) {
+    info.found = false;
+    return info;
+  }
+
+  // Build the result
+  info.found = true;
+  info.constant = constantTerm;
+  for (auto &pair : ivCoefficients) {
+    info.inductionVars.push_back(pair.first);
+    info.coefficients.push_back(pair.second);
+  }
+  for (auto &pair : symbolCoefficients) {
+    info.symbols.push_back(pair.first);
+    info.symbolCoefficients.push_back(pair.second);
+  }
+
+  return info;
 }
 
 // Trace through index_cast, muli, addi to find affine pattern
@@ -337,6 +440,24 @@ static AffineExprInfo analyzeIndex(Value index) {
   return info;
 }
 
+// Helper to convert a value to index type if needed.
+// Important: Insert the cast right after the value's definition to keep it outside loops.
+static Value ensureIndexType(Value val, PatternRewriter &rewriter) {
+  if (val.getType().isIndex())
+    return val;
+
+  // Find the insertion point: right after the defining op (or at function start for block args)
+  OpBuilder::InsertionGuard guard(rewriter);
+  if (auto *defOp = val.getDefiningOp()) {
+    rewriter.setInsertionPointAfter(defOp);
+  } else if (auto blockArg = llvm::dyn_cast<BlockArgument>(val)) {
+    // For block arguments, insert at the beginning of the block
+    rewriter.setInsertionPointToStart(blockArg.getOwner());
+  }
+
+  return rewriter.create<arith::IndexCastOp>(val.getLoc(), rewriter.getIndexType(), val);
+}
+
 // Pattern to convert memref.load with affine index to affine.load
 struct InferAffineLoadPattern : public OpRewritePattern<memref::LoadOp> {
   using OpRewritePattern<memref::LoadOp>::OpRewritePattern;
@@ -349,29 +470,46 @@ struct InferAffineLoadPattern : public OpRewritePattern<memref::LoadOp> {
 
     Value index = loadOp.getIndices()[0];
 
-    // Try multi-dimensional analysis first
-    MultiDimAffineInfo multiInfo = analyzeMultiDimIndex(index);
+    // Try multi-dimensional analysis with symbol support
+    MultiDimAffineInfo multiInfo = analyzeMultiDimIndex(index, loadOp);
     if (multiInfo.found) {
       LLVM_DEBUG(llvm::dbgs() << "Found multi-dim affine pattern with "
-                              << multiInfo.inductionVars.size() << " IVs for: "
+                              << multiInfo.inductionVars.size() << " IVs and "
+                              << multiInfo.symbols.size() << " symbols for: "
                               << loadOp << "\n");
 
-      // Build affine map: (d0, d1, ...) -> (c0*d0 + c1*d1 + ... + constant)
-      SmallVector<AffineExpr> dimExprs;
-      for (unsigned i = 0; i < multiInfo.inductionVars.size(); ++i) {
-        dimExprs.push_back(rewriter.getAffineDimExpr(i));
-      }
+      // Build affine map: (d0, d1, ...)[s0, s1, ...] -> (c0*d0 + c1*d1 + ... + e0*s0 + e1*s1 + ... + constant)
+      unsigned numDims = multiInfo.inductionVars.size();
+      unsigned numSymbols = multiInfo.symbols.size();
 
       AffineExpr affineExpr = rewriter.getAffineConstantExpr(multiInfo.constant);
-      for (unsigned i = 0; i < multiInfo.inductionVars.size(); ++i) {
-        affineExpr = affineExpr + dimExprs[i] * multiInfo.coefficients[i];
+
+      // Add dimension terms (IVs)
+      for (unsigned i = 0; i < numDims; ++i) {
+        AffineExpr dimExpr = rewriter.getAffineDimExpr(i);
+        affineExpr = affineExpr + dimExpr * multiInfo.coefficients[i];
       }
 
-      AffineMap map = AffineMap::get(multiInfo.inductionVars.size(), 0, affineExpr);
+      // Add symbol terms (loop-invariant values)
+      for (unsigned i = 0; i < numSymbols; ++i) {
+        AffineExpr symExpr = rewriter.getAffineSymbolExpr(i);
+        affineExpr = affineExpr + symExpr * multiInfo.symbolCoefficients[i];
+      }
 
-      // Create affine.load with all induction variables
+      AffineMap map = AffineMap::get(numDims, numSymbols, affineExpr);
+
+      // Collect map operands: first IVs (dims), then symbols
+      SmallVector<Value> mapOperands;
+      for (Value iv : multiInfo.inductionVars) {
+        mapOperands.push_back(iv);  // IVs are already index type
+      }
+      for (Value sym : multiInfo.symbols) {
+        mapOperands.push_back(ensureIndexType(sym, rewriter));
+      }
+
+      // Create affine.load with all operands
       auto affineLoad = rewriter.create<AffineLoadOp>(
-          loadOp.getLoc(), loadOp.getMemRef(), map, multiInfo.inductionVars);
+          loadOp.getLoc(), loadOp.getMemRef(), map, mapOperands);
 
       rewriter.replaceOp(loadOp, affineLoad.getResult());
 
@@ -437,30 +575,47 @@ struct InferAffineStorePattern : public OpRewritePattern<memref::StoreOp> {
 
     Value index = storeOp.getIndices()[0];
 
-    // Try multi-dimensional analysis first
-    MultiDimAffineInfo multiInfo = analyzeMultiDimIndex(index);
+    // Try multi-dimensional analysis with symbol support
+    MultiDimAffineInfo multiInfo = analyzeMultiDimIndex(index, storeOp);
     if (multiInfo.found) {
       LLVM_DEBUG(llvm::dbgs() << "Found multi-dim affine pattern with "
-                              << multiInfo.inductionVars.size() << " IVs for: "
+                              << multiInfo.inductionVars.size() << " IVs and "
+                              << multiInfo.symbols.size() << " symbols for: "
                               << storeOp << "\n");
 
-      // Build affine map: (d0, d1, ...) -> (c0*d0 + c1*d1 + ... + constant)
-      SmallVector<AffineExpr> dimExprs;
-      for (unsigned i = 0; i < multiInfo.inductionVars.size(); ++i) {
-        dimExprs.push_back(rewriter.getAffineDimExpr(i));
-      }
+      // Build affine map: (d0, d1, ...)[s0, s1, ...] -> (c0*d0 + c1*d1 + ... + e0*s0 + e1*s1 + ... + constant)
+      unsigned numDims = multiInfo.inductionVars.size();
+      unsigned numSymbols = multiInfo.symbols.size();
 
       AffineExpr affineExpr = rewriter.getAffineConstantExpr(multiInfo.constant);
-      for (unsigned i = 0; i < multiInfo.inductionVars.size(); ++i) {
-        affineExpr = affineExpr + dimExprs[i] * multiInfo.coefficients[i];
+
+      // Add dimension terms (IVs)
+      for (unsigned i = 0; i < numDims; ++i) {
+        AffineExpr dimExpr = rewriter.getAffineDimExpr(i);
+        affineExpr = affineExpr + dimExpr * multiInfo.coefficients[i];
       }
 
-      AffineMap map = AffineMap::get(multiInfo.inductionVars.size(), 0, affineExpr);
+      // Add symbol terms (loop-invariant values)
+      for (unsigned i = 0; i < numSymbols; ++i) {
+        AffineExpr symExpr = rewriter.getAffineSymbolExpr(i);
+        affineExpr = affineExpr + symExpr * multiInfo.symbolCoefficients[i];
+      }
 
-      // Create affine.store with all induction variables
+      AffineMap map = AffineMap::get(numDims, numSymbols, affineExpr);
+
+      // Collect map operands: first IVs (dims), then symbols
+      SmallVector<Value> mapOperands;
+      for (Value iv : multiInfo.inductionVars) {
+        mapOperands.push_back(iv);  // IVs are already index type
+      }
+      for (Value sym : multiInfo.symbols) {
+        mapOperands.push_back(ensureIndexType(sym, rewriter));
+      }
+
+      // Create affine.store with all operands
       rewriter.create<AffineStoreOp>(
           storeOp.getLoc(), storeOp.getValue(), storeOp.getMemRef(),
-          map, multiInfo.inductionVars);
+          map, mapOperands);
 
       rewriter.eraseOp(storeOp);
 

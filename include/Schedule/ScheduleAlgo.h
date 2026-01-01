@@ -205,6 +205,21 @@ public:
     return newop;
   }
 
+  OpAbstract *createTLOp(Operation *op, Loop *ParentLoop, BasicBlock *ParentBB,
+                         ArrayRef<Value> Results, ArrayRef<Value> Operands,
+                         OpAbstract::OpType type) {
+    int rsc = RDB.getResourceID("tl");
+    Operations.push_back(std::make_unique<MAxiOpConcrete>(
+        MAxiOpConcrete(op, ParentLoop, ParentBB, rsc, Results, Operands, type)));
+
+    int width = 32; // TileLink operations use fixed 32-bit width
+
+    OpAbstract *newop = Operations.back().get();
+    newop->setWidth(width);
+
+    return newop;
+  }
+
   OpAbstract *createStreamOp(Operation *op, Loop *ParentLoop, BasicBlock *ParentBB,
                           ArrayRef<Value> Results, ArrayRef<Value> Operands,
                           OpAbstract::OpType type) {

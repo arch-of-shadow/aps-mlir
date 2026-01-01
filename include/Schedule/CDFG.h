@@ -96,6 +96,8 @@ public:
     M_AXI_READ_REQUEST_OP, /// axi_read_request
     M_AXI_WRITE_REQUEST_OP, /// axi_write_request
     M_AXI_RESPONSE_OP, /// axi_write_response
+    TL_READ_OP, /// TileLink read (aps.memburstload)
+    TL_WRITE_OP, /// TileLink write (aps.memburststore)
   };
 
   virtual MemOpConcrete *getMemOp() = 0;
@@ -263,10 +265,12 @@ public:
   int getWidth() const override { return 32; }
 
   bool isWrite() const {
-    return type == OpType::M_AXI_WRITE_OP || type == OpType::M_AXI_WRITE_REQUEST_OP || type == OpType::M_AXI_BURST_WRITE_OP;
+    return type == OpType::M_AXI_WRITE_OP || type == OpType::M_AXI_WRITE_REQUEST_OP ||
+           type == OpType::M_AXI_BURST_WRITE_OP || type == OpType::TL_WRITE_OP;
   }
   bool isRead() const {
-    return type == OpType::M_AXI_READ_OP || type == OpType::M_AXI_READ_REQUEST_OP || type == OpType::M_AXI_BURST_READ_OP;
+    return type == OpType::M_AXI_READ_OP || type == OpType::M_AXI_READ_REQUEST_OP ||
+           type == OpType::M_AXI_BURST_READ_OP || type == OpType::TL_READ_OP;
   }
   bool isBurst() const { return request != nullptr; }
   bool isRequest() const {

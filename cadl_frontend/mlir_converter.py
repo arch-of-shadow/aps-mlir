@@ -1277,7 +1277,19 @@ class CADLMLIRConverter:
         # Generate aps.memburstload operation
         # Arguments: cpu_addr, memrefs (as list), start, length
         # Wrap single memref in a list to support variadic memrefs
-        aps.MemBurstLoad(cpu_addr, [buffer_memref], start_offset, length)
+        burst_op = aps.MemBurstLoad(cpu_addr, [buffer_memref], start_offset, length)
+
+        # Apply pending directives as attributes (same pattern as loop_transform.py)
+        if self.pending_directives:
+            for directive in self.pending_directives:
+                attr_name = directive.name
+                if directive.expr and isinstance(directive.expr, LitExpr):
+                    value = directive.expr.literal.lit.value
+                    attr = ir.IntegerAttr.get(ir.IntegerType.get_signless(32), value)
+                    burst_op.operation.attributes[attr_name] = attr
+                else:
+                    burst_op.operation.attributes[attr_name] = ir.BoolAttr.get(True)
+            self.pending_directives = []
 
     def _convert_burst_store(self, stmt: AssignStmt) -> None:
         """
@@ -1325,7 +1337,19 @@ class CADLMLIRConverter:
         # Generate aps.memburststore operation
         # Arguments: memrefs (as list), start, cpu_addr, length
         # Wrap single memref in a list to support variadic memrefs
-        aps.MemBurstStore([buffer_memref], start_offset, cpu_addr, length)
+        burst_op = aps.MemBurstStore([buffer_memref], start_offset, cpu_addr, length)
+
+        # Apply pending directives as attributes (same pattern as loop_transform.py)
+        if self.pending_directives:
+            for directive in self.pending_directives:
+                attr_name = directive.name
+                if directive.expr and isinstance(directive.expr, LitExpr):
+                    value = directive.expr.literal.lit.value
+                    attr = ir.IntegerAttr.get(ir.IntegerType.get_signless(32), value)
+                    burst_op.operation.attributes[attr_name] = attr
+                else:
+                    burst_op.operation.attributes[attr_name] = ir.BoolAttr.get(True)
+            self.pending_directives = []
 
     def _convert_range_slice_assignment(self, lhs: RangeSliceExpr, rhs_value: ir.Value) -> None:
         """Handle regular range slice assignments (not burst operations)"""

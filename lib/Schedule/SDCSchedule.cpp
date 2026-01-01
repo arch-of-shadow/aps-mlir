@@ -32,48 +32,6 @@ bool needSchedule(const BasicBlock *B) {
          B->getParentLoop()->PipelineFlag == false;
 }
 
-/// Helper function to check if a memref is _cpu_memory
-static bool isCpuMemory(mlir::Value memref) {
-  auto defOp = memref.getDefiningOp();
-  if (!defOp)
-    return false;
-
-  if (auto getGlobal = llvm::dyn_cast<mlir::memref::GetGlobalOp>(defOp)) {
-    mlir::StringRef name = getGlobal.getName();
-    return name.contains("_cpu_memory");
-  }
-
-  return false;
-}
-
-int SDCSchedule::getAdjustedLatency(SDCOpWrapper *op) {
-  // Get base latency from resource database
-  int baseLatency = RDB.getLatency(op->getResource(), op->getWidth());
-
-  mlir::Operation *mlirOp = op->getOp();
-
-  // Check if this is an APS memory load operation
-  if (auto memLoadOp = llvm::dyn_cast<aps::MemLoad>(mlirOp)) {
-    // For aps.memload: check if accessing _cpu_memory
-    mlir::Value memref = memLoadOp.getMemref();
-    if (isCpuMemory(memref)) {
-      // Access to _cpu_memory: use latency=1
-      llvm::errs() << "  aps.memload to _cpu_memory: latency=1\n";
-      return 1;
-    } else {
-      // Access to other memory: use latency=0
-      llvm::errs() << "  aps.memload to other memory: latency=0\n";
-      return 0;
-    }
-  }
-
-  // For aps.memstore and all other operations: use base latency
-  if (llvm::isa<aps::MemStore>(mlirOp)) {
-    llvm::errs() << "  aps.memstore: using base latency=" << baseLatency << "\n";
-  }
-
-  return baseLatency;
-}
 
 int SDCSchedule::getMAxiMII(Loop *L) {
   // todo axi pipeline + burst but this is not that important
@@ -229,7 +187,7 @@ void SDCSchedule::addChainingConstr(SDCOpWrapper *op, SDCSolver *SDC, int II) {
   std::unordered_map<SDCOpWrapper *, bool> exceed;
 
   if (RDB.getName(op->getResource()) != "nop")
-    traverse(op, SDC, getAdjustedLatency(op), 0.0, 0,
+    traverse(op, SDC, RDB.getLatency(op->getResource(), op->getWidth()), 0.0, 0,
              II, op, vis, exceed);
 }
 
@@ -306,12 +264,8 @@ void SDCSchedule::formulateDependency(Loop *L, int II, SDCSolver *SDC) {
             //   continue;
             // }
 
-            if (getAdjustedLatency(destOp) == 0)
-              SDC->addInitialConstraint(Constraint::CreateGE(
-                  destOp->VarId, srcOp->VarId, -II * pred->Distance));
-            else
-              SDC->addInitialConstraint(Constraint::CreateGE(
-                  destOp->VarId, srcOp->VarId, 1 - II * pred->Distance));
+            SDC->addInitialConstraint(Constraint::CreateGE(
+                destOp->VarId, srcOp->VarId, 1 - II * pred->Distance));
           } else {
             LLVM_DEBUG(if (pred->Distance != 0) {
               llvm::outs() << srcOp->getOpDumpId()
@@ -1116,16 +1070,17 @@ void SDCSchedule::addMAxiConstr(SDCSolver *SDC) {
   // assume no overlapping execution of basic blocks
   // or overlapping basic blocks does not have dependecy issue
   int amount = 1; // one bus channel for read and one for write
-  int readLat = 2, writeLat = 3, requestLat = 1;
+  int readLat = 1, writeLat = 1, requestLat = 1;
   for (auto &&BB : BasicBlocks) {
     if (!needSchedule(BB.get()))
       continue;
 
     // resource confliction of pipelined loop has been handled
     // mAxi conflict of non-pipelined loop
+    // Exclude TileLink operations (they are handled by addResourceConstr with their own amount)
     std::vector<SDCOpWrapper *> constrainedOp = getFeasibleOrder(BB.get(),
                          [&](SDCOpWrapper *op) {
-                             return op->getMAxiOp() != nullptr;
+                            return op->getMAxiOp() != nullptr;
                          });
 
     std::unordered_map<mlir::Operation*, std::vector<SDCOpWrapper*>> burstOps;
@@ -1199,7 +1154,7 @@ SDCSolver *SDCSchedule::formulateSDC() {
           Constraint::CreateGE(sdcOp->VarId, BeginBB[BB.get()], 0));
       SDC->addInitialConstraint(Constraint::CreateGE(
           EndBB[BB.get()], sdcOp->VarId,
-          getAdjustedLatency(sdcOp)));
+          RDB.getLatency(sdcOp->getResource(), sdcOp->getWidth())));
     }
   }
 
@@ -1296,7 +1251,7 @@ SDCSolver *SDCSchedule::formulateSDC() {
           }
         }
         if(u){
-          int latency = getAdjustedLatency(predOp);
+          int latency = RDB.getLatency(predOp->getResource(), predOp->getWidth());
           llvm::errs() << "Adding SDC constraint: Var" << succOp->VarId
                        << " >= Var" << predOp->VarId << " + " << latency
                        << " (" << predOp->getOp()->getName().getStringRef() << " -> "
@@ -2112,6 +2067,119 @@ void SDCSchedule::assignSlotAttrAfterSchedule() {
           if (opA->getStartTime() - L->AchievedII >= memrefStartTime) {
             opA->getOp()->setAttr("slot",
               IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), 1));
+          }
+        }
+      }
+    }
+  }
+
+  // TileLink channel assignment based on time interval overlap
+  // Two TileLink ops need different channels if their active intervals overlap
+  if (RDB.hasResource("tl")) {
+    auto tlId = RDB.getResourceID("tl");
+    int numChannels = RDB.getAmount(tlId);
+    int tlLatency = RDB.getLatency(tlId, 32);  // TileLink latency
+
+    // Helper: check if two intervals [s1, s1+lat) and [s2, s2+lat) overlap
+    auto intervalsOverlap = [](int s1, int e1, int s2, int e2) {
+      return s1 < e2 && s2 < e1;
+    };
+
+    // For non-pipelined basic blocks (needSchedule returns true for non-pipelined BBs)
+    for (auto &&BB : BasicBlocks) {
+      if (!needSchedule(BB.get())) {
+        continue;  // Skip pipelined BBs, they are handled below
+      }
+
+      // Collect all TileLink ops with their time intervals
+      std::vector<OpAbstract*> tlOps;
+      for (auto &opA : BB->getOperations()) {
+        if (opA->getResource() == tlId) {
+          tlOps.push_back(opA);
+        }
+      }
+
+      // Sort by start time
+      std::sort(tlOps.begin(), tlOps.end(),
+                [](OpAbstract *a, OpAbstract *b) {
+                  return a->getStartTime() < b->getStartTime();
+                });
+
+      // Assign channels using interval graph coloring
+      // channelEndTimes[i] = end time of the last op assigned to channel i
+      std::vector<int> channelEndTimes(numChannels, -1);
+
+      for (auto op : tlOps) {
+        int startTime = op->getStartTime();
+        int endTime = startTime + tlLatency;
+
+        // Find a channel that doesn't overlap with this op
+        int assignedChannel = -1;
+        for (int ch = 0; ch < numChannels; ch++) {
+          if (channelEndTimes[ch] <= startTime) {
+            // This channel is free (its last op ended before this one starts)
+            assignedChannel = ch;
+            channelEndTimes[ch] = endTime;
+            break;
+          }
+        }
+
+        assert(assignedChannel >= 0 && "Too many overlapping TileLink ops");
+        op->getOp()->setAttr("tl_channel",
+          IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), assignedChannel));
+      }
+    }
+
+    // For pipelined loops - use modular interval coloring
+    for (auto &&L : Loops) {
+      if (L->PipelineFlag == true) {
+        for (auto BB : L->getBody()) {
+          // Collect all TileLink ops
+          std::vector<OpAbstract*> tlOps;
+          for (auto opA : BB->getOperations()) {
+            if (opA->getResource() == tlId) {
+              tlOps.push_back(opA);
+            }
+          }
+
+          // Sort by start time
+          std::sort(tlOps.begin(), tlOps.end(),
+                    [](OpAbstract *a, OpAbstract *b) {
+                      return a->getStartTime() < b->getStartTime();
+                    });
+
+          // For pipelined loops, check overlap considering II wraparound
+          // Two ops overlap if their modular intervals [s%II, (s+lat)%II) intersect
+          std::vector<int> channelAssignment(tlOps.size(), -1);
+
+          for (size_t i = 0; i < tlOps.size(); i++) {
+            int si = tlOps[i]->getStartTime();
+            int ei = si + tlLatency;
+
+            // Find channels used by overlapping ops
+            std::set<int> usedChannels;
+            for (size_t j = 0; j < i; j++) {
+              int sj = tlOps[j]->getStartTime();
+              int ej = sj + tlLatency;
+
+              // Check if intervals overlap (considering they may span multiple IIs)
+              bool overlap = intervalsOverlap(si, ei, sj, ej);
+              if (overlap && channelAssignment[j] >= 0) {
+                usedChannels.insert(channelAssignment[j]);
+              }
+            }
+
+            // Assign first available channel
+            for (int ch = 0; ch < numChannels; ch++) {
+              if (usedChannels.find(ch) == usedChannels.end()) {
+                channelAssignment[i] = ch;
+                break;
+              }
+            }
+
+            assert(channelAssignment[i] >= 0 && "Too many overlapping TileLink ops in pipelined loop");
+            tlOps[i]->getOp()->setAttr("tl_channel",
+              IntegerAttr::get(IntegerType::get(containingOp->getContext(), 32), channelAssignment[i]));
           }
         }
       }

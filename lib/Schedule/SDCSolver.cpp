@@ -15,7 +15,7 @@ SDCSolver::SDCSolver() {
 void SDCSolver::addInitialConstraint(Constraint C) {
   assert(C.x < NumVariable);
   assert(C.y < NumVariable);
-  
+
   //  C.dump();
   if (C.type == Constraint::Constr_EQ) {
     Edges[0].insert(Edge(C.x, C.c));

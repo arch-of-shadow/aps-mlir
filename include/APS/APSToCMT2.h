@@ -45,6 +45,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include <string>
+#include <iomanip>
 
 namespace mlir {
 

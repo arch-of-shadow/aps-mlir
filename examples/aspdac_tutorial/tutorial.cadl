@@ -1,0 +1,233 @@
+// ============================================================================
+// Data Memory Declarations
+// ============================================================================
+
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matA: [i8; 131072]; // 128KB, 2048 tiles
+
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matB: [i8; 131072]; // 128KB, 2048 tiles
+
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matC: [i16; 131072]; // 256KB, 2048 tiles
+
+// Accumulator for dot product computation
+static zacc: i16;
+
+// ============================================================================
+// GEMM Kernel - Matrix-Matrix Multiplication
+// ============================================================================
+
+#[opcode(7'b0001011)]
+#[funct7(7'b0000000)]
+rtype gemm8x8_i8(rs1: u5, rs2: u5, rd: u5) {
+    let r1: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+
+    // D = A * B + C
+    let offsetA: u16 = (r1 & 32'hEFFFFFFF) >> 16;
+    let offsetB: u16 = r1 & 32'hFFFF;
+    let offsetC: u16 = r2 >> 16;
+    let offsetD: u16 = r2 & 32'hFFFF;
+    let use_c: u1 = (r1 & 16'h8000) >> 15;
+
+    with i: u32 = (0, i_) do {
+        [[unroll(2)]]
+        with j: u32 = (0, j_) do {
+            zacc = 0;
+            [[unroll(8)]]
+            with k: u32 = (0, k_) do {
+                let a_idx: u32 = i * 8 + k + offsetA * 64;
+                let a_val: i16 = matA[a_idx];
+                let b_idx: u32 = k * 8 + j + offsetB * 64;
+                let b_val: i16 = matB[b_idx];
+                zacc = zacc + a_val * b_val;
+                let k_: u32 = k + 1;
+            } while (k_ < 8);
+            let c_idx: u32 = i * 8 + j + offsetC * 64;
+            let c_val_raw: i16 = matC[c_idx];
+            let c_val: i16 = if (use_c) {c_val_raw} else {16'h0};
+            let d_val: i16 = zacc + c_val;
+            let d_idx: u32 = i * 8 + j + offsetD * 64;
+            matC[d_idx] = d_val;
+            let j_: u32 = j + 1;
+        } while (j_ < 8);
+        let i_: u32 = i + 1;
+    } while (i_ < 8);
+
+    _irf[rd] = 0;
+}
+
+// ============================================================================
+// Vector Operations - Vector Add/Sub/Mul
+// ============================================================================
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0000000)]
+rtype vecaddsub128_i8(rs1: u5, rs2: u5, rd: u5) { // add two i8 AB tile, store to one i16 D tile (compacted)
+    let r1: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+
+    let offsetA: u16 = r1 >> 16;
+    let offsetB: u16 = r1 & 32'hFFFF;
+    let offsetD: u16 = r2 & 32'hFFFF;
+    let config: u16 = r2 >> 16;
+
+    let addsub: u1 = (config & 16'h0100) >> 16; // 0: add, 1: sub
+    let constval: u8 = config & 16'h00FF;
+
+    [[unroll(8)]]
+    with i: u32 = (0, i_) do {
+        let u1_a_idx: u32 = i * 2 + offsetA * 64;
+        let u1_a_val: u8 = matA[u1_a_idx];
+        let u1_b_idx: u32 = i * 2 + offsetB * 64;
+        let u1_b_val: u8 = matB[u1_b_idx];
+        let u1_b_val_masked: u8 = if (constval != 0) {constval} else {u1_b_val};
+
+        let u2_a_idx: u32 = u1_a_idx + 1;
+        let u2_a_val: u8 = matA[u2_a_idx];
+        let u2_b_idx: u32 = u1_b_idx + 1;
+        let u2_b_val: u8 = matB[u2_b_idx];
+        let u2_b_val_masked: u8 = if (constval != 0) {constval} else {u2_b_val};
+
+        let d_idx: u32 = i + offsetD * 32;
+        let u1_d_val: u8 = if (addsub == 0) {u1_a_val + u1_b_val_masked} else {u1_a_val - u1_b_val_masked};
+        let u2_d_val: u8 = if (addsub == 0) {u2_a_val + u2_b_val_masked} else {u2_a_val - u2_b_val_masked};
+
+        let d_val: i16 = (u2_d_val << 8) + u1_d_val; // little-endian, concat two u8 to u16
+        matC[d_idx] = d_val;
+        let i_: u32 = i + 1;
+    } while (i_ < 64);
+
+    _irf[rd] = 0;
+}
+
+
+#[opcode(7'b1011011)]
+#[funct7(7'b0000000)]
+rtype vecmul128_i8(rs1: u5, rs2: u5, rd: u5) { // multiply two i8 AB tile, store to one i16 D tile (compacted)
+    let r1: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+
+    let offsetA: u16 = r1 >> 16;
+    let offsetB: u16 = r1 & 32'hFFFF;
+    let offsetD: u16 = r2 & 32'hFFFF;
+    let config: u16 = r2 >> 16;
+    let constval: i8 = config & 16'h00FF;
+
+    [[unroll(4)]]
+    with i: u32 = (0, i_) do {
+        let u1_a_idx: u32 = i * 2 + offsetA * 64;
+        let u1_a_val: i8 = matA[u1_a_idx];
+        let u1_b_idx: u32 = i * 2 + offsetB * 64;
+        let u1_b_val: i8 = matB[u1_b_idx];
+        let u1_b_val_masked: i8 = if (constval != 0) {constval} else {u1_b_val};
+
+        let u2_a_idx: u32 = u1_a_idx + 1;
+        let u2_a_val: i8 = matA[u2_a_idx];
+        let u2_b_idx: u32 = u1_b_idx + 1;
+        let u2_b_val: i8 = matB[u2_b_idx];
+        let u2_b_val_masked: i8 = if (constval != 0) {constval} else {u2_b_val};
+
+        let d_idx: u32 = i + offsetD * 32;
+        let u1_d_val: i8 = u1_a_val * u1_b_val_masked;
+        let u2_d_val: i8 = u2_a_val * u2_b_val_masked;
+
+        let d_val: i16 = (u2_d_val << 8) + u1_d_val; // little-endian, concat two u8 to u16
+        matC[d_idx] = d_val;
+        let i_: u32 = i + 1;
+    } while (i_ < 64);
+
+    _irf[rd] = 0;
+}
+
+// ============================================================================
+// DMA Operations - Tiled Load/Store
+// ============================================================================
+
+#[opcode(7'b1111011)]
+#[funct7(7'b0000000)]
+rtype loadmat_a_8tile(rs1: u5, rs2: u5, rd: u5) { // 256B, tiled load
+    // rs1: dram current address (32 bit)
+    // rs2: high: (spm address << 2) -> 16 bit, low: block_w -> 16 bit
+    let dram_addr0: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+    let spm_addr0: u32 = r2 >> 16;
+    let block_w: u32 = (r2 & 32'hFFFF);
+
+    [[unroll(8)]]
+    with 
+        i: u32 = (0, i_)
+        dram_addr: u32 = (dram_addr0, dram_addr_)
+        spm_addr : u32 = (spm_addr0,  spm_addr_)
+    do {
+        [[stride_x(8)]]
+        [[stride_y(8)]]
+        matA[spm_addr +: ] = _burst_read[dram_addr +: 64];
+        let dram_addr_: u32 = dram_addr + block_w;
+        let spm_addr_: u32 = spm_addr + 8;
+        let i_: u32 = i + 1;
+    } while (i_ < 8);
+
+    _irf[rd] = 0;
+}
+
+#[opcode(7'b1111011)]
+#[funct7(7'b0000001)]
+rtype loadmat_b_8tile(rs1: u5, rs2: u5, rd: u5) { // 256B, tiled load
+    // rs1: dram current address (32 bit)
+    // rs2: high: (spm address << 2) -> 16 bit, low: block_w -> 16 bit
+    let dram_addr0: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+    let spm_addr0: u32 = r2 >> 16;
+    let block_w: u32 = (r2 & 32'hFFFF);
+
+    [[unroll(8)]]
+    with 
+        i: u32 = (0, i_)
+        dram_addr: u32 = (dram_addr0, dram_addr_)
+        spm_addr : u32 = (spm_addr0,  spm_addr_)
+    do {
+        [[stride_x(8)]]
+        [[stride_y(8)]]
+        matB[spm_addr +: ] = _burst_read[dram_addr +: 64];
+        let dram_addr_: u32 = dram_addr + block_w;
+        let spm_addr_: u32 = spm_addr + 8;
+        let i_: u32 = i + 1;
+    } while (i_ < 8);
+
+    _irf[rd] = 0;
+}
+
+#[opcode(7'b1111011)]
+#[funct7(7'b0000010)]
+rtype storemat_c_8tile(rs1: u5, rs2: u5, rd: u5) { // 512B, tiled store
+    // rs1: dram current address (32 bit)
+    // rs2: high: (spm address << 2) -> 16 bit, low: block_w -> 16 bit
+    let dram_addr0: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+    let spm_addr0: u32 = r2 >> 16;
+    let block_w: u32 = (r2 & 32'hFFFF);
+
+    [[unroll(8)]]
+    with 
+        i: u32 = (0, i_)
+        dram_addr: u32 = (dram_addr0, dram_addr_)
+        spm_addr : u32 = (spm_addr0,  spm_addr_)
+    do {
+        [[stride_x(16)]]
+        [[stride_y(8)]]
+        _burst_write[dram_addr +: 64] = matC[spm_addr +: ];
+        let dram_addr_: u32 = dram_addr + block_w;
+        let spm_addr_: u32 = spm_addr + 8;
+        let i_: u32 = i + 1;
+    } while (i_ < 8);
+
+    _irf[rd] = 0;
+}

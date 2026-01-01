@@ -593,7 +593,7 @@ void calculateFuncOpResourceUsage(mlir::tor::FuncOp funcOp, scheduling::Resource
   llvm::SmallSet<mlir::tor::FuncOp, 4> callFuncOps;
   funcOp.walk([&](mlir::Operation* op) {
     if (isMultiCycleOp(op)) {
-      int startTime = op->getAttrOfType<IntegerAttr>("starttime").getInt();
+      int startTime = op->getAttrOfType<IntegerAttr>("ref_starttime").getInt();
       int rcsId = RDB.getResourceID(op);
       ++usageCnts[rcsId][startTime];
       if (usages[rcsId] < usageCnts[rcsId][startTime]) {

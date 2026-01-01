@@ -1,4 +1,5 @@
 #include "APS/APSToCMT2.h"
+#include <string>
 
 #define DEBUG_TYPE "aps-memory-pool-gen"
 
@@ -14,18 +15,23 @@ void APSToCMT2GenPass::addBurstMemoryInterface(Circuit &circuit) {
   auto &context = circuit.getContext();
   auto *burstMemoryInterface = circuit.addInterface("BurstDMAController");
   auto u32Type = UIntType::get(&context, 32);
+  auto u8Type = UIntType::get(&context, 8);
   auto u4Type = UIntType::get(&context, 4);
   auto u1Type = UIntType::get(&context, 1);
-  burstMemoryInterface->addMethod(
-      "cpu_to_isax",
-      {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}}, {});
-  burstMemoryInterface->addMethod(
-      "isax_to_cpu",
-      {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}}, {});
-  burstMemoryInterface->addValue(
-      // This will not ready if burst engine is running
-      // So the main operation can be stucked
-      "poll_for_idle", {}, {TypeAttr::get(u1Type)});
+  for (int i = 0; i < 2; i++) { // dual channel tilelink
+    burstMemoryInterface->addMethod(
+        "cpu_to_isax_ch" + std::to_string(i),
+        {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type}, 
+        {"stride_x", u8Type}, {"stride_y", u8Type}}, {});
+    burstMemoryInterface->addMethod(
+        "isax_to_cpu_ch" + std::to_string(i),
+        {{"cpu_addr", u32Type}, {"isax_addr", u32Type}, {"length", u4Type},
+        {"stride_x", u8Type}, {"stride_y", u8Type}}, {});
+    burstMemoryInterface->addValue(
+        // This will not ready if burst engine is running
+        // So the main operation can be stucked
+        "poll_for_idle_ch" + std::to_string(i), {}, {TypeAttr::get(u1Type)});
+  }
 }
 
 void APSToCMT2GenPass::addRoccAndHellaMemoryInterface(Circuit &circuit) {
@@ -758,7 +764,7 @@ Module *APSToCMT2GenPass::generateRoCCAdapter(
   llvm::SmallVector<Instance *, 4> roccCmdFifos;
   for (uint32_t opcode : opcodes) {
     auto *fifo = roccAdapterModule->addInstance(
-        "rocc_cmd_fifo_" + std::to_string(opcode), roccCmdFifoMod,
+        "rocc_cmd_fifo_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str(), roccCmdFifoMod,
         {clk.getValue(), rst.getValue()});
     roccCmdFifos.push_back(fifo);
   }
@@ -817,7 +823,7 @@ Module *APSToCMT2GenPass::generateRoCCAdapter(
 
       // Check if this command's opcode matches the target
       auto opcodeMatch =
-          opcode == UInt::constant(targetOpcode, 7, bodyBuilder, loc);
+          opcode.cat(funct.pad(8)) == UInt::constant(targetOpcode, 16, bodyBuilder, loc);
 
       // Conditional enqueue (matching Rust if_! pattern)
       If(
@@ -908,7 +914,7 @@ Module *APSToCMT2GenPass::generateRoCCAdapter(
   // Add cmd_to_user methods for each opcode (following Rust pattern exactly)
   for (size_t i = 0; i < opcodes.size(); ++i) {
     uint32_t opcode = opcodes[i];
-    std::string methodName = "cmd_to_user_" + std::to_string(opcode);
+    std::string methodName = "cmd_to_user_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str();
 
     llvm::SmallVector<std::pair<std::string, mlir::Type>, 0> cmdToUserArgs;
     llvm::SmallVector<mlir::Type, 1> cmdToUserReturns = {roccCmdBundleType};

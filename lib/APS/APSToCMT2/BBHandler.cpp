@@ -491,7 +491,7 @@ LogicalResult BBHandler::generateSlotRules() {
 
   // Create register instance for RoCC operations
   auto *regRdMod = STLLibrary::createRegModule(5, 0, circuit);
-  regRdInstance = mainModule->addInstance("reg_rd_" + std::to_string(opcode), regRdMod,
+  regRdInstance = mainModule->addInstance("reg_rd_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str(), regRdMod,
                                           {mainClk.getValue(), mainRst.getValue()});
   builder.restoreInsertionPoint(savedIPforRegRd);
 
@@ -505,7 +505,7 @@ LogicalResult BBHandler::generateSlotRules() {
   llvm::DenseMap<mlir::Value, mlir::Value> localMap;
 
   for (int64_t slot : slotOrder) {
-    auto *rule = mainModule->addRule(std::to_string(opcode) + "_rule_s" + std::to_string(slot));
+    auto *rule = mainModule->addRule((std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str() + "_rule_s" + std::to_string(slot));
 
     // Guard: always ready (constant 1)
     rule->guard([](mlir::OpBuilder &b) {
@@ -581,7 +581,7 @@ LogicalResult BBHandler::handleRoCCCommandBundle(mlir::OpBuilder &b, Location lo
   }
   
   // Call cmd_to_user once to get the RoCC command bundle
-  std::string cmdMethod = "cmd_to_user_" + std::to_string(opcode);
+  std::string cmdMethod = "cmd_to_user_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str();
   auto cmdResult = roccInstance->callMethod(cmdMethod, {}, b)[0];
   cachedRoCCCmdBundle = cmdResult;
   auto instruction = Bundle(cachedRoCCCmdBundle, &b, loc);

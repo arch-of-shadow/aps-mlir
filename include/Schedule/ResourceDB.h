@@ -96,6 +96,10 @@ public:
     assert(0 && "Error: Can't find corresponding resource");
   }
 
+  bool hasResource(const std::string &str) {
+    return NameToID.find(str) != NameToID.end();
+  }
+
   int getII(int id) { return Components[id].II; }
 
   int bitwidthIdx(int bitwidth) {

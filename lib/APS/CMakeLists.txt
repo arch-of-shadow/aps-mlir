@@ -23,6 +23,7 @@ add_mlir_library(APS
   Transforms/APSToStandard.cpp
   Transforms/CombExtractToArithTrunc.cpp
   Transforms/ArithSelectToSCFIf.cpp
+  Transforms/ArithMulDivToShift.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/APS
