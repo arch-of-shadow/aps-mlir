@@ -53,16 +53,16 @@ def ConvertInput : Pass<"convert-input", "mlir::ModuleOp"> {
 //   ];
 // }
 
-def ArrayPartition : Pass<"array-partition", "mlir::func::FuncOp"> {
-  let summary = "Array partition";
-  let constructor = "mlir::createArrayPartitionPass()";
-  let dependentDialects = ["mlir::func::FuncDialect"];
-  let options = [
-    ListOption<"factor", "factor", "int", "Partition factor">,
-    ListOption<"cyclic", "cyclic", "int", "Cyclic or block">,
-    Option<"arg_num", "arg_num", "int", "0", "Parition argument number">
-  ];
-}
+// def ArrayPartition : Pass<"array-partition", "mlir::func::FuncOp"> {
+//   let summary = "Array partition";
+//   let constructor = "mlir::createArrayPartitionPass()";
+//   let dependentDialects = ["mlir::func::FuncDialect"];
+//   let options = [
+//     ListOption<"factor", "factor", "int", "Partition factor">,
+//     ListOption<"cyclic", "cyclic", "int", "Cyclic or block">,
+//     Option<"arg_num", "arg_num", "int", "0", "Parition argument number">
+//   ];
+// }
 
 def SCFDump : Pass<"dump-scf", "mlir::tor::DesignOp"> {
   let summary = "Dump SCF information";
@@ -91,11 +91,11 @@ def SCFIterArgs : Pass<"scf-iterargs", "mlir::tor::DesignOp"> {
   ];
 }
 
-def MAxiBurstInfer : Pass<"maxi-burst-infer", "mlir::tor::DesignOp"> {
-  let summary = "maxi burst inference";
-  let constructor = "mlir::createMAxiBurstInferPass()";
-  let dependentDialects = ["mlir::tor::TORDialect"];
-}
+// def MAxiBurstInfer : Pass<"maxi-burst-infer", "mlir::tor::DesignOp"> {
+//   let summary = "maxi burst inference";
+//   let constructor = "mlir::createMAxiBurstInferPass()";
+//   let dependentDialects = ["mlir::tor::TORDialect"];
+// }
 
 def TORDump : Pass<"dump-tor", "mlir::tor::DesignOp"> {
   let summary = "Dump TOR information";
@@ -106,15 +106,15 @@ def TORDump : Pass<"dump-tor", "mlir::tor::DesignOp"> {
   ];
 }
 
-def RemoveRedundantAccess: Pass<"remove-access", "mlir::ModuleOp"> {
-  let summary = "Remove redundant access";
-  let constructor = "mlir::createRemoveRedundantAccessPass()";
-  let dependentDialects = ["mlir::tor::TORDialect"];
-  let options = [
-    Option<"mode", "mode", "std::string", "\"conservative\"",
-     "Opt mode, include none, conservative(default), aggressive">
-  ];
-}
+// def RemoveRedundantAccess: Pass<"remove-access", "mlir::ModuleOp"> {
+//   let summary = "Remove redundant access";
+//   let constructor = "mlir::createRemoveRedundantAccessPass()";
+//   let dependentDialects = ["mlir::tor::TORDialect"];
+//   let options = [
+//     Option<"mode", "mode", "std::string", "\"conservative\"",
+//      "Opt mode, include none, conservative(default), aggressive">
+//   ];
+// }
 
 def ConvertAffineFor: Pass<"lower-affine-for"> {
   let summary = "lower affine, and for save II attr";
@@ -140,23 +140,23 @@ def RemoveNoUseReinterpretCast: Pass<"lower-reinterpret-cast"> {
     "memref::MemRefDialect"];
 }
 
-def EmbedWeightsAndOptimizeLoad: Pass<"embed-weights-optimize-load"> {
-  let summary = "Embed weights and optimize load";
-  let constructor = "mlir::createEmbedWeightsAndOptimizeLoadPass()";
-    let options = [
-    Option<"data_path", "data_path", "std::string", "\"data_path\"", "data path">,
-  ];
-}
+// def EmbedWeightsAndOptimizeLoad: Pass<"embed-weights-optimize-load"> {
+//   let summary = "Embed weights and optimize load";
+//   let constructor = "mlir::createEmbedWeightsAndOptimizeLoadPass()";
+//     let options = [
+//     Option<"data_path", "data_path", "std::string", "\"data_path\"", "data path">,
+//   ];
+// }
 
 // def TosaReshapeNoDataLayout: Pass<"tosa-reshape-no-data-layout","mlir::ModuleOp"> {
 //   let summary = "Lower tosa.reshape without data layout";
 //   let constructor = "mlir::createTosaReshapeNoDataLayoutPass()";
 // }
 
-def RemoveFuncArg: Pass<"remove-func-arg", "mlir::ModuleOp"> {
-  let summary = "Remove function argument";
-  let constructor = "mlir::createRemoveFuncArgPass()";
-}
+// def RemoveFuncArg: Pass<"remove-func-arg", "mlir::ModuleOp"> {
+//   let summary = "Remove function argument";
+//   let constructor = "mlir::createRemoveFuncArgPass()";
+// }
 def MinMaxToCmpSlect: Pass<"min-max-to-cmp-select", "mlir::ModuleOp"> {
   let summary = "min max to cmp select";
   let constructor = "mlir::createMinMaxToCmpSelectPass()";
@@ -316,10 +316,10 @@ def ConvertMathToCall : Pass<"convert-math-to-call", "mlir::ModuleOp"> {
 //   ];
 // }
 
-def IgnoreAliasingLICM : Pass<"ignore-aliasing-licm", "mlir::ModuleOp"> {
-  let summary = "LICM(Loop-Invariant Code Motion) on known loops with ignore aliasing";
-  let constructor = "mlir::createIgnoreAliasingLICMPass()";
-}
+// def IgnoreAliasingLICM : Pass<"ignore-aliasing-licm", "mlir::ModuleOp"> {
+//   let summary = "LICM(Loop-Invariant Code Motion) on known loops with ignore aliasing";
+//   let constructor = "mlir::createIgnoreAliasingLICMPass()";
+// }
 
 def RaiseSCFToAffine : Pass<"raise-scf-to-affine"> {
   let summary = "Raise SCF loops to Affine loops when possible";
