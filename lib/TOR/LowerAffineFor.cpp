@@ -1,8 +1,7 @@
-#ifndef HuangRuiBo20240118
 // This file is copy from
 // mlir/lib/Conversion/AffineToStandard/AffineToStandard.cpp, and modified
 // AffineForLowering pattern
-#endif
+
 // #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -16,14 +15,11 @@
 #include "mlir/Transforms/DialectConversion.h"
 // #include "mlir/Transforms/Passes.h"
 
-
-#ifndef HuangRuiBo20240118
 #include "TOR/PassDetail.h"
 #include "TOR/Passes.h"
 #include "TOR/Utils.h"
 
 #define DEBUG_TYPE "lower-affine-for"
-#endif
 
 namespace {
 
@@ -156,11 +152,9 @@ public:
     Value step = rewriter.create<arith::ConstantIndexOp>(loc, op.getStep().getSExtValue());
     auto scfForOp = rewriter.create<scf::ForOp>(loc, lowerBound, upperBound,
                                                 step, op.getRegionIterArgs());
-#ifndef HuangRuiBo20240118
     addHlsAttrWithNewOp(scfForOp, op);
     // need add pipeline=1 to TOR
     addHlsPipelineAttrWithNewOp(scfForOp, op);
-#endif
     rewriter.eraseBlock(scfForOp.getBody());
     rewriter.inlineRegionBefore(op.getRegion(), scfForOp.getRegion(),
                                 scfForOp.getRegion().end());

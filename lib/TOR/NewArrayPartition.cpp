@@ -25,7 +25,7 @@
 #include "TOR/Passes.h"
 #include "TOR/TORDialect.h"
 #include "TOR/Utils.h"
-#include "AffineModSimplify.h"
+#include "TOR/AffineModSimplify.h"
 
 #include <iostream>
 #include <map>

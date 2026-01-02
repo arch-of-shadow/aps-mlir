@@ -333,7 +333,6 @@ static inline bool hasElse(mlir::affine::AffineIfOp op) {
   return op.getElseRegion().getBlocks().size() > 0;
 }
 
-#ifndef HuangRuiBo20240118
 static inline bool hasHlsAttrWithNewOp(mlir::Operation *op) {
   return op->hasAttr("II") || op->hasAttr("unroll") ||
          op->hasAttr("dataflow") || op->hasAttr("flatten") ||
@@ -382,4 +381,3 @@ static inline void addHlsPipelineAttrWithNewOp(mlir::Operation *newOp,
                        mlir::IntegerType::get(op->getContext(), 32), 1));
   }
 }
-#endif

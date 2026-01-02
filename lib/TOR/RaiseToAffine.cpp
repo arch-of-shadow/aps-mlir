@@ -888,9 +888,7 @@ struct ForOpRaising : public OpRewritePattern<scf::ForOp> {
           loop.getLoc(), lbs, lbMap, ubs, ubMap, getStep(loop.getStep()),
           loop.getInits());
 
-#ifndef HuangRuiBo20240604Affine
       addHlsAttrWithNewOp(affineLoop, loop);
-#endif
       auto mergedYieldOp =
           cast<scf::YieldOp>(loop.getRegion().front().getTerminator());
 
