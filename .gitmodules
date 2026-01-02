@@ -4,3 +4,6 @@
 [submodule "thirdparty/json"]
 	path = thirdparty/json
 	url = https://github.com/nlohmann/json.git
+[submodule "thirdparty/lp_solve_5.5"]
+	path = thirdparty/lp_solve_5.5
+	url = git@github.com:lp-solve/lp_solve.git
