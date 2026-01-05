@@ -317,11 +317,17 @@ public:
   bool canHandle(Operation *op) const override;
 
 private:
-  /// Handle regular memory load
+  /// Handle SPM load request (first phase of split memory load)
   LogicalResult
-  generateMemLoad(aps::MemLoad op, mlir::OpBuilder &b, Location loc,
-                  int64_t slot,
-                  llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+  generateSpmLoadReq(aps::SpmLoadReq op, mlir::OpBuilder &b, Location loc,
+                     int64_t slot,
+                     llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Handle SPM load collect (second phase of split memory load)
+  LogicalResult
+  generateSpmLoadCollect(aps::SpmLoadCollect op, mlir::OpBuilder &b, Location loc,
+                         int64_t slot,
+                         llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Handle regular memory store
   LogicalResult

@@ -97,6 +97,8 @@ void APSToCMT2GenPass::runOnOperation() {
   Module *poolModule = memoryPoolResult.poolModule;
   memEntryMap = std::move(memoryPoolResult.memEntryMap);
 
+  auto glblRegister = generateGlobalRegisterList(circuit, moduleOp, memoryMapOp);
+
   // Generate RoCC adapter module
   llvm::SmallVector<unsigned long, 4> opcodes = {}; // Example opcodes
   moduleOp.walk([&](tor::FuncOp funcOp) {
@@ -111,7 +113,7 @@ void APSToCMT2GenPass::runOnOperation() {
 
   // Generate rule-based main module for TOR functions
   auto instances = generateRuleBasedMainModule(
-      moduleOp, circuit, poolModule, roccAdapterModule, memoryAdapterModule);
+      moduleOp, circuit, poolModule, roccAdapterModule, memoryAdapterModule, glblRegister);
   auto *mainModule = instances.mainModule;
   auto *poolInstance = instances.poolInstance;
   auto *roccInstance = instances.roccInstance;
@@ -150,7 +152,7 @@ void APSToCMT2GenPass::runOnOperation() {
 /// Generate rule-based main module for TOR functions
 MainModuleInstances APSToCMT2GenPass::generateRuleBasedMainModule(
     ModuleOp moduleOp, Circuit &circuit, Module *poolModule, Module *roccModule,
-    Module *hellaMemModule) {
+    Module *hellaMemModule, SmallVector<std::tuple<std::string, int8_t>, 8> glblRegister) {
   // Create main module in the same circuit
   auto *mainModule = circuit.addModule("main");
 
@@ -165,6 +167,15 @@ MainModuleInstances APSToCMT2GenPass::generateRuleBasedMainModule(
       mainModule->defineInterfaceDecl("dma", "BurstDMAController");
   mainModule->defineInterfaceDecl("rocc_resp", "roccRespItfc");
   mainModule->defineInterfaceDecl("hella_cmd", "hellaCmdItfc");
+
+  auto &builder = mainModule->getBuilder();
+  auto savedIP = builder.saveInsertionPoint();
+  for (auto &[regName, regWidth] : glblRegister) {
+    auto *regMod = STLLibrary::createRegModule(regWidth, 0, circuit);
+    mainModule->addInstance("glbl_reg_" + regName, regMod,
+                            {mainClk.getValue(), mainRst.getValue()});
+  }
+  builder.restoreInsertionPoint(savedIP);
 
   // Add scratchpad pool instance - use the pool module we created earlier
   auto *poolInstance = mainModule->addInstance(

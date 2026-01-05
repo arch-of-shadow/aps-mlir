@@ -147,9 +147,14 @@ private:
                                                   Circuit &circuit,
                                                   Module *poolModule,
                                                   Module *roccModule,
-                                                  Module *hellaMemModule);
+                                                  Module *hellaMemModule,
+                                                  SmallVector<std::tuple<std::string, int8_t>, 8> glblRegister);
   /// Generate the CMT2 memory pool module
   MemoryPoolResult generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
+                                      aps::MemoryMapOp memoryMapOp);
+
+  /// Generate the CMT2 memory pool module
+  SmallVector<std::tuple<std::string, int8_t>, 8> generateGlobalRegisterList(Circuit &circuit, ModuleOp moduleOp,
                                       aps::MemoryMapOp memoryMapOp);
 
   /// Add burst read/write methods to main module

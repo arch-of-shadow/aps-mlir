@@ -650,8 +650,8 @@ bool BlockHandler::isVirtualValue(Value value) {
       return true;
     }
 
-    // Special handling for interface operations - don't track their tokens as cross-block values
-    if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq>(defOp)) {
+    // Special handling for interface/SPM operations - don't track their tokens as cross-block values
+    if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq, aps::SpmLoadReq>(defOp)) {
       // Don't track the request token as a produced value - it should only be consumed locally
       return true;
     }
@@ -797,8 +797,8 @@ void BlockHandler::analyzeOperationInBlock(Operation *op, BlockInfo &block) {
     }
   }
 
-  // Special handling for interface operations - don't track their tokens as cross-block values
-  if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq>(op)) {
+  // Special handling for interface/SPM request operations - don't track their tokens as cross-block values
+  if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq, aps::SpmLoadReq>(op)) {
     // Don't track the request token as a produced value - it should only be consumed locally
     return;
   }

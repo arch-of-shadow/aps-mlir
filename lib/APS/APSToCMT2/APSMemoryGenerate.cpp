@@ -47,7 +47,7 @@ bool APSToCMT2GenPass::extractMemoryParameters(memref::GlobalOp globalOp,
   depth = memrefType.getShape()[0];
 
   // Calculate address width: ceil(log2(depth)), make sure addrWidth are positive
-  addrWidth = (depth <= 1) ? 1 : llvm::Log2_32_Ceil(depth);
+  addrWidth = llvm::Log2_32_Ceil(depth);
 
   return true;
 }
@@ -74,6 +74,7 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
   auto &builder = wrapper->getBuilder();
   auto loc = wrapper->getLoc();
   auto u64Type = UIntType::get(builder.getContext(), 64);
+  auto u32Type = UIntType::get(builder.getContext(), 32);
 
   uint32_t elementsPerBurst = 64 / entryInfo.dataWidth;
 
@@ -103,42 +104,36 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
     auto *writeAddrWire =
         wrapper->addInstance("write_addr_wire", wireAddrMod, {});
 
-    // burst_read method: returns 64-bit aligned data if address is for this
-    // bank, else 0
-    auto *burstRead =
-        wrapper->addMethod("burst_read", {{"addr", u64Type}}, {u64Type});
+    // burst_read_0 method: calculates local addr, calls rd0 to initiate read
+    auto *burstRead0 =
+        wrapper->addMethod("burst_read_0", {{"addr", u32Type}}, {});
 
-    burstRead->guard([&](mlir::OpBuilder &guardBuilder,
-                         llvm::ArrayRef<mlir::BlockArgument> args) {
+    burstRead0->guard([&](mlir::OpBuilder &guardBuilder,
+                          llvm::ArrayRef<mlir::BlockArgument> args) {
       auto trueVal = UInt::constant(1, 1, guardBuilder, wrapper->getLoc());
       guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
     });
 
-    burstRead->body([&](mlir::OpBuilder &bodyBuilder,
-                        llvm::ArrayRef<mlir::BlockArgument> args) {
+    burstRead0->body([&](mlir::OpBuilder &bodyBuilder,
+                         llvm::ArrayRef<mlir::BlockArgument> args) {
       auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
 
       auto elementSizeConst =
-          UInt::constant(entryInfo.dataWidth / 8, 64, bodyBuilder,
+          UInt::constant(entryInfo.dataWidth / 8, 32, bodyBuilder,
                          wrapper->getLoc()); // Element size in bytes
-      auto numBanksConst = UInt::constant(entryInfo.numBanks, 64, bodyBuilder,
+      auto numBanksConst = UInt::constant(entryInfo.numBanks, 32, bodyBuilder,
                                           wrapper->getLoc());
       auto myBankConst =
-          UInt::constant(bankIdx, 64, bodyBuilder, wrapper->getLoc());
-      auto elementsPerBurstConst =
-          UInt::constant(elementsPerBurst, 64, bodyBuilder, wrapper->getLoc());
+          UInt::constant(bankIdx, 32, bodyBuilder, wrapper->getLoc());
 
       // element_idx = addr / element_size
       auto elementIdx = addr / elementSizeConst;
       // start_bank_idx = element_idx % num_banks
       auto startBankIdx = elementIdx % numBanksConst;
 
-      // Check if this bank participates: participatesInBurst = (position <
-      // elements_per_burst) position = (my_bank - start_bank_idx + num_banks) %
-      // num_banks
+      // position = (my_bank - start_bank_idx + num_banks) % num_banks
       auto position =
           (myBankConst - startBankIdx + numBanksConst) % numBanksConst;
-      auto isMine = position < elementsPerBurstConst;
 
       // Calculate local address: my_element_idx = element_idx + position;
       // local_addr = my_element_idx / num_banks
@@ -146,11 +141,54 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
       auto localAddr = myElementIdx / numBanksConst;
       auto localAddrTrunc = localAddr.bits(entryInfo.addrWidth - 1, 0);
 
-      auto bankDataValues = bankInst->callMethod(
-          "read", {localAddrTrunc.getValue()}, bodyBuilder);
+      // Call rd0 to initiate read
+      bankInst->callMethod("rd0", {localAddrTrunc.getValue()}, bodyBuilder);
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    burstRead0->finalize();
+
+    // burst_read_1 method: gets data from rd1, aligns based on addr, returns
+    auto *burstRead1 =
+        wrapper->addMethod("burst_read_1", {{"addr", u32Type}}, {u64Type});
+
+    burstRead1->guard([&](mlir::OpBuilder &guardBuilder,
+                          llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto trueVal = UInt::constant(1, 1, guardBuilder, wrapper->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    });
+
+    burstRead1->body([&](mlir::OpBuilder &bodyBuilder,
+                         llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
+
+      auto elementSizeConst =
+          UInt::constant(entryInfo.dataWidth / 8, 32, bodyBuilder,
+                         wrapper->getLoc()); // Element size in bytes
+      auto numBanksConst = UInt::constant(entryInfo.numBanks, 32, bodyBuilder,
+                                          wrapper->getLoc());
+      auto myBankConst =
+          UInt::constant(bankIdx, 32, bodyBuilder, wrapper->getLoc());
+      auto elementsPerBurstConst =
+          UInt::constant(elementsPerBurst, 32, bodyBuilder, wrapper->getLoc());
+
+      // Recalculate position and isMine from addr
+      // element_idx = addr / element_size
+      auto elementIdx = addr / elementSizeConst;
+      // start_bank_idx = element_idx % num_banks
+      auto startBankIdx = elementIdx % numBanksConst;
+
+      // position = (my_bank - start_bank_idx + num_banks) % num_banks
+      auto position =
+          (myBankConst - startBankIdx + numBanksConst) % numBanksConst;
+      auto isMine = position < elementsPerBurstConst;
+
+      // Get data from rd1
+      auto bankDataValues = bankInst->callValue("rd1", bodyBuilder);
       auto rawData = Signal(bankDataValues[0], &bodyBuilder, loc);
 
-      // Helper 5: Calculate bit position: position * data_width
+      // Calculate bit position: position * data_width
       auto elementOffsetInBurst = position;
 
       // Generate aligned data for each possible offset position
@@ -183,7 +221,7 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
         // Mux to select correct positioned data
         alignedData = positionedDataValues[0];
         for (uint32_t i = 1; i < elementsPerBurst; ++i) {
-          auto offsetConst = UInt::constant(i, 64, bodyBuilder, loc);
+          auto offsetConst = UInt::constant(i, 32, bodyBuilder, loc);
           auto isThisOffset = elementOffsetInBurst == offsetConst;
           alignedData =
               isThisOffset
@@ -202,11 +240,11 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
           loc, mlir::ValueRange{resultOp.getValue()});
     });
 
-    burstRead->finalize();
+    burstRead1->finalize();
 
     // burst_write method
     auto *burstWrite = wrapper->addMethod(
-        "burst_write", {{"addr", u64Type}, {"data", u64Type}}, {});
+        "burst_write", {{"addr", u32Type}, {"data", u64Type}}, {});
 
     burstWrite->guard([&](mlir::OpBuilder &guardBuilder,
                           llvm::ArrayRef<mlir::BlockArgument> args) {
@@ -219,16 +257,16 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
       auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
       auto data = Signal(args[1], &bodyBuilder, wrapper->getLoc());
 
-      // Helper: Create constants using Signal
+      // Helper: Create constants using Signal (32-bit for address calculations)
       auto elementSizeConst =
-          UInt::constant(entryInfo.dataWidth / 8, 64, bodyBuilder,
+          UInt::constant(entryInfo.dataWidth / 8, 32, bodyBuilder,
                          wrapper->getLoc()); // Element size in bytes
-      auto numBanksConst = UInt::constant(entryInfo.numBanks, 64, bodyBuilder,
+      auto numBanksConst = UInt::constant(entryInfo.numBanks, 32, bodyBuilder,
                                           wrapper->getLoc());
       auto myBankConst =
-          UInt::constant(bankIdx, 64, bodyBuilder, wrapper->getLoc());
+          UInt::constant(bankIdx, 32, bodyBuilder, wrapper->getLoc());
       auto elementsPerBurstConst =
-          UInt::constant(elementsPerBurst, 64, bodyBuilder, wrapper->getLoc());
+          UInt::constant(elementsPerBurst, 32, bodyBuilder, wrapper->getLoc());
 
       // Helper 1: element_idx = addr / element_size
       auto elementIdx = addr / elementSizeConst;
@@ -263,7 +301,7 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
       auto myData = dataSlices[0];
       for (uint32_t i = 1; i < elementsPerBurst; ++i) {
         auto offsetConst =
-            UInt::constant(i, 64, bodyBuilder, wrapper->getLoc());
+            UInt::constant(i, 32, bodyBuilder, wrapper->getLoc());
         auto isThisOffset = (elementOffsetInBurst == offsetConst);
         myData = isThisOffset.mux(dataSlices[i], myData);
       }
@@ -316,31 +354,49 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
     writeRule->finalize();
   }
 
-  // Direct bank-level read method (no burst translation), exposes native port
+  // Direct bank-level read methods (no burst translation), exposes native port
+  // Split into rd0 (request) and rd1 (response) for 2-cycle memory
   auto bankAddrType = UIntType::get(builder.getContext(), entryInfo.addrWidth);
   auto bankDataType = UIntType::get(builder.getContext(), entryInfo.dataWidth);
 
-  auto *directReadMethod =
-      wrapper->addMethod("bank_read", {{"addr", bankAddrType}}, {bankDataType});
+  // bank_read_0: Initiate read request with address (calls rd0)
+  auto *directReadMethod0 =
+      wrapper->addMethod("bank_read_0", {{"addr", bankAddrType}}, {});
 
-  directReadMethod->guard([&](mlir::OpBuilder &guardBuilder,
-                              llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
+  directReadMethod0->guard([&](mlir::OpBuilder &guardBuilder,
+                               llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
     auto trueConst = UInt::constant(1, 1, guardBuilder, wrapper->getLoc());
     guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
   });
 
-  directReadMethod->body(
+  directReadMethod0->body(
       [&, bankInst](mlir::OpBuilder &bodyBuilder,
                     llvm::ArrayRef<mlir::BlockArgument> args) {
         auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
 
-        // Directly drive the memory bank read ports.
-        auto readValues =
-            bankInst->callMethod("read", {addr.getValue()}, bodyBuilder);
-        bodyBuilder.create<circt::cmt2::ReturnOp>(loc, readValues[0]);
+        // Call rd0 to initiate read request
+        bankInst->callMethod("rd0", {addr.getValue()}, bodyBuilder);
+        bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
       });
 
-  directReadMethod->finalize();
+  directReadMethod0->finalize();
+
+  // bank_read_1: Get read data (calls rd1 value)
+  auto *directReadValue1 =
+      wrapper->addValue("bank_read_1", {bankDataType});
+
+  directReadValue1->guard([&](mlir::OpBuilder &guardBuilder) {
+    auto trueConst = UInt::constant(1, 1, guardBuilder, wrapper->getLoc());
+    guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
+  });
+
+  directReadValue1->body([&, bankInst](mlir::OpBuilder &bodyBuilder) {
+    // Call rd1 value to get read data
+    auto readValues = bankInst->callValue("rd1", bodyBuilder);
+    bodyBuilder.create<circt::cmt2::ReturnOp>(loc, readValues[0]);
+  });
+
+  directReadValue1->finalize();
 
   auto *directWriteMethod = wrapper->addMethod(
       "bank_write", {{"addr", bankAddrType}, {"data", bankDataType}}, {});
@@ -368,7 +424,8 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
   if (burstEnable) {
     // Ensure burst accesses get scheduled ahead of direct bank accesses.
     wrapper->setPrecedence(
-        {{"burst_read", "bank_read"}, {"burst_write", "bank_write"}});
+        {{"burst_read_0", "burst_read_1"}, {"burst_read_1", "bank_read_0"},
+         {"bank_read_0", "bank_read_1"}, {"burst_write", "bank_write"}});
   }
 
   return wrapper;
@@ -410,11 +467,12 @@ Module *APSToCMT2GenPass::generateMemoryEntryModule(
       burstEnable = false;
     }
   }
-
-  if (entryInfo.addrWidth == 0) {
-    // only one element
-    burstEnable = false;
-  }
+  
+  // Single element (access via globalload/global store) has been moved out
+  // if (entryInfo.addrWidth == 0) {
+  //   // only one element
+  //   burstEnable = false;
+  // }
 
   // Create submodule for this memory entry
   std::string moduleName = "memory_" + entryInfo.name;
@@ -428,6 +486,7 @@ Module *APSToCMT2GenPass::generateMemoryEntryModule(
   auto loc = entryModule->getLoc();
 
   auto u64Type = UIntType::get(builder.getContext(), 64);
+  auto u32Type = UIntType::get(builder.getContext(), 32);
 
   // Create external module declaration at circuit level (BEFORE creating
   // instances) Save insertion point first
@@ -438,7 +497,7 @@ Module *APSToCMT2GenPass::generateMemoryEntryModule(
   memParams["addr_width"] = entryInfo.addrWidth;
   memParams["depth"] = entryInfo.depth;
 
-  auto memMod = STLLibrary::createMem1r1w0cModule(
+  auto memMod = STLLibrary::createMem1r1w1cARegModule(
       entryInfo.dataWidth, entryInfo.addrWidth, entryInfo.depth, circuit);
 
   // Restore insertion point back to entry module
@@ -465,30 +524,55 @@ Module *APSToCMT2GenPass::generateMemoryEntryModule(
   }
 
   if (burstEnable) {
-    // Create burst_read method: forwards addr to all banks, ORs results
-    auto *burstRead =
-        entryModule->addMethod("burst_read", {{"addr", u64Type}}, {u64Type});
+    // Create burst_read_0 method: forwards addr to all bank wrappers' burst_read_0
+    auto *burstRead0 =
+        entryModule->addMethod("burst_read_0", {{"addr", u32Type}}, {});
 
-    // Guard: always ready (address range checked at parent level)
-    burstRead->guard([&](mlir::OpBuilder &guardBuilder,
-                        llvm::ArrayRef<mlir::BlockArgument> args) {
+    burstRead0->guard([&](mlir::OpBuilder &guardBuilder,
+                          llvm::ArrayRef<mlir::BlockArgument> args) {
       auto trueConst = UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
       guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
 
-    // Body: Simple OR aggregation of all bank wrapper outputs
-    // Each wrapper returns aligned 64-bit data if address is for that bank, else
-    // 0
-    burstRead->body([&](mlir::OpBuilder &bodyBuilder,
-                        llvm::ArrayRef<mlir::BlockArgument> args) {
+    burstRead0->body([&](mlir::OpBuilder &bodyBuilder,
+                         llvm::ArrayRef<mlir::BlockArgument> args) {
       auto addr = Signal(args[0], &bodyBuilder, entryModule->getLoc());
 
-      // Use CallOp to call wrapper methods (Instance::callMethod doesn't work for
-      // methods with return values)
+      // Forward addr to all bank wrappers' burst_read_0
+      auto methodSymbol =
+          mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_read_0");
+      for (size_t i = 0; i < entryInfo.numBanks; ++i) {
+        auto calleeSymbol = mlir::FlatSymbolRefAttr::get(
+            bodyBuilder.getContext(), wrapperInstances[i]->getName());
+        bodyBuilder.create<circt::cmt2::CallOp>(
+            loc, mlir::TypeRange{}, mlir::ValueRange{addr.getValue()},
+            calleeSymbol, methodSymbol, nullptr, nullptr);
+      }
+
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    burstRead0->finalize();
+
+    // Create burst_read_1 method: forwards addr to all wrappers' burst_read_1, ORs results
+    auto *burstRead1 =
+        entryModule->addMethod("burst_read_1", {{"addr", u32Type}}, {u64Type});
+
+    burstRead1->guard([&](mlir::OpBuilder &guardBuilder,
+                          llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto trueConst = UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
+    });
+
+    burstRead1->body([&](mlir::OpBuilder &bodyBuilder,
+                         llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto addr = Signal(args[0], &bodyBuilder, entryModule->getLoc());
+
+      // Call all wrappers' burst_read_1 and OR results
       auto calleeSymbol0 = mlir::FlatSymbolRefAttr::get(
           bodyBuilder.getContext(), wrapperInstances[0]->getName());
       auto methodSymbol =
-          mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_read");
+          mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_read_1");
       auto callOp0 = bodyBuilder.create<circt::cmt2::CallOp>(
           loc, mlir::TypeRange{u64Type}, mlir::ValueRange{addr.getValue()},
           calleeSymbol0, methodSymbol, nullptr, nullptr);
@@ -510,10 +594,10 @@ Module *APSToCMT2GenPass::generateMemoryEntryModule(
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc, result.getValue());
     });
 
-    burstRead->finalize();
+    burstRead1->finalize();
     // Create burst_write method: forwards data to all banks
     auto *burstWrite = entryModule->addMethod(
-        "burst_write", {{"addr", u64Type}, {"data", u64Type}}, {});
+        "burst_write", {{"addr", u32Type}, {"data", u64Type}}, {});
 
     burstWrite->guard([&](mlir::OpBuilder &guardBuilder,
                           llvm::ArrayRef<mlir::BlockArgument> args) {
@@ -544,24 +628,38 @@ Module *APSToCMT2GenPass::generateMemoryEntryModule(
 
     burstWrite->finalize();
   } else {
-    // dummy burst read method, return a dummy value 0
-    auto *burstRead =
-        entryModule->addMethod("burst_read", {{"addr", u64Type}}, {u64Type});
-    burstRead->guard([&](mlir::OpBuilder &guardBuilder,
-                        llvm::ArrayRef<mlir::BlockArgument> args) {
+    // dummy burst_read_0 method, do nothing
+    auto *burstRead0 =
+        entryModule->addMethod("burst_read_0", {{"addr", u32Type}}, {});
+    burstRead0->guard([&](mlir::OpBuilder &guardBuilder,
+                          llvm::ArrayRef<mlir::BlockArgument> args) {
       auto trueConst = UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
       guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
-    burstRead->body([&](mlir::OpBuilder &bodyBuilder,
-                        llvm::ArrayRef<mlir::BlockArgument> args) {
+    burstRead0->body([&](mlir::OpBuilder &bodyBuilder,
+                         llvm::ArrayRef<mlir::BlockArgument> args) {
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+    burstRead0->finalize();
+
+    // dummy burst_read_1 method, return a dummy value 0
+    auto *burstRead1 =
+        entryModule->addMethod("burst_read_1", {{"addr", u32Type}}, {u64Type});
+    burstRead1->guard([&](mlir::OpBuilder &guardBuilder,
+                          llvm::ArrayRef<mlir::BlockArgument> args) {
+      auto trueConst = UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
+    });
+    burstRead1->body([&](mlir::OpBuilder &bodyBuilder,
+                         llvm::ArrayRef<mlir::BlockArgument> args) {
       auto dummyval = UInt::constant(0, 64, bodyBuilder, entryModule->getLoc());
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc, dummyval.getValue());
     });
-    burstRead->finalize();
-    
+    burstRead1->finalize();
+
     // dummy burst write method, do nothing
     auto *burstWrite = entryModule->addMethod(
-        "burst_write", {{"addr", u64Type}, {"data", u64Type}}, {});
+        "burst_write", {{"addr", u32Type}, {"data", u64Type}}, {});
 
     burstWrite->guard([&](mlir::OpBuilder &guardBuilder,
                           llvm::ArrayRef<mlir::BlockArgument> args) {
@@ -578,39 +676,66 @@ Module *APSToCMT2GenPass::generateMemoryEntryModule(
   }
 
   // Expose per-bank direct read/write methods that bypass burst translation.
+  // Read is split into bank_read_0 (request) and bank_read_1 (response) for 2-cycle memory.
   auto bankAddrType = UIntType::get(builder.getContext(), entryInfo.addrWidth);
   auto bankDataType = UIntType::get(builder.getContext(), entryInfo.dataWidth);
 
   for (size_t bankIdx = 0; bankIdx < entryInfo.numBanks; ++bankIdx) {
-    std::string bankReadName = "bank_read_" + std::to_string(bankIdx);
+    std::string bankRead0Name = "bank_read_0_" + std::to_string(bankIdx);
+    std::string bankRead1Name = "bank_read_1_" + std::to_string(bankIdx);
     std::string bankWriteName = "bank_write_" + std::to_string(bankIdx);
 
-    auto *bankReadMethod = entryModule->addMethod(
-        bankReadName, {{"addr", bankAddrType}}, {bankDataType});
+    // bank_read_0: Initiate read request with address (calls wrapper's bank_read_0)
+    auto *bankRead0Method = entryModule->addMethod(
+        bankRead0Name, {{"addr", bankAddrType}}, {});
 
-    bankReadMethod->guard([&](mlir::OpBuilder &guardBuilder,
-                              llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
+    bankRead0Method->guard([&](mlir::OpBuilder &guardBuilder,
+                               llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
       auto trueConst =
           UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
       guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
     });
 
-    bankReadMethod->body([&,
-                          bankIdx](mlir::OpBuilder &bodyBuilder,
-                                   llvm::ArrayRef<mlir::BlockArgument> args) {
+    bankRead0Method->body([&,
+                           bankIdx](mlir::OpBuilder &bodyBuilder,
+                                    llvm::ArrayRef<mlir::BlockArgument> args) {
       auto addr = Signal(args[0], &bodyBuilder, entryModule->getLoc());
       auto calleeSymbol = mlir::FlatSymbolRefAttr::get(
           bodyBuilder.getContext(), wrapperInstances[bankIdx]->getName());
       auto methodSymbol =
-          mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "bank_read");
-      auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
-          loc, mlir::TypeRange{bankDataType}, mlir::ValueRange{addr.getValue()},
+          mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "bank_read_0");
+      bodyBuilder.create<circt::cmt2::CallOp>(
+          loc, mlir::TypeRange{}, mlir::ValueRange{addr.getValue()},
           calleeSymbol, methodSymbol, bodyBuilder.getArrayAttr({}),
+          bodyBuilder.getArrayAttr({}));
+      bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    bankRead0Method->finalize();
+
+    // bank_read_1: Get read data (calls wrapper's bank_read_1 value)
+    auto *bankRead1Value = entryModule->addValue(
+        bankRead1Name, {bankDataType});
+
+    bankRead1Value->guard([&](mlir::OpBuilder &guardBuilder) {
+      auto trueConst =
+          UInt::constant(1, 1, guardBuilder, entryModule->getLoc());
+      guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
+    });
+
+    bankRead1Value->body([&, bankIdx](mlir::OpBuilder &bodyBuilder) {
+      auto calleeSymbol = mlir::FlatSymbolRefAttr::get(
+          bodyBuilder.getContext(), wrapperInstances[bankIdx]->getName());
+      auto valueSymbol =
+          mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "bank_read_1");
+      auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
+          loc, mlir::TypeRange{bankDataType}, mlir::ValueRange{},
+          calleeSymbol, valueSymbol, bodyBuilder.getArrayAttr({}),
           bodyBuilder.getArrayAttr({}));
       bodyBuilder.create<circt::cmt2::ReturnOp>(loc, callOp.getResult(0));
     });
 
-    bankReadMethod->finalize();
+    bankRead1Value->finalize();
 
     auto *bankWriteMethod = entryModule->addMethod(
         bankWriteName, {{"addr", bankAddrType}, {"data", bankDataType}}, {});
@@ -659,6 +784,7 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
   auto &builder = poolModule->getBuilder();
   auto loc = poolModule->getLoc();
   auto u64Type = UIntType::get(builder.getContext(), 64);
+  auto u32Type = UIntType::get(builder.getContext(), 32);
 
   // Step 1: Create all memory entry submodules
   // Save the insertion point first, since circuit.addModule() will change it
@@ -694,19 +820,73 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
     entryInstances.push_back(entryInst);
   }
 
-  // Create top-level burst_read method that dispatches to correct memory entry
-  auto *topBurstRead =
-      poolModule->addMethod("burst_read", {{"addr", u64Type}}, {u64Type});
+  // Create a register to store the burst read address for use in burst_read_1
+  auto savedIPForReg = builder.saveInsertionPoint();
+  auto *burstAddrRegMod = STLLibrary::createRegModule(32, 0, circuit);
+  builder.restoreInsertionPoint(savedIPForReg);
 
-  topBurstRead->guard([&](mlir::OpBuilder &guardBuilder,
-                          llvm::ArrayRef<mlir::BlockArgument> args) {
+  auto *burstAddrReg = poolModule->addInstance(
+      "burst_read_addr_reg", burstAddrRegMod, {clk.getValue(), rst.getValue()});
+
+  // Create top-level burst_read_0 method: stores addr in register, dispatches to entries
+  auto *topBurstRead0 =
+      poolModule->addMethod("burst_read_0", {{"addr", u32Type}}, {});
+
+  topBurstRead0->guard([&](mlir::OpBuilder &guardBuilder,
+                           llvm::ArrayRef<mlir::BlockArgument> args) {
     auto trueConst = UInt::constant(1, 1, guardBuilder, poolModule->getLoc());
     guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
   });
 
-  topBurstRead->body([&](mlir::OpBuilder &bodyBuilder,
-                         llvm::ArrayRef<mlir::BlockArgument> args) {
+  topBurstRead0->body([&](mlir::OpBuilder &bodyBuilder,
+                          llvm::ArrayRef<mlir::BlockArgument> args) {
     auto addr = Signal(args[0], &bodyBuilder, loc);
+
+    // Store address in register for burst_read_1 to use
+    burstAddrReg->callMethod("write", {addr.getValue()}, bodyBuilder);
+
+    // Broadcast to all memory entries (selection happens in burst_read_1)
+    for (size_t i = 0; i < memEntryInfos.size(); ++i) {
+      const auto &entryInfo = memEntryInfos[i];
+      auto *entryInst = entryInstances[i];
+
+      uint32_t entryStart = entryInfo.baseAddress;
+
+      // Calculate relative address for this entry
+      auto startConst = UInt::constant(entryStart, 32, bodyBuilder, loc);
+      auto relAddr = (addr - startConst).bits(31, 0);
+
+      // Broadcast burst_read_0 to all entries
+      auto calleeSymbol = mlir::FlatSymbolRefAttr::get(
+          bodyBuilder.getContext(), entryInst->getName());
+      auto methodSymbol = mlir::FlatSymbolRefAttr::get(
+          bodyBuilder.getContext(), "burst_read_0");
+      bodyBuilder.create<circt::cmt2::CallOp>(
+          loc, mlir::TypeRange{}, mlir::ValueRange{relAddr.getValue()},
+          calleeSymbol, methodSymbol, nullptr, nullptr);
+    }
+
+    bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+  });
+
+  topBurstRead0->finalize();
+
+  // Create top-level burst_read_1 method: reads addr from register, gathers from entries
+  auto *topBurstRead1 =
+      poolModule->addMethod("burst_read_1", {}, {u64Type});
+
+  topBurstRead1->guard([&](mlir::OpBuilder &guardBuilder,
+                           llvm::ArrayRef<mlir::BlockArgument> args) {
+    auto trueConst = UInt::constant(1, 1, guardBuilder, poolModule->getLoc());
+    guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
+  });
+
+  topBurstRead1->body([&](mlir::OpBuilder &bodyBuilder,
+                          llvm::ArrayRef<mlir::BlockArgument> args) {
+    // Read stored address from register
+    auto addrValues = burstAddrReg->callValue("read", bodyBuilder);
+    auto addr = Signal(addrValues[0], &bodyBuilder, loc);
+
     auto resultInit = UInt::constant(0, 64, bodyBuilder, loc);
     mlir::Value result = resultInit.getValue();
 
@@ -717,25 +897,24 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
       uint32_t entryStart = entryInfo.baseAddress;
       uint32_t entryEnd = entryStart + entryInfo.bankSize;
 
-      // Calculate relative address for this entry
-      auto startConst = UInt::constant(entryStart, 64, bodyBuilder, loc);
-      auto endConst = UInt::constant(entryEnd, 64, bodyBuilder, loc);
+      // Calculate relative address for this entry (32-bit)
+      auto startConst = UInt::constant(entryStart, 32, bodyBuilder, loc);
+      auto endConst = UInt::constant(entryEnd, 32, bodyBuilder, loc);
 
-      auto relAddr = (addr - startConst).bits(63, 0);
+      auto relAddr = (addr - startConst).bits(31, 0);
       auto inRange = (addr >= startConst) & (addr < endConst);
 
-      // Call submodule's burst_read (manual CallOp needed for methods with
-      // return values)
+      // Call submodule's burst_read_1 with relAddr
       auto calleeSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(),
                                                        entryInst->getName());
       auto methodSymbol =
-          mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_read");
+          mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(), "burst_read_1");
       auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
           loc, mlir::TypeRange{u64Type}, mlir::ValueRange{relAddr.getValue()},
           calleeSymbol, methodSymbol, nullptr, nullptr);
       if (callOp.getNumResults() == 0) {
         bodyBuilder.getBlock()->getParentOp()->emitError()
-            << "CallOp for burst_read returned no results (instance '"
+            << "CallOp for burst_read_1 returned no results (instance '"
             << entryInst->getName() << "')";
       }
       auto entryResult = Signal(callOp.getResult(0), &bodyBuilder, loc);
@@ -750,11 +929,11 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
     bodyBuilder.create<circt::cmt2::ReturnOp>(loc, result);
   });
 
-  topBurstRead->finalize();
+  topBurstRead1->finalize();
 
   // Create top-level burst_write method that dispatches to correct memory entry
   auto *topBurstWrite = poolModule->addMethod(
-      "burst_write", {{"addr", u64Type}, {"data", u64Type}}, {}
+      "burst_write", {{"addr", u32Type}, {"data", u64Type}}, {}
       // No return value
   );
 
@@ -777,13 +956,13 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
       uint32_t entryStart = entryInfo.baseAddress;
       uint32_t entryEnd = entryStart + entryInfo.bankSize;
 
-      // Calculate relative address for this entry
+      // Calculate relative address for this entry (32-bit)
       auto startConst =
-          UInt::constant(entryStart, 64, bodyBuilder, poolModule->getLoc());
+          UInt::constant(entryStart, 32, bodyBuilder, poolModule->getLoc());
       auto endConst =
-          UInt::constant(entryEnd, 64, bodyBuilder, poolModule->getLoc());
+          UInt::constant(entryEnd, 32, bodyBuilder, poolModule->getLoc());
 
-      auto relAddr = (addr - startConst).bits(63, 0);
+      auto relAddr = (addr - startConst).bits(31, 0);
       auto inRange = (addr >= startConst) & (addr < endConst);
 
       // Only call submodule's burst_write if address is in range
@@ -809,7 +988,8 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
   topBurstWrite->finalize();
 
   // Expose direct per-bank read/write methods at the top level (no burst
-  // translation).
+  // translation). Read is split into read_0 (request) and read_1 (response)
+  // for 2-cycle memory.
   for (size_t entryIdx = 0; entryIdx < memEntryInfos.size(); ++entryIdx) {
     const auto &entryInfo = memEntryInfos[entryIdx];
     auto bankAddrType =
@@ -818,44 +998,73 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
         UIntType::get(builder.getContext(), entryInfo.dataWidth);
 
     for (size_t bankIdx = 0; bankIdx < entryInfo.numBanks; ++bankIdx) {
-      std::string topReadName =
-          entryInfo.name + "_" + std::to_string(bankIdx) + "_read";
+      std::string topRead0Name =
+          entryInfo.name + "_" + std::to_string(bankIdx) + "_read_0";
+      std::string topRead1Name =
+          entryInfo.name + "_" + std::to_string(bankIdx) + "_read_1";
       std::string topWriteName =
           entryInfo.name + "_" + std::to_string(bankIdx) + "_write";
       if (entryInfo.numBanks == 1) {
-        // Not array_partitioned, we should not add a bandIdx on it
-        topReadName = entryInfo.name + "_read";
+        // Not array_partitioned, we should not add a bankIdx on it
+        topRead0Name = entryInfo.name + "_read_0";
+        topRead1Name = entryInfo.name + "_read_1";
         topWriteName = entryInfo.name + "_write";
       }
-      std::string entryReadName = "bank_read_" + std::to_string(bankIdx);
+      std::string entryRead0Name = "bank_read_0_" + std::to_string(bankIdx);
+      std::string entryRead1Name = "bank_read_1_" + std::to_string(bankIdx);
       std::string entryWriteName = "bank_write_" + std::to_string(bankIdx);
 
-      auto *topBankRead = poolModule->addMethod(
-          topReadName, {{"addr", bankAddrType}}, {bankDataType});
+      // topRead0: Initiate read request with address
+      auto *topBankRead0 = poolModule->addMethod(
+          topRead0Name, {{"addr", bankAddrType}}, {});
 
-      topBankRead->guard([&](mlir::OpBuilder &guardBuilder,
-                             llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
+      topBankRead0->guard([&](mlir::OpBuilder &guardBuilder,
+                              llvm::ArrayRef<mlir::BlockArgument> /*args*/) {
         auto trueConst =
             UInt::constant(1, 1, guardBuilder, poolModule->getLoc());
         guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
       });
 
-      topBankRead->body([&, entryIdx, entryReadName](
-                            mlir::OpBuilder &bodyBuilder,
-                            llvm::ArrayRef<mlir::BlockArgument> args) {
+      topBankRead0->body([&, entryIdx, entryRead0Name](
+                             mlir::OpBuilder &bodyBuilder,
+                             llvm::ArrayRef<mlir::BlockArgument> args) {
         auto addr = Signal(args[0], &bodyBuilder, poolModule->getLoc());
         auto calleeSymbol = mlir::FlatSymbolRefAttr::get(
             bodyBuilder.getContext(), entryInstances[entryIdx]->getName());
         auto methodSymbol = mlir::FlatSymbolRefAttr::get(
-            bodyBuilder.getContext(), entryReadName);
+            bodyBuilder.getContext(), entryRead0Name);
+        bodyBuilder.create<circt::cmt2::CallOp>(
+            loc, mlir::TypeRange{}, mlir::ValueRange{addr.getValue()},
+            calleeSymbol, methodSymbol, bodyBuilder.getArrayAttr({}),
+            bodyBuilder.getArrayAttr({}));
+        bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
+      });
+
+      topBankRead0->finalize();
+
+      // topRead1: Get read data (value)
+      auto *topBankRead1 = poolModule->addValue(topRead1Name, {bankDataType});
+
+      topBankRead1->guard([&](mlir::OpBuilder &guardBuilder) {
+        auto trueConst =
+            UInt::constant(1, 1, guardBuilder, poolModule->getLoc());
+        guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueConst.getValue());
+      });
+
+      topBankRead1->body([&, entryIdx, entryRead1Name](
+                             mlir::OpBuilder &bodyBuilder) {
+        auto calleeSymbol = mlir::FlatSymbolRefAttr::get(
+            bodyBuilder.getContext(), entryInstances[entryIdx]->getName());
+        auto valueSymbol = mlir::FlatSymbolRefAttr::get(bodyBuilder.getContext(),
+                                                        entryRead1Name);
         auto callOp = bodyBuilder.create<circt::cmt2::CallOp>(
-            loc, mlir::TypeRange{bankDataType},
-            mlir::ValueRange{addr.getValue()}, calleeSymbol, methodSymbol,
-            bodyBuilder.getArrayAttr({}), bodyBuilder.getArrayAttr({}));
+            loc, mlir::TypeRange{bankDataType}, mlir::ValueRange{},
+            calleeSymbol, valueSymbol, bodyBuilder.getArrayAttr({}),
+            bodyBuilder.getArrayAttr({}));
         bodyBuilder.create<circt::cmt2::ReturnOp>(loc, callOp.getResult(0));
       });
 
-      topBankRead->finalize();
+      topBankRead1->finalize();
 
       auto *topBankWrite = poolModule->addMethod(
           topWriteName, {{"addr", bankAddrType}, {"data", bankDataType}}, {});
@@ -1043,6 +1252,10 @@ APSToCMT2GenPass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
     if (!extractMemoryParameters(globalOp, dataWidth, addrWidth, depth)) {
       llvm::errs() << "Error: Could not extract memory parameters from "
                    << firstBankSymAttr.getValue() << ", using defaults\n";
+    }
+
+    if (addrWidth == 0) {
+      continue; // Only one element, not a memory, skip this entry
     }
 
     // Create MemoryEntryInfo for this entry

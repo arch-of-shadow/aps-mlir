@@ -57,11 +57,11 @@ struct SplitMemLoadPattern : public OpRewritePattern<aps::MemLoad> {
 
   LogicalResult matchAndRewrite(aps::MemLoad loadOp,
                                 PatternRewriter &rewriter) const override {
-    llvm::errs() << "DEBUG: SplitMemLoadPattern::matchAndRewrite called\n";
+    llvm::dbgs() << "DEBUG: SplitMemLoadPattern::matchAndRewrite called\n";
 
     // Only process if has ref_* attributes
     if (!loadOp->hasAttr("ref_starttime") || !loadOp->hasAttr("ref_endtime")) {
-      llvm::errs() << "DEBUG: aps.memload missing ref_* attributes, skipping\n";
+      llvm::dbgs() << "DEBUG: aps.memload missing ref_* attributes, skipping\n";
       return failure();
     }
 
@@ -69,8 +69,8 @@ struct SplitMemLoadPattern : public OpRewritePattern<aps::MemLoad> {
     int A = refTime.first;
     int B = refTime.second;
 
-    llvm::errs() << "\n=== Splitting aps.memload ===\n";
-    llvm::errs() << "  Original ref_time: (" << A << ", " << B << ")\n";
+    llvm::dbgs() << "\n=== Splitting aps.memload ===\n";
+    llvm::dbgs() << "  Original ref_time: (" << A << ", " << B << ")\n";
 
     // Create aps.itfc.load_req: ref_starttime=A, ref_endtime=B
     rewriter.setInsertionPoint(loadOp);
@@ -81,7 +81,7 @@ struct SplitMemLoadPattern : public OpRewritePattern<aps::MemLoad> {
         loadOp.getIndices());
 
     setRefTimePair(reqOp, A, B);
-    llvm::errs() << "  Created aps.itfc.load_req: (" << A << ", " << B << ")\n";
+    llvm::dbgs() << "  Created aps.itfc.load_req: (" << A << ", " << B << ")\n";
 
     // Create aps.itfc.load_collect: ref_starttime=B, ref_endtime=B+1
     auto collectOp = rewriter.create<aps::ItfcLoadCollect>(
@@ -90,12 +90,12 @@ struct SplitMemLoadPattern : public OpRewritePattern<aps::MemLoad> {
         reqOp.getResult());
 
     setRefTimePair(collectOp, B, B + 1);
-    llvm::errs() << "  Created aps.itfc.load_collect: (" << B << ", " << (B + 1) << ")\n";
+    llvm::dbgs() << "  Created aps.itfc.load_collect: (" << B << ", " << (B + 1) << ")\n";
 
     // Replace uses and erase original
     rewriter.replaceOp(loadOp, collectOp.getResult());
 
-    llvm::errs() << "=== Split complete ===\n\n";
+    llvm::dbgs() << "=== Split complete ===\n\n";
     return success();
   }
 };
@@ -106,11 +106,11 @@ struct SplitMemStorePattern : public OpRewritePattern<aps::MemStore> {
 
   LogicalResult matchAndRewrite(aps::MemStore storeOp,
                                 PatternRewriter &rewriter) const override {
-    llvm::errs() << "DEBUG: SplitMemStorePattern::matchAndRewrite called\n";
+    llvm::dbgs() << "DEBUG: SplitMemStorePattern::matchAndRewrite called\n";
 
     // Only process if has ref_* attributes
     if (!storeOp->hasAttr("ref_starttime") || !storeOp->hasAttr("ref_endtime")) {
-      llvm::errs() << "DEBUG: aps.memstore missing ref_* attributes, skipping\n";
+      llvm::dbgs() << "DEBUG: aps.memstore missing ref_* attributes, skipping\n";
       return failure();
     }
 
@@ -118,8 +118,8 @@ struct SplitMemStorePattern : public OpRewritePattern<aps::MemStore> {
     int A = refTime.first;
     int B = refTime.second;
 
-    llvm::errs() << "\n=== Splitting aps.memstore ===\n";
-    llvm::errs() << "  Original ref_time: (" << A << ", " << B << ")\n";
+    llvm::dbgs() << "\n=== Splitting aps.memstore ===\n";
+    llvm::dbgs() << "  Original ref_time: (" << A << ", " << B << ")\n";
 
     // Create aps.itfc.store_req: ref_starttime=A, ref_endtime=B
     rewriter.setInsertionPoint(storeOp);
@@ -131,7 +131,7 @@ struct SplitMemStorePattern : public OpRewritePattern<aps::MemStore> {
         storeOp.getIndices());
 
     setRefTimePair(reqOp, A, B);
-    llvm::errs() << "  Created aps.itfc.store_req: (" << A << ", " << B << ")\n";
+    llvm::dbgs() << "  Created aps.itfc.store_req: (" << A << ", " << B << ")\n";
 
     // Create aps.itfc.store_collect: ref_starttime=B, ref_endtime=B+1
     auto collectOp = rewriter.create<aps::ItfcStoreCollect>(
@@ -139,12 +139,12 @@ struct SplitMemStorePattern : public OpRewritePattern<aps::MemStore> {
         reqOp.getResult());
 
     setRefTimePair(collectOp, B, B + 1);
-    llvm::errs() << "  Created aps.itfc.store_collect: (" << B << ", " << (B + 1) << ")\n";
+    llvm::dbgs() << "  Created aps.itfc.store_collect: (" << B << ", " << (B + 1) << ")\n";
 
     // Erase original store
     rewriter.eraseOp(storeOp);
 
-    llvm::errs() << "=== Split complete ===\n\n";
+    llvm::dbgs() << "=== Split complete ===\n\n";
     return success();
   }
 };
@@ -165,49 +165,50 @@ struct APSSplitMemoryOpsPass
     for (auto funcOp : designOp.getOps<tor::FuncOp>()) {
       // Only process scheduled functions
       if (!funcOp->hasAttr("scheduled")) {
-        llvm::errs() << "Skipping unscheduled function: " << funcOp.getName() << "\n";
+        llvm::dbgs() << "Skipping unscheduled function: " << funcOp.getName() << "\n";
         continue;
       }
 
-      llvm::errs() << "\n============================================\n";
-      llvm::errs() << "Processing scheduled function: " << funcOp.getName() << "\n";
-      llvm::errs() << "============================================\n";
+      llvm::dbgs() << "\n============================================\n";
+      llvm::dbgs() << "Processing scheduled function: " << funcOp.getName() << "\n";
+      llvm::dbgs() << "============================================\n";
 
       // Count operations before transformation
       int memloadCount = 0, memstoreCount = 0, burstloadCount = 0, burststoreCount = 0;
       funcOp.walk([&](Operation *op) {
         if (isa<aps::MemLoad>(op)) {
           memloadCount++;
-          llvm::errs() << "Found aps.memload with ref_* attrs: "
+          llvm::dbgs() << "Found aps.memload with ref_* attrs: "
                        << op->hasAttr("ref_starttime") << "\n";
         }
         if (isa<aps::MemStore>(op)) {
           memstoreCount++;
-          llvm::errs() << "Found aps.memstore with ref_* attrs: "
+          llvm::dbgs() << "Found aps.memstore with ref_* attrs: "
                        << op->hasAttr("ref_starttime") << "\n";
         }
         if (isa<aps::MemBurstLoad>(op)) {
           burstloadCount++;
-          llvm::errs() << "Found aps.memburstload with ref_* attrs: "
+          llvm::dbgs() << "Found aps.memburstload with ref_* attrs: "
                        << op->hasAttr("ref_starttime") << "\n";
         }
         if (isa<aps::MemBurstStore>(op)) {
           burststoreCount++;
-          llvm::errs() << "Found aps.memburststore with ref_* attrs: "
+          llvm::dbgs() << "Found aps.memburststore with ref_* attrs: "
                        << op->hasAttr("ref_starttime") << "\n";
         }
       });
-      llvm::errs() << "Total aps.memload ops: " << memloadCount << "\n";
-      llvm::errs() << "Total aps.memstore ops: " << memstoreCount << "\n";
-      llvm::errs() << "Total aps.memburstload ops: " << burstloadCount << "\n";
-      llvm::errs() << "Total aps.memburststore ops: " << burststoreCount << "\n";
+      llvm::dbgs() << "Total aps.memload ops: " << memloadCount << "\n";
+      llvm::dbgs() << "Total aps.memstore ops: " << memstoreCount << "\n";
+      llvm::dbgs() << "Total aps.memburstload ops: " << burstloadCount << "\n";
+      llvm::dbgs() << "Total aps.memburststore ops: " << burststoreCount << "\n";
 
       // Manually transform each operation
-      llvm::errs() << "Starting manual transformation...\n";
+      llvm::dbgs() << "Starting manual transformation...\n";
       IRRewriter rewriter(&getContext());
 
       // Collect operations to transform (can't modify while walking)
       SmallVector<aps::MemLoad> memloads;
+      SmallVector<aps::MemLoad> spmloads;
       SmallVector<aps::MemStore> memstores;
       SmallVector<aps::MemBurstLoad> burstloads;
       SmallVector<aps::MemBurstStore> burststores;
@@ -219,7 +220,7 @@ struct APSSplitMemoryOpsPass
             if (isFromCpuMemory(loadOp.getMemref())) {
               memloads.push_back(loadOp);
             } else {
-              llvm::errs() << "  Skipping aps.memload (not from _cpu_memory)\n";
+              spmloads.push_back(loadOp);
             }
           }
         }
@@ -229,7 +230,7 @@ struct APSSplitMemoryOpsPass
             if (isFromCpuMemory(storeOp.getMemref())) {
               memstores.push_back(storeOp);
             } else {
-              llvm::errs() << "  Skipping aps.memstore (not from _cpu_memory)\n";
+              llvm::dbgs() << "  Skipping aps.memstore (not from _cpu_memory)\n";
             }
           }
         }
@@ -251,8 +252,8 @@ struct APSSplitMemoryOpsPass
         int A = refTime.first;
         int B = refTime.second;
 
-        llvm::errs() << "\n=== Splitting aps.memload ===\n";
-        llvm::errs() << "  Original ref_time: (" << A << ", " << B << ")\n";
+        llvm::dbgs() << "\n=== Splitting aps.memload (cpu) ===\n";
+        llvm::dbgs() << "  Original ref_time: (" << A << ", " << B << ")\n";
 
         rewriter.setInsertionPoint(loadOp);
         auto reqOp = rewriter.create<aps::ItfcLoadReq>(
@@ -267,7 +268,7 @@ struct APSSplitMemoryOpsPass
         }
         // Then set the specific ref_time for request op
         setRefTimePair(reqOp, A, B);
-        llvm::errs() << "  Created aps.itfc.load_req: (" << A << ", " << B << ")\n";
+        llvm::dbgs() << "  Created aps.itfc.load_req: (" << A << ", " << B << ")\n";
 
         auto collectOp = rewriter.create<aps::ItfcLoadCollect>(
             loadOp.getLoc(),
@@ -280,10 +281,51 @@ struct APSSplitMemoryOpsPass
         }
         // Then set the specific ref_time for collect op
         setRefTimePair(collectOp, B, B + 1);
-        llvm::errs() << "  Created aps.itfc.load_collect: (" << B << ", " << (B + 1) << ")\n";
+        llvm::dbgs() << "  Created aps.itfc.load_collect: (" << B << ", " << (B + 1) << ")\n";
 
         rewriter.replaceOp(loadOp, collectOp.getResult());
-        llvm::errs() << "=== Split complete ===\n\n";
+        llvm::dbgs() << "=== Split complete ===\n\n";
+      }
+
+      // Transform spm memloads
+      for (auto spmLoadOp : spmloads) {
+        auto refTime = getRefTimePair(spmLoadOp.getOperation());
+        int A = refTime.first;
+        int B = refTime.second;
+
+        llvm::dbgs() << "\n=== Splitting aps.memload (spm) ===\n";
+        llvm::dbgs() << "  Original ref_time: (" << A << ", " << B << ")\n";
+
+        rewriter.setInsertionPoint(spmLoadOp);
+        auto reqOp = rewriter.create<aps::SpmLoadReq>(
+            spmLoadOp.getLoc(),
+            spmLoadOp.getResult().getType(),
+            spmLoadOp.getMemref(),
+            spmLoadOp.getIndices());
+
+        // Copy all attributes from original operation first
+        for (auto attr : spmLoadOp->getAttrs()) {
+          reqOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for request op
+        setRefTimePair(reqOp, A, B);
+        llvm::dbgs() << "  Created aps.itfc.load_req: (" << A << ", " << B << ")\n";
+
+        auto collectOp = rewriter.create<aps::SpmLoadCollect>(
+            spmLoadOp.getLoc(),
+            spmLoadOp.getResult().getType(),
+            reqOp.getResult());
+
+        // Copy all attributes from original operation first
+        for (auto attr : spmLoadOp->getAttrs()) {
+          collectOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Then set the specific ref_time for collect op
+        setRefTimePair(collectOp, B, B + 1);
+        llvm::dbgs() << "  Created aps.spm.load_collect: (" << B << ", " << (B + 1) << ")\n";
+
+        rewriter.replaceOp(spmLoadOp, collectOp.getResult());
+        llvm::dbgs() << "=== Split complete ===\n\n";
       }
 
       // Transform memstores
@@ -292,8 +334,8 @@ struct APSSplitMemoryOpsPass
         int A = refTime.first;
         int B = refTime.second;
 
-        llvm::errs() << "\n=== Splitting aps.memstore ===\n";
-        llvm::errs() << "  Original ref_time: (" << A << ", " << B << ")\n";
+        llvm::dbgs() << "\n=== Splitting aps.memstore ===\n";
+        llvm::dbgs() << "  Original ref_time: (" << A << ", " << B << ")\n";
 
         rewriter.setInsertionPoint(storeOp);
         auto reqOp = rewriter.create<aps::ItfcStoreReq>(
@@ -309,7 +351,7 @@ struct APSSplitMemoryOpsPass
         }
         // Then set the specific ref_time for request op
         setRefTimePair(reqOp, A, B);
-        llvm::errs() << "  Created aps.itfc.store_req: (" << A << ", " << B << ")\n";
+        llvm::dbgs() << "  Created aps.itfc.store_req: (" << A << ", " << B << ")\n";
 
         auto collectOp = rewriter.create<aps::ItfcStoreCollect>(
             storeOp.getLoc(),
@@ -321,10 +363,10 @@ struct APSSplitMemoryOpsPass
         }
         // Then set the specific ref_time for collect op
         setRefTimePair(collectOp, B, B + 1);
-        llvm::errs() << "  Created aps.itfc.store_collect: (" << B << ", " << (B + 1) << ")\n";
+        llvm::dbgs() << "  Created aps.itfc.store_collect: (" << B << ", " << (B + 1) << ")\n";
 
         rewriter.eraseOp(storeOp);
-        llvm::errs() << "=== Split complete ===\n\n";
+        llvm::dbgs() << "=== Split complete ===\n\n";
       }
 
       // Transform burst loads
@@ -333,8 +375,8 @@ struct APSSplitMemoryOpsPass
         int A = refTime.first;
         int B = refTime.second;
 
-        llvm::errs() << "\n=== Splitting aps.memburstload ===\n";
-        llvm::errs() << "  Original ref_time: (" << A << ", " << B << ")\n";
+        llvm::dbgs() << "\n=== Splitting aps.memburstload ===\n";
+        llvm::dbgs() << "  Original ref_time: (" << A << ", " << B << ")\n";
 
         rewriter.setInsertionPoint(burstOp);
         auto reqOp = rewriter.create<aps::ItfcBurstLoadReq>(
@@ -351,7 +393,7 @@ struct APSSplitMemoryOpsPass
         }
         // Then set the specific ref_time for request op
         setRefTimePair(reqOp, A, B);
-        llvm::errs() << "  Created aps.itfc.burst_load_req: (" << A << ", " << B << ")\n";
+        llvm::dbgs() << "  Created aps.itfc.burst_load_req: (" << A << ", " << B << ")\n";
 
         auto collectOp = rewriter.create<aps::ItfcBurstLoadCollect>(
             burstOp.getLoc(),
@@ -363,10 +405,10 @@ struct APSSplitMemoryOpsPass
         }
         // Then set the specific ref_time for collect op
         setRefTimePair(collectOp, B, B + 1);
-        llvm::errs() << "  Created aps.itfc.burst_load_collect: (" << B << ", " << (B + 1) << ")\n";
+        llvm::dbgs() << "  Created aps.itfc.burst_load_collect: (" << B << ", " << (B + 1) << ")\n";
 
         rewriter.eraseOp(burstOp);
-        llvm::errs() << "=== Split complete ===\n\n";
+        llvm::dbgs() << "=== Split complete ===\n\n";
       }
 
       // Transform burst stores
@@ -375,8 +417,8 @@ struct APSSplitMemoryOpsPass
         int A = refTime.first;
         int B = refTime.second;
 
-        llvm::errs() << "\n=== Splitting aps.memburststore ===\n";
-        llvm::errs() << "  Original ref_time: (" << A << ", " << B << ")\n";
+        llvm::dbgs() << "\n=== Splitting aps.memburststore ===\n";
+        llvm::dbgs() << "  Original ref_time: (" << A << ", " << B << ")\n";
 
         rewriter.setInsertionPoint(burstOp);
         auto reqOp = rewriter.create<aps::ItfcBurstStoreReq>(
@@ -393,7 +435,7 @@ struct APSSplitMemoryOpsPass
         }
         // Then set the specific ref_time for request op
         setRefTimePair(reqOp, A, B);
-        llvm::errs() << "  Created aps.itfc.burst_store_req: (" << A << ", " << B << ")\n";
+        llvm::dbgs() << "  Created aps.itfc.burst_store_req: (" << A << ", " << B << ")\n";
 
         auto collectOp = rewriter.create<aps::ItfcBurstStoreCollect>(
             burstOp.getLoc(),
@@ -405,18 +447,18 @@ struct APSSplitMemoryOpsPass
         }
         // Then set the specific ref_time for collect op
         setRefTimePair(collectOp, B, B + 1);
-        llvm::errs() << "  Created aps.itfc.burst_store_collect: (" << B << ", " << (B + 1) << ")\n";
+        llvm::dbgs() << "  Created aps.itfc.burst_store_collect: (" << B << ", " << (B + 1) << ")\n";
 
         rewriter.eraseOp(burstOp);
-        llvm::errs() << "=== Split complete ===\n\n";
+        llvm::dbgs() << "=== Split complete ===\n\n";
       }
 
-      llvm::errs() << "Transformed " << memloads.size() << " loads, "
+      llvm::dbgs() << "Transformed " << memloads.size() << " loads, "
                    << memstores.size() << " stores, "
                    << burstloads.size() << " burst loads, "
                    << burststores.size() << " burst stores\n";
 
-      llvm::errs() << "Completed function: " << funcOp.getName() << "\n\n";
+      llvm::dbgs() << "Completed function: " << funcOp.getName() << "\n\n";
     }
   }
 };

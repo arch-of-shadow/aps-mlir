@@ -29,8 +29,10 @@ using namespace circt::firrtl;
 LogicalResult MemoryOpGenerator::generateRule(
     Operation *op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  if (auto memLoad = dyn_cast<aps::MemLoad>(op)) {
-    return generateMemLoad(memLoad, b, loc, slot, localMap);
+  if (auto spmLoadReq = dyn_cast<aps::SpmLoadReq>(op)) {
+    return generateSpmLoadReq(spmLoadReq, b, loc, slot, localMap);
+  } else if (auto spmLoadCollect = dyn_cast<aps::SpmLoadCollect>(op)) {
+    return generateSpmLoadCollect(spmLoadCollect, b, loc, slot, localMap);
   } else if (auto memStore = dyn_cast<aps::MemStore>(op)) {
     return generateMemStore(memStore, b, loc, slot, localMap);
   } else if (auto burstLoadReq = dyn_cast<aps::ItfcBurstLoadReq>(op)) {
@@ -54,49 +56,27 @@ LogicalResult MemoryOpGenerator::generateRule(
 }
 
 bool MemoryOpGenerator::canHandle(Operation *op) const {
-  return isa<aps::MemLoad, aps::MemStore, aps::ItfcBurstLoadReq,
+  return isa<aps::MemStore, aps::ItfcBurstLoadReq,
              aps::ItfcBurstLoadCollect, aps::ItfcBurstStoreReq,
              aps::ItfcBurstStoreCollect, memref::GetGlobalOp,
-             aps::GlobalStore, aps::GlobalLoad>(op);
+             aps::GlobalStore, aps::GlobalLoad,
+             aps::SpmLoadReq, aps::SpmLoadCollect>(op);
 }
 
 LogicalResult MemoryOpGenerator::generateGlobalMemLoad(
     aps::GlobalLoad op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  // GlobalLoad is for scalar globals (rank-0 memrefs) - no indices needed
-  // Get the global symbol name directly from the operation
+  auto width = llvm::dyn_cast<mlir::IntegerType>(op.getResult().getType()).getWidth();
+  
   StringRef globalName = op.getGlobalName();
-
-  // Build the rule name: convert @count -> count_read
-  std::string memoryBankRule = (globalName + "_read").str();
-
-  llvm::dbgs() << "DEBUG: Global load from scalar global " << globalName
-               << " using rule " << memoryBankRule << "\n";
-
-  // For scalar globals, we need to get the base address from the memory entry map
-  const MemoryEntryInfo *targetMemEntry = nullptr;
-  if (!globalName.empty()) {
-    auto &memEntryMap = bbHandler->getMemEntryMap();
-    auto it = memEntryMap.find(globalName);
-    if (it != memEntryMap.end()) {
-      targetMemEntry = &it->second;
-    }
-  }
-
-  if (!targetMemEntry) {
-    op.emitError("Failed to find target memory entry for global: ") << globalName.str();
-    return failure();
-  }
-
-  // Create base address constant for the scalar global
-  auto baseAddr = UInt::constant(0, 1, b, loc);
+  auto glblRegName = std::string("glbl_reg_").append(globalName);
 
   // Call the appropriate scratchpad pool bank read method
   auto callResult = b.create<circt::cmt2::CallOp>(
-      loc, circt::firrtl::UIntType::get(b.getContext(), targetMemEntry->dataWidth),
-      mlir::ValueRange{baseAddr.getValue()},
-      mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
-      mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
+      loc, circt::firrtl::UIntType::get(b.getContext(), width),
+      mlir::ValueRange{},
+      mlir::SymbolRefAttr::get(b.getContext(), glblRegName),
+      mlir::SymbolRefAttr::get(b.getContext(), "read"),
       mlir::ArrayAttr(), mlir::ArrayAttr());
 
   localMap[op.getResult()] = callResult.getResult(0);
@@ -106,61 +86,36 @@ LogicalResult MemoryOpGenerator::generateGlobalMemLoad(
 LogicalResult MemoryOpGenerator::generateGlobalMemStore(
     aps::GlobalStore op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  // GlobalLoad is for scalar globals (rank-0 memrefs) - no indices needed
-  // Get the global symbol name directly from the operation
   StringRef globalName = op.getGlobalName();
+  auto glblRegName = std::string("glbl_reg_").append(globalName);
 
-  // Build the rule name: convert @count -> count_read
-  std::string memoryBankRule = (globalName + "_write").str();
-
-  llvm::dbgs() << "DEBUG: Global load from scalar global " << globalName
-               << " using rule " << memoryBankRule << "\n";
-
-  // For scalar globals, we need to get the base address from the memory entry map
-  const MemoryEntryInfo *targetMemEntry = nullptr;
-  if (!globalName.empty()) {
-    auto &memEntryMap = bbHandler->getMemEntryMap();
-    auto it = memEntryMap.find(globalName);
-    if (it != memEntryMap.end()) {
-      targetMemEntry = &it->second;
-    }
-  }
-
-  if (!targetMemEntry) {
-    op.emitError("Failed to find target memory entry for global: ") << globalName.str();
-    return failure();
-  }
-
-  // Create base address constant for the scalar global
-  auto baseAddr = UInt::constant(0, 1, b, loc);
   auto data = getValueInRule(op.getValue(), op.getOperation(), 0, b,
                              localMap, loc);
-
   // Call the appropriate scratchpad pool bank read method
   b.create<circt::cmt2::CallOp>(
       loc, mlir::ValueRange{},
-      mlir::ValueRange{baseAddr.getValue(), *data},
-      mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
-      mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
+      mlir::ValueRange{*data},
+      mlir::SymbolRefAttr::get(b.getContext(), glblRegName),
+      mlir::SymbolRefAttr::get(b.getContext(), "write"),
       mlir::ArrayAttr(), mlir::ArrayAttr());
 
   return success();
 }
 
-LogicalResult MemoryOpGenerator::generateMemLoad(
-    aps::MemLoad op, mlir::OpBuilder &b, Location loc, int64_t slot,
+LogicalResult MemoryOpGenerator::generateSpmLoadReq(
+    aps::SpmLoadReq op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // PANIC if no indices provided
   if (op.getIndices().empty()) {
-    op.emitError("Memory load operation must have at least one index");
-    llvm::report_fatal_error("Memory load requires address indices");
+    op.emitError("SPM load request operation must have at least one index");
+    llvm::report_fatal_error("SPM load request requires address indices");
   }
 
   auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), 1, b,
                              localMap, loc);
   if (failed(addr)) {
-    op.emitError("Failed to get address for memory load");
-    llvm::report_fatal_error("Memory load address resolution failed");
+    op.emitError("Failed to get address for SPM load request");
+    llvm::report_fatal_error("SPM load request address resolution failed");
   }
 
   // Get the memory reference and check if it comes from memref.get_global
@@ -171,10 +126,9 @@ LogicalResult MemoryOpGenerator::generateMemLoad(
   if (auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(defOp)) {
     // Extract the global symbol name and build the rule name
     StringRef globalName = getGlobalOp.getName();
-    // Convert @mem_a_0 -> mem_a_0_read
-    memoryBankRule = (globalName + "_read")
-                         .str(); // Remove @ prefix and add _read
-    llvm::dbgs() << "DEBUG: Memory load from global " << globalName
+    // Convert @mem_a_0 -> mem_a_0_read_0 (request phase)
+    memoryBankRule = (globalName + "_read_0").str();
+    llvm::dbgs() << "DEBUG: SPM load request from global " << globalName
                  << " using rule " << memoryBankRule << "\n";
   }
 
@@ -182,7 +136,67 @@ LogicalResult MemoryOpGenerator::generateMemLoad(
   auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
   if (!memrefType) {
     op.emitError("Memory reference is not memref type");
-    llvm::report_fatal_error("MemLoad: invalid memref type");
+    llvm::report_fatal_error("SpmLoadReq: invalid memref type");
+  }
+
+  // Calculate required address bit width from array size: ceil(log2(size))
+  auto shape = memrefType.getShape();
+  if (shape.empty() || shape[0] <= 0) {
+    op.emitError("Memref must have valid array size");
+    llvm::report_fatal_error("SpmLoadReq: invalid memref shape");
+  }
+  int64_t arraySize = shape[0];
+  unsigned addrWidth = arraySize <= 1 ? 1 : (unsigned)std::ceil(std::log2(arraySize));
+
+  llvm::dbgs() << "DEBUG: SPM load request - array size: " << arraySize
+               << ", addr width: " << addrWidth << "\n";
+
+  // Truncate address to required bit width using Signal
+  auto addrSignal = Signal(*addr, &b, loc).bits(addrWidth - 1, 0);
+
+  // Call the scratchpad pool bank read_0 method (request phase - sends address)
+  b.create<circt::cmt2::CallOp>(
+      loc, mlir::TypeRange{},
+      mlir::ValueRange{addrSignal.getValue()},
+      mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
+      mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
+      mlir::ArrayAttr(), mlir::ArrayAttr());
+
+  // Store dummy token - the actual data will be collected in SpmLoadCollect
+  localMap[op.getResult()] = UInt::constant(1, 1, b, loc).getValue();
+  return success();
+}
+
+LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
+    aps::SpmLoadCollect op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  // Get the request token's defining operation to find the memory bank info
+  Value request = op.getRequest();
+  auto reqOp = request.getDefiningOp<aps::SpmLoadReq>();
+  if (!reqOp) {
+    op.emitError("SPM load collect must have SpmLoadReq as input");
+    llvm::report_fatal_error("SpmLoadCollect: invalid request token");
+  }
+
+  // Get the memory reference from the request operation
+  Value memRef = reqOp.getMemref();
+  Operation *defOp = memRef.getDefiningOp();
+
+  std::string memoryBankRule;
+  if (auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(defOp)) {
+    // Extract the global symbol name and build the rule name
+    StringRef globalName = getGlobalOp.getName();
+    // Convert @mem_a_0 -> mem_a_0_read_1 (collect phase)
+    memoryBankRule = (globalName + "_read_1").str();
+    llvm::outs() << "DEBUG: SPM load collect from global " << globalName
+                 << " using rule " << memoryBankRule << "\n";
+  }
+
+  // Get the memref type to determine element type for result width
+  auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
+  if (!memrefType) {
+    op.emitError("Memory reference is not memref type");
+    llvm::report_fatal_error("SpmLoadCollect: invalid memref type");
   }
 
   // Get element type for result width
@@ -190,30 +204,16 @@ LogicalResult MemoryOpGenerator::generateMemLoad(
   auto intType = dyn_cast<mlir::IntegerType>(elementType);
   if (!intType) {
     op.emitError("Memref element type is not integer");
-    llvm::report_fatal_error("MemLoad: memref element must be integer type");
+    llvm::report_fatal_error("SpmLoadCollect: memref element must be integer type");
   }
   unsigned resultWidth = intType.getWidth();
 
-  // Calculate required address bit width from array size: ceil(log2(size))
-  auto shape = memrefType.getShape();
-  if (shape.empty() || shape[0] <= 0) {
-    op.emitError("Memref must have valid array size");
-    llvm::report_fatal_error("MemLoad: invalid memref shape");
-  }
-  int64_t arraySize = shape[0];
-  unsigned addrWidth = arraySize <= 1 ? 1 : (unsigned)std::ceil(std::log2(arraySize));
+  llvm::outs() << "DEBUG: SPM load collect - result width: " << resultWidth << "\n";
 
-  llvm::dbgs() << "DEBUG: Memory load - array size: " << arraySize
-               << ", addr width: " << addrWidth
-               << ", result width: " << resultWidth << "\n";
-
-  // Truncate address to required bit width using Signal
-  auto addrSignal = Signal(*addr, &b, loc).bits(addrWidth - 1, 0);
-
-  // Call the appropriate scratchpad pool bank read method with correct return width
+  // Call the scratchpad pool bank read_1 method (collect phase - returns data)
   auto callResult = b.create<circt::cmt2::CallOp>(
       loc, circt::firrtl::UIntType::get(b.getContext(), resultWidth),
-      mlir::ValueRange{addrSignal.getValue()},
+      mlir::ValueRange{},
       mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
       mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
       mlir::ArrayAttr(), mlir::ArrayAttr());

@@ -204,6 +204,9 @@ LogicalResult BBHandler::validateOperations() {
               aps::ItfcBurstLoadCollect, aps::ItfcBurstStoreCollect, aps::ItfcLoadCollect, aps::ItfcStoreCollect>(op)) {
         continue;
       }
+      if (isa<aps::SpmLoadReq, aps::SpmLoadCollect>(op)) {
+        continue;
+      }
       op->emitError("unsupported operation for rule generation");
       return failure();
     }
@@ -228,9 +231,9 @@ LogicalResult BBHandler::buildCrossSlotFIFOs() {
       if (isa<arith::ConstantOp>(op))
         continue;
 
-      // Skip interface operations - their results are dummy tokens that don't need FIFOs
-      if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq>(op)) {
-        llvm::dbgs() << "[FIFO DEBUG] Skipping FIFO creation for interface operation\n";
+      // Skip interface/SPM request operations - their results are dummy tokens that don't need FIFOs
+      if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq, aps::SpmLoadReq>(op)) {
+        llvm::dbgs() << "[FIFO DEBUG] Skipping FIFO creation for interface/SPM request operation\n";
         continue;
       }
 

@@ -53,12 +53,12 @@ void APSToCMT2GenPass::addBurstMethodsToMainModule(Module *mainModule,
   auto &builder = mainModule->getBuilder();
   auto *context = builder.getContext();
 
-  // Add burst read method
-  auto *burstReadMethod = mainModule->addMethod(
-      "burst_read", {{"addr", circt::firrtl::UIntType::get(context, 64)}},
-      {circt::firrtl::UIntType::get(context, 64)});
+  // Add burst_read_0 method (initiate read request with 32-bit address)
+  auto *burstRead0Method = mainModule->addMethod(
+      "burst_read_0", {{"addr", circt::firrtl::UIntType::get(context, 32)}},
+      {});
 
-  burstReadMethod->guard(
+  burstRead0Method->guard(
       [](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
         auto loc = b.getUnknownLoc();
         auto one = b.create<circt::firrtl::ConstantOp>(
@@ -67,27 +67,56 @@ void APSToCMT2GenPass::addBurstMethodsToMainModule(Module *mainModule,
         b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{one});
       });
 
-  burstReadMethod->body(
+  burstRead0Method->body(
       [](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
         auto loc = b.getUnknownLoc();
         auto addrArg = args[0];
 
-        // Call the scratchpad pool burst_read method
+        // Call the scratchpad pool burst_read_0 method
+        b.create<circt::cmt2::CallOp>(
+            loc, mlir::TypeRange{}, mlir::ValueRange{addrArg},
+            mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
+            mlir::SymbolRefAttr::get(b.getContext(), "burst_read_0"),
+            mlir::ArrayAttr(), mlir::ArrayAttr());
+
+        b.create<circt::cmt2::ReturnOp>(loc);
+      });
+  burstRead0Method->finalize();
+
+  // Add burst_read_1 method (get read data, 64-bit return)
+  auto *burstRead1Method = mainModule->addMethod(
+      "burst_read_1", {},
+      {circt::firrtl::UIntType::get(context, 64)});
+
+  burstRead1Method->guard(
+      [](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
+        auto loc = b.getUnknownLoc();
+        auto one = b.create<circt::firrtl::ConstantOp>(
+            loc, circt::firrtl::UIntType::get(b.getContext(), 1),
+            llvm::APInt(1, 1));
+        b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{one});
+      });
+
+  burstRead1Method->body(
+      [](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
+        auto loc = b.getUnknownLoc();
+
+        // Call the scratchpad pool burst_read_1 method
         auto result = b.create<circt::cmt2::CallOp>(
             loc, circt::firrtl::UIntType::get(b.getContext(), 64),
-            mlir::ValueRange{addrArg},
+            mlir::ValueRange{},
             mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
-            mlir::SymbolRefAttr::get(b.getContext(), "burst_read"),
+            mlir::SymbolRefAttr::get(b.getContext(), "burst_read_1"),
             mlir::ArrayAttr(), mlir::ArrayAttr());
 
         b.create<circt::cmt2::ReturnOp>(loc, result.getResult(0));
       });
-  burstReadMethod->finalize();
+  burstRead1Method->finalize();
 
-  // Add burst write method
+  // Add burst write method (32-bit address, 64-bit data)
   auto *burstWriteMethod = mainModule->addMethod(
       "burst_write",
-      {{"addr", circt::firrtl::UIntType::get(context, 64)},
+      {{"addr", circt::firrtl::UIntType::get(context, 32)},
        {"data", circt::firrtl::UIntType::get(context, 64)}},
       {});
 

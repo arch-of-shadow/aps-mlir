@@ -612,6 +612,71 @@ class CADLMLIRConverter:
         # TODO: Add float conversions, etc.
         return value
 
+    def _convert_value_to_target_type(self, value: ir.Value, target_type: ir.Type, use_sign_extend: bool = False) -> ir.Value:
+        """
+        Convert value to target MLIR type for store operations.
+
+        This ensures that the value being stored matches the target memory element type.
+        Handles integer width conversions:
+        - Extension: extui (default) or extsi (if use_sign_extend=True)
+        - Truncation: trunci
+
+        Args:
+            value: The MLIR value to potentially convert
+            target_type: The target MLIR type (e.g., element type of memref)
+            use_sign_extend: Whether to use sign extension for widening (default: False)
+
+        Returns:
+            Converted value if conversion needed, otherwise original value
+        """
+        source_type = value.type
+
+        # Check if conversion is needed
+        if source_type == target_type:
+            return value
+
+        # Handle integer type conversions
+        if isinstance(source_type, ir.IntegerType) and isinstance(target_type, ir.IntegerType):
+            source_width = source_type.width
+            target_width = target_type.width
+
+            if source_width < target_width:
+                # Extension needed
+                if use_sign_extend:
+                    return arith.ExtSIOp(target_type, value).result
+                else:
+                    return arith.ExtUIOp(target_type, value).result
+            elif source_width > target_width:
+                # Truncation needed
+                return arith.TruncIOp(target_type, value).result
+            # else: same width, no conversion needed
+
+        # For other type conversions, return value as-is for now
+        return value
+
+    def _get_global_element_type(self, global_name: str) -> Optional[ir.Type]:
+        """
+        Get the element type of a scalar global variable.
+
+        Args:
+            global_name: The name of the global variable
+
+        Returns:
+            The element type of the global, or None if not found
+        """
+        if global_name not in self.global_ops:
+            return None
+
+        type_attr = self.global_ops[global_name].type_
+        if hasattr(type_attr, 'value'):
+            memory_type = type_attr.value
+        else:
+            memory_type = type_attr
+
+        if isinstance(memory_type, ir.MemRefType):
+            return memory_type.element_type
+        return None
+
     def _convert_stmt(self, stmt: Stmt) -> None:
         """Convert single statement to MLIR operations"""
         if isinstance(stmt, ExprStmt):
@@ -646,6 +711,10 @@ class CADLMLIRConverter:
                 symbol_value = self.get_symbol(stmt.lhs.name)
                 if isinstance(symbol_value, str) and self._is_scalar_global(symbol_value):
                     # Global scalar assignment: use aps.globalstore
+                    # First, ensure the value type matches the global's element type
+                    target_type = self._get_global_element_type(symbol_value)
+                    if target_type is not None:
+                        rhs_value = self._convert_value_to_target_type(rhs_value, target_type)
                     symbol_ref = ir.FlatSymbolRefAttr.get(symbol_value)
                     aps.GlobalStore(rhs_value, symbol_ref)
                     # Don't update symbol table - it remains as a global reference
@@ -1112,6 +1181,20 @@ class CADLMLIRConverter:
 
         return aps.MemLoad(element_type, memref, indices).result
 
+    def _get_memref_element_type(self, memref_value: ir.Value) -> Optional[ir.Type]:
+        """
+        Get the element type of a memref value.
+
+        Args:
+            memref_value: An MLIR value of memref type
+
+        Returns:
+            The element type of the memref, or None if not a memref
+        """
+        if hasattr(memref_value.type, 'element_type'):
+            return memref_value.type.element_type
+        return None
+
     def _convert_index_assignment(self, lhs: IndexExpr, rhs_value: ir.Value) -> None:
         """
         Convert indexed assignment to appropriate MLIR operation
@@ -1147,6 +1230,11 @@ class CADLMLIRConverter:
                 # Get CPU memory instance
                 cpu_mem = self.get_cpu_memory_instance()
 
+                # Ensure value type matches memref element type
+                target_type = self._get_memref_element_type(cpu_mem)
+                if target_type is not None:
+                    rhs_value = self._convert_value_to_target_type(rhs_value, target_type)
+
                 # Generate APS memstore operation
                 aps.MemStore(rhs_value, cpu_mem, [addr])
 
@@ -1159,6 +1247,11 @@ class CADLMLIRConverter:
                     base_value = self._convert_expr(lhs.expr)
                 indices = [self._convert_expr(idx) for idx in lhs.indices]
 
+                # Ensure value type matches memref element type
+                target_type = self._get_memref_element_type(base_value)
+                if target_type is not None:
+                    rhs_value = self._convert_value_to_target_type(rhs_value, target_type)
+
                 # Use APS memstore for regular array assignment
                 aps.MemStore(rhs_value, base_value, indices)
         else:
@@ -1169,6 +1262,11 @@ class CADLMLIRConverter:
             else:
                 base_value = self._convert_expr(lhs.expr)
             indices = [self._convert_expr(idx) for idx in lhs.indices]
+
+            # Ensure value type matches memref element type
+            target_type = self._get_memref_element_type(base_value)
+            if target_type is not None:
+                rhs_value = self._convert_value_to_target_type(rhs_value, target_type)
 
             # Use APS memstore for general indexed assignment
             aps.MemStore(rhs_value, base_value, indices)

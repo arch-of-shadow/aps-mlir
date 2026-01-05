@@ -20,6 +20,7 @@ add_mlir_library(APS
   APSToCMT2/InterfaceOpGenerator.cpp
   APSToCMT2/APSInterfaceGenerate.cpp
   APSToCMT2/APSMemoryGenerate.cpp
+  APSToCMT2/APSGlobalRegisterGenerate.cpp
   Transforms/APSToStandard.cpp
   Transforms/CombExtractToArithTrunc.cpp
   Transforms/ArithSelectToSCFIf.cpp

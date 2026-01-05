@@ -44,6 +44,54 @@ def MemLoad : APSOp<"memload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let hasCanonicalizer = 1;
 }
 
+def SpmLoadReq : APSOp<"spm.load_req", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "scratchpad memory load request";
+  let description = [{
+    Sends a load request to the scratchpad memory at the given address.
+    This is the first half of a two-cycle scratchpad memory access pattern.
+    Returns a token that must be consumed by aps.spm.load_collect.
+
+    Pipeline semantics:
+    - Cycle N: Send request (address computation and port arbitration)
+    - Cycle N+1: Collect data (aps.spm.load_collect)
+
+    This operation is derived from aps.memload during the split memory ops pass,
+    enabling fine-grained scheduling of memory accesses in pipelined designs.
+
+    Example:
+      %req = aps.spm.load_req %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
+      %val = aps.spm.load_collect %req : !aps.mem_req -> i32
+  }];
+  let arguments = (ins AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
+  let results = (outs AnyType:$request);
+  let assemblyFormat = "$memref `[` $indices `]` attr-dict `:` type($memref) `,` type($indices) `->` type($request)";
+}
+
+def SpmLoadCollect : APSOp<"spm.load_collect", []> {
+  let summary = "scratchpad memory load collect data";
+  let description = [{
+    Collects the data from a previously issued scratchpad memory load request.
+    This is the second half of a two-cycle scratchpad memory access pattern.
+    The operation is combinational (zero latency within the same cycle).
+
+    Pipeline semantics:
+    - Cycle N: aps.spm.load_req sends request
+    - Cycle N+1: aps.spm.load_collect reads result (combinational)
+
+    Multiple collects can occur in the same cycle since this is purely
+    combinational - it just reads the registered output from the SRAM.
+
+    This operation is derived from aps.memload during the split memory ops pass.
+
+    Example:
+      %req = aps.spm.load_req %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
+      %val = aps.spm.load_collect %req : !aps.mem_req -> i32
+  }];
+  let arguments = (ins AnyType:$request);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$request attr-dict `:` type($request) `->` type($result)";
+}
+
 def MemStore : APSOp<"memstore", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "store to memory instance";
   let description = [{
