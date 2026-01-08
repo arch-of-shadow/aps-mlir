@@ -28,8 +28,11 @@ fi
 # cd into the CIRCT repository, pushd is better for this
 pushd circt
 
-# Checkout the CIRCT commit
-git checkout $CIRCT_COMMIT
+# Fetch latest changes from remote
+git fetch origin
+
+# Checkout the CIRCT commit (use origin/ prefix for remote branch)
+git checkout origin/$CIRCT_COMMIT
 
 # Submodule update
 git submodule init

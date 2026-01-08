@@ -136,13 +136,13 @@ def apply_loop_pass_by_name(
 
         # Save intermediate MLIR to tmp directory
         try:
-            tmp_dir = os.path.join(os.getcwd(), "tmp")
-            os.makedirs(tmp_dir, exist_ok=True)
+            from megg.utils import get_temp_dir
+            tmp_dir = get_temp_dir()
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:17]  # YYYYmmdd_HHMMSS_ms
             param_value = unroll_factor if pass_name != "loop-tile" else tile_size
             filename = f"loop_{loop_index}_{pass_name}_{param_value}_{timestamp}.mlir"
-            filepath = os.path.join(tmp_dir, filename)
+            filepath = tmp_dir / filename
 
             with open(filepath, 'w') as f:
                 f.write(str(optimized_module))

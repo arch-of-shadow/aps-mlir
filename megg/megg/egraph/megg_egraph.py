@@ -287,7 +287,8 @@ class MeggEGraph:
         # === Pass 1: create empty e-classes ===
         for class_name, class_json in egraph_dict['class_data'].items():
             class_type = class_json.get('type', 'unknown')
-            if class_type not in ['Term', 'Vec_Term']:
+            # Check for Term types (handles both 'Term' and 'megg.egraph.term.Term')
+            if not ('Term' in class_type or 'Vec' in class_type):
                 continue
             eclasses[class_name] = MeggEClass(eclass_id=class_name, nodes=[], dtype=None)
 
@@ -438,19 +439,18 @@ class MeggEGraph:
             split_primitive_outputs=split_primitive_outputs
         )
         egraph_json_str = serialized.to_json()
-        if not os.path.dirname("tmp"):
-            os.makedirs("tmp",exist_ok=True)
+        from megg.utils import get_temp_dir
+        tmp_dir = get_temp_dir()
         # save the json string to a file for debugging
-        with open("tmp/egraph_debug.json", "w") as f:
+        with open(tmp_dir / "egraph_debug.json", "w") as f:
             f.write(egraph_json_str)
 
         egraph_dict: EGraphDict = json.loads(egraph_json_str)
 
         megg_egraph = cls.from_dict(egraph_dict)
-        
-        
+
         # dump to json for debugging
-        megg_egraph.dump_to_json("tmp/megg_egraph_debug.json")
+        megg_egraph.dump_to_json(str(tmp_dir / "megg_egraph_debug.json"))
         
 
         # Find root eclasses using the proper method from implegraph.py

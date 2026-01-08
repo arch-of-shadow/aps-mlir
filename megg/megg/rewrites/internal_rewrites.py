@@ -580,12 +580,12 @@ def test_basic_laws():
     This creates expressions and tests algebraic simplifications.
     """
     import os
+    from megg.utils import get_temp_dir
 
-    # Ensure a tmp folder exists in the current directory
-    tmp_dir = os.path.join(os.getcwd(), "tmp")
-    os.makedirs(tmp_dir, exist_ok=True)
+    # Get temp dir (uses MEGG_TEMP_DIR env var or /tmp/megg)
+    tmp_dir = str(get_temp_dir())
 
-    # Set TMPDIR to our local tmp folder
+    # Set TMPDIR to our temp folder
     os.environ["TMPDIR"] = tmp_dir
 
     egraph = EGraph(save_egglog_string=True)

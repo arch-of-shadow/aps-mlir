@@ -66,9 +66,9 @@ class MLIRToLLVMBackend:
                 tmp_mlir_path = tmp_mlir.name
 
             # DEBUG: Save to tmp for inspection
-            import os
-            debug_path = os.path.join(os.getcwd(), "tmp", "backend_input.mlir")
-            os.makedirs(os.path.dirname(debug_path), exist_ok=True)
+            from megg.utils import get_temp_dir
+            tmp_dir = get_temp_dir()
+            debug_path = tmp_dir / "backend_input.mlir"
             with open(debug_path, 'w') as f:
                 f.write(mlir_code)
             logger.debug(f"Saved backend input to: {debug_path} ({len(mlir_code)} chars)")

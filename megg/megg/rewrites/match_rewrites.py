@@ -232,6 +232,47 @@ def _get_var_name(var) -> str:
     return text
 
 
+def simplify_pattern_str(pattern_str: str) -> str:
+    """Simplify a pattern string for display.
+
+    Converts verbose Term representation to a simplified format:
+    - Term.yield_(Vec[Term](Term.add(...))) -> yield(add(...))
+    - Term.store(x, y, ...) -> store(x, y, ...)
+    - Removes egglog type annotations like String("..."), i64(...)
+    """
+    import re
+
+    s = pattern_str
+
+    # Remove Term. prefix
+    s = re.sub(r'\bTerm\.', '', s)
+
+    # Remove Vec[Term](...) wrapper, keep contents
+    s = re.sub(r'Vec\[Term\]\(([^)]*)\)', r'\1', s)
+
+    # Simplify egglog.String("...") -> "..."
+    s = re.sub(r'egglog\.String\("([^"]*)"\)', r'"\1"', s)
+    s = re.sub(r'String\("([^"]*)"\)', r'"\1"', s)
+
+    # Simplify egglog.i64(...) -> just the number
+    s = re.sub(r'egglog\.i64\((\d+)\)', r'\1', s)
+    s = re.sub(r'i64\((\d+)\)', r'\1', s)
+
+    # Remove type annotations like "__expr_index", "__expr_void"
+    s = re.sub(r'"__expr_\w+"', '...', s)
+
+    # Simplify variable names: _arg0, _arg1 -> arg0, arg1
+    s = re.sub(r'\b_arg(\d+)\b', r'arg\1', s)
+
+    # Remove trailing underscores from variable names
+    s = re.sub(r'\b(\w+)_\b', r'\1', s)
+
+    # Clean up extra whitespace
+    s = re.sub(r'\s+', ' ', s).strip()
+
+    return s
+
+
 def _extract_used_args_from_pattern(pattern: Term, arg_vars: List[Term]) -> List[Term]:
     """
     Extract which argument variables are actually used in the pattern.
@@ -323,6 +364,30 @@ class Skeleton:
     operand_constraints: List[Tuple[str, int, str]] = field(default_factory=list)
     has_side_effects: bool = False
     clobbers: List[str] = field(default_factory=list)
+
+    def format_tree(self) -> str:
+        """Format skeleton as a tree structure like for(for(stmt0), for(stmt1, stmt2))"""
+        return self._format_node(self.root)
+
+    def _format_node(self, node: SkeletonNode) -> str:
+        """Recursively format a skeleton node."""
+        # Get short name for container type
+        type_name = node.container_type.replace("scf.", "").replace("func.", "")
+
+        children = []
+        for block in node.blocks:
+            for stmt in block.statements:
+                if stmt.is_nested():
+                    # Recursively format nested control flow
+                    children.append(self._format_node(stmt.nested_skeleton))
+                else:
+                    # Leaf pattern - just show the name
+                    children.append(stmt.name)
+
+        if children:
+            return f"{type_name}({', '.join(children)})"
+        else:
+            return type_name
 
     def add_leaf_pattern(self, name: str, pattern: Term, operands: Optional[List[Term]] = None):
         full_name = f"{self.instr_name}_{name}"
@@ -931,6 +996,9 @@ def build_ruleset_from_module(module: MModule, normalize: bool = True, verbose: 
 
             elif skeleton is not None:
                 # 情况2：复杂控制流模式 - 生成 component rewrites + skeleton
+                # Print skeleton tree format
+                print(f"  [Skeleton] {skeleton.format_tree()}")
+
                 for full_name, pattern in skeleton.leaf_patterns.items():
                     operand_terms = skeleton.leaf_operands.get(full_name, [])
                     if not operand_terms:
@@ -958,13 +1026,17 @@ def build_ruleset_from_module(module: MModule, normalize: bool = True, verbose: 
                     # Check pattern complexity before adding
                     pattern_str = str(specialized_pattern)
                     pattern_len = len(pattern_str)
-                    print(f"  Adding component rewrite: {full_name} (pattern length: {pattern_len} chars)")
+
+                    # Print simplified rewrite: pattern -> component
+                    simplified = simplify_pattern_str(pattern_str)
+                    # Extract short component name
+                    short_name = full_name.replace(f"{instr_name}_", "")
+                    print(f"  [Rewrite] {simplified} -> {short_name}")
 
                     if pattern_len > 5000:
                         print(f"    ⚠️  WARNING: Very large pattern ({pattern_len} chars), may cause performance issues")
 
                     rewrite = egglog.rewrite(specialized_pattern).to(comp_instr)
-                    print(f"  ✓ Added component rewrite: {full_name}")
                     rewrites.append(rewrite)
 
                     # 🧪 MANUAL TEST: 手动添加使用字符串常量的rewrite来测试类型匹配

@@ -34,9 +34,13 @@ mlir = { cmd = "python aps-frontend mlir" }
 mlir-std = { cmd = "bash scripts/mlir-std.sh" }
 cadl2c = { cmd = "python aps-frontend cadl2c" }
 
+# Tutorial Demo
+tutorial-demo = { cmd = "streamlit run examples/aspdac_tutorial/compiler/app.py --server.headless true" }
+tutorial-hands-on = { cmd = "streamlit run examples/aspdac_tutorial/compiler/hands_on.py --server.headless true" }
+
 [tasks.opt]
 args = ["cadl", "apsir"]
-cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e --clock 8.0 -i {{ cadl }} -o outputs/ > {{ apsir }}"
+cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e --clock 8.0 -i {{ cadl }} -o outputs/ && cp outputs/$(basename {{ cadl }} .cadl).mlir {{ apsir }}"
 
 [tasks.opt-debug]
 args = ["cadl"]
@@ -44,7 +48,7 @@ cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e -i {{ cadl }} -o outputs/ 
 
 [tasks.sv]
 args = ["apsir", "sv"]
-cmd = "./circt/build/bin/circt-opt {{ apsir }} --lower-cmt2-to-firrtl --mlir-print-ir-after-failure | ./circt/build/bin/firtool -format=mlir -o {{ sv }}"
+cmd = "./build/tools/aps-opt/aps-opt {{ apsir }} --aps-to-cmt2-gen | ./circt/build/bin/circt-opt --lower-cmt2-to-firrtl | ./circt/build/bin/firtool -format=mlir -o {{ sv }}"
 
 [tasks.cmt2main]
 args = ["apsir", "mainir"]
@@ -76,6 +80,7 @@ sbt = ">=1.10.2,<2"
 openjdk = "20.*"
 pip = "*"
 egglog = ">=11.2.0"
+streamlit = ">=1.28.0"
 black = "<=25.1.0"
 pytokens = "*"
 riscv-tools = "1.0.6.*"

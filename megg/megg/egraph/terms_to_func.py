@@ -456,6 +456,28 @@ class ExprTreeToMLIR:
 
     # ===== Binary Operations =====
 
+    def _type_str_to_mtype(self, type_str: str):
+        """Convert a type string (e.g., 'i32', 'index') to an MType object."""
+        type_str = type_str.strip()
+        if type_str == 'index':
+            return self.builder.index()
+        elif type_str == 'i32':
+            return self.builder.i32()
+        elif type_str == 'i64':
+            return self.builder.i64()
+        elif type_str == 'i1':
+            return self.builder.i1()
+        elif type_str == 'f32':
+            return self.builder.f32()
+        elif type_str == 'f64':
+            return self.builder.f64()
+        elif type_str.startswith('i') and type_str[1:].isdigit():
+            width = int(type_str[1:])
+            return self.builder.integer(width)
+        else:
+            # Default to i32 for unknown types
+            return self.builder.i32()
+
     def _ensure_same_type(self, lhs: MValue, rhs: MValue, block: MBlock) -> Tuple[MValue, MValue]:
         """Ensure two operands have the same type, inserting index_cast if needed."""
         lhs_type_str = str(lhs.type)
@@ -469,10 +491,12 @@ class ExprTreeToMLIR:
         with self.builder.set_insertion_point_to_end(block):
             if lhs_type_str == 'index' and 'i' in rhs_type_str:
                 # Convert lhs (index) to rhs's integer type
-                lhs = self.builder.index_cast(lhs, rhs.type)
+                target_type = self._type_str_to_mtype(rhs_type_str)
+                lhs = self.builder.index_cast(lhs, target_type)
             elif rhs_type_str == 'index' and 'i' in lhs_type_str:
                 # Convert rhs (index) to lhs's integer type
-                rhs = self.builder.index_cast(rhs, lhs.type)
+                target_type = self._type_str_to_mtype(lhs_type_str)
+                rhs = self.builder.index_cast(rhs, target_type)
             # If both are integers of different widths, prefer the wider one
             elif 'i' in lhs_type_str and 'i' in rhs_type_str:
                 # Extract bit widths (simple heuristic)

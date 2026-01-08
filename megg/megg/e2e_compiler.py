@@ -47,7 +47,8 @@ class E2ECompiler:
                  output: str = None, encoding_json: Optional[str] = None,
                  external: bool = True,
                  keep_intermediate: bool = False,
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 handson: bool = False):
         """
         Initialize E2E compiler.
 
@@ -59,7 +60,10 @@ class E2ECompiler:
             mlir_passes: Semicolon-separated MLIR passes
             keep_intermediate: Keep intermediate files for debugging
             verbose: Enable verbose logging
+            handson: Enable handson mode - saves phase snapshots to JSON files
         """
+        self.handson = handson
+        self.snapshots = []  # Collect snapshots in handson mode
         self.source_file = Path(source_file).resolve()
         self.custom_instr_mlir = Path(custom_instr_mlir).resolve() if custom_instr_mlir else None
         self.output = Path(output).resolve() if output else None
@@ -85,9 +89,9 @@ class E2ECompiler:
         if self.encoding_json:
             self._load_encodings()
 
-        # Create temporary directory in project's tmp folder
-        project_tmp = Path.cwd() / "tmp"
-        project_tmp.mkdir(exist_ok=True)
+        # Create temporary directory using get_temp_dir()
+        from megg.utils import get_temp_dir
+        project_tmp = get_temp_dir()
 
         # Create unique subdirectory
         import time
@@ -404,13 +408,22 @@ class E2ECompiler:
 
             # normalize module before optimization
             # target_module = normalize_pattern_module(target_module, verbose=
+
+            # Setup handson callback if enabled
+            debug_callback = None
+            if self.handson:
+                def debug_callback(snapshot):
+                    self.snapshots.append(snapshot)
+                logger.info("    Handson mode enabled - collecting phase snapshots")
+
             # Create compiler
             compiler = Compiler(
                 module=target_module,
                 match_ruleset=custom_ruleset,
                 skeletons=skeletons,
                 loop_hints=loop_hints,  # Pass loop hints for external passes
-                instr_encodings=self.instr_encodings if hasattr(self, 'instr_encodings') else None  # Pass encodings
+                instr_encodings=self.instr_encodings if hasattr(self, 'instr_encodings') else None,  # Pass encodings
+                debug_callback=debug_callback  # Pass handson callback
             )
 
             # Run optimization
@@ -421,6 +434,10 @@ class E2ECompiler:
                 custom_rewrites=(custom_ruleset is not None),
                 output_path=str(self.paths.optimized_mlir)
             )
+
+            # Save handson snapshots if enabled
+            if self.handson and self.snapshots:
+                self._save_handson_snapshots()
 
             if not result.success:
                 logger.error(
@@ -540,23 +557,19 @@ class E2ECompiler:
 
     def _link(self) -> bool:
         """Link object files into RISC-V executable."""
-        # Use HTIF specs from toolchain for Chipyard compatibility
-        # The toolchain provides htif_nano.specs which includes:
-        # - htif.ld linker script (entry at 0x80000000)
-        # - libgloss_htif runtime library
-        # - medany memory model
+        # Use nosys specs for bare-metal linking
         gcc_path = self.riscv + '/bin/riscv32-unknown-elf-gcc'
         cmd = [
             gcc_path,
             '-march=rv32ima_zicsr_zifencei',  # Chipyard: no RVC compression
             '-mabi=ilp32',                     # Soft-float ABI
-            '-specs=htif_nano.specs',          # HTIF runtime + linker script
+            '-specs=nosys.specs',              # Bare-metal, no OS
             '-static',                         # Static linking for baremetal
             str(self.paths.target_o),
             str(self.paths.rest_o),
             '-o', str(self.paths.executable)
         ]
-        logger.info(f"  Using HTIF specs for Chipyard (entry at 0x80000000)")
+        logger.info(f"  Using nosys specs for bare-metal linking")
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -575,7 +588,7 @@ class E2ECompiler:
     def _generate_disassembly(self):
         """Generate disassembly files for debugging."""
         try:
-            objdump = self.riscv() + '/bin/riscv32-unknown-elf-objdump'
+            objdump = self.riscv + '/bin/riscv32-unknown-elf-objdump'
             # Generate disassembly for final executable
             asm_path = self.paths.executable.with_suffix('.asm')
             cmd = [
@@ -631,7 +644,7 @@ class E2ECompiler:
             riscv_gcc,
             '-march=rv32ima_zicsr_zifencei',  # Chipyard: no RVC compression
             '-mabi=ilp32',                     # Soft-float ABI
-            '-specs=htif_nano.specs',          # HTIF runtime + linker script
+            '-specs=nosys.specs',              # Bare-metal, no OS
             '-static',                         # Static linking for baremetal
             '-O2',                             # Basic optimization
             '-I' + self.riscv + '/riscv32-unknown-elf/include',
@@ -685,6 +698,59 @@ class E2ECompiler:
         except Exception as e:
             logger.warning(f"Failed to save statistics report: {e}")
 
+    def _save_handson_snapshots(self):
+        """Save phase snapshots to JSON file for hands-on visualization."""
+        import json
+        from dataclasses import asdict
+
+        try:
+            # Convert snapshots to serializable format
+            snapshots_data = []
+            for snapshot in self.snapshots:
+                snapshot_dict = {
+                    'phase_name': snapshot.phase_name,
+                    'phase_index': snapshot.phase_index,
+                    'egraph_stats': snapshot.egraph_stats,
+                    'cumulative_stats': snapshot.cumulative_stats,
+                    'details': snapshot.details,
+                    'timestamp': snapshot.timestamp
+                }
+                snapshots_data.append(snapshot_dict)
+
+            # Save to JSON file next to output executable
+            snapshots_path = self.output.with_suffix('.snapshots.json')
+            with open(snapshots_path, 'w') as f:
+                json.dump({
+                    'source_file': str(self.source_file),
+                    'pattern_file': str(self.custom_instr_mlir) if self.custom_instr_mlir else None,
+                    'total_phases': len(snapshots_data),
+                    'snapshots': snapshots_data
+                }, f, indent=2)
+
+            logger.info(f"    Handson snapshots saved: {snapshots_path}")
+            logger.info(f"    Total phases captured: {len(snapshots_data)}")
+
+            # Also print snapshots to stdout for visibility
+            print("\n" + "=" * 60)
+            print("HANDSON MODE: Phase Snapshots")
+            print("=" * 60)
+            for i, snapshot in enumerate(snapshots_data):
+                print(f"\n[Phase {i}] {snapshot['phase_name']}")
+                stats = snapshot['cumulative_stats']
+                print(f"  Internal rewrites: {stats.get('internal_rewrites', 0)}")
+                print(f"  External rewrites: {stats.get('external_rewrites', 0)}")
+                print(f"  Custom rewrites: {stats.get('custom_rewrites', 0)}")
+                egraph = snapshot['egraph_stats']
+                if egraph:
+                    for func_name, func_stats in egraph.items():
+                        print(f"  E-graph ({func_name}): {func_stats.get('total_eclasses', 0)} eclasses, {func_stats.get('total_nodes', 0)} enodes")
+            print("=" * 60 + "\n")
+
+        except Exception as e:
+            logger.warning(f"Failed to save handson snapshots: {e}")
+            import traceback
+            logger.warning(traceback.format_exc())
+
     def _cleanup(self):
         """Remove temporary directory and intermediate files."""
         if not self.keep_intermediate and self.temp_dir.exists():
@@ -713,6 +779,8 @@ def main():
                         help='Keep intermediate files')
     parser.add_argument('--verbose', action='store_true',
                         help='Verbose output')
+    parser.add_argument('--handson', action='store_true',
+                        help='Enable handson mode - saves phase snapshots for tutorial visualization')
 
     args = parser.parse_args()
 
@@ -728,9 +796,9 @@ def main():
         custom_instr_mlir=args.custom_instructions,
         output=args.output,
         encoding_json=args.encoding_json,
-        mlir_passes=args.mlir_passes,
         keep_intermediate=args.keep_intermediate,
-        verbose=args.verbose
+        verbose=args.verbose,
+        handson=args.handson
     )
 
     success = compiler.compile()

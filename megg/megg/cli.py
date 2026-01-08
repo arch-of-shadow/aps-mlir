@@ -226,6 +226,8 @@ def main_e2e(argv=None):
                         help='Keep intermediate files for debugging')
     parser.add_argument('--verbose', action='store_true',
                         help='Enable verbose logging')
+    parser.add_argument('--handson', action='store_true',
+                        help='Enable handson mode - saves phase snapshots for tutorial visualization')
 
     args = parser.parse_args(argv)
 
@@ -246,7 +248,8 @@ def main_e2e(argv=None):
         encoding_json=args.encoding_json,
         external=args.external,
         keep_intermediate=args.keep_intermediate,
-        verbose=args.verbose
+        verbose=args.verbose,
+        handson=args.handson
     )
 
     success = compiler.compile()

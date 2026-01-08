@@ -117,6 +117,21 @@ class CompilationResult:
     error_message: Optional[str] = None
 
 
+@dataclass
+class PhaseSnapshot:
+    """Snapshot of compiler state at a specific phase (for debugging/visualization)."""
+    phase_name: str
+    phase_index: int
+    egraph_stats: Dict[str, Any]  # {func_name: {total_eclasses, total_nodes, ...}}
+    cumulative_stats: Dict[str, Any]  # {internal_rewrites, external_rewrites, custom_rewrites}
+    details: Optional[Dict[str, Any]] = None  # Phase-specific details (rules applied, etc.)
+    timestamp: float = 0.0
+
+
+# Type alias for debug callback
+DebugCallback = Callable[['PhaseSnapshot'], None]
+
+
 class StateManager:
     """Manages compilation state and safeguards."""
 
@@ -336,6 +351,8 @@ class RewriteEngine:
         self,
         current_loop: Dict[str, int],
         hint: Dict[str, int],
+        loop_index: int = -1,
+        hint_name: str = "",
     ) -> List[Tuple[str, str, int]]:
         """Return all viable loop transformations based on the hint."""
 
@@ -360,6 +377,7 @@ class RewriteEngine:
         target_nested = hint['nested_loop_count']
 
         if current_trip == custom_trip and current_nested == target_nested:
+            print(f"  [External] loop_{loop_index} (trip={current_trip}, nested={current_nested}) == {hint_name} (trip={custom_trip}, nested={target_nested}) → no change needed")
             return []
 
         decisions: List[Tuple[str, str, int]] = []
@@ -378,12 +396,14 @@ class RewriteEngine:
                 if factor > 1 and expected_nested == target_nested:
                     # This is outer loop unroll (body replicates, so nested loops repeat)
                     decisions.append(('loop-unroll', 'unroll_factor', factor))
+                    print(f"  [External] loop_{loop_index} (trip={current_trip}, nested={current_nested}) vs {hint_name} (trip={custom_trip}, nested={target_nested}) → loop-unroll({factor}) [nested increases]")
                     return decisions
 
             # General tiling case (introduces new nesting level)
             if custom_trip > 0 and custom_trip < current_trip and current_trip % custom_trip == 0:
                 factor = current_trip // custom_trip
                 decisions.append(('loop-tile', 'tile_size', factor))
+                print(f"  [External] loop_{loop_index} (trip={current_trip}, nested={current_nested}) vs {hint_name} (trip={custom_trip}, nested={target_nested}) → loop-tile({factor}) [add nesting]")
             return decisions
 
         # Prefer unrolling when the current loop is deeper or the body needs to be widened.
@@ -394,6 +414,7 @@ class RewriteEngine:
                     decisions.append(('loop-unroll', 'unroll_factor', factor))
                     if current_nested > 0:
                         decisions.append(('loop-unroll-jam', 'unroll_factor', factor))
+                    print(f"  [External] loop_{loop_index} (trip={current_trip}, nested={current_nested}) vs {hint_name} (trip={custom_trip}, nested={target_nested}) → loop-unroll({factor}) [reduce nested]")
             return decisions
 
         # Nested loop counts are equal; choose based on trip count difference.
@@ -403,10 +424,12 @@ class RewriteEngine:
                 decisions.append(('loop-unroll', 'unroll_factor', factor))
                 if current_nested > 0:
                     decisions.append(('loop-unroll-jam', 'unroll_factor', factor))
+                print(f"  [External] loop_{loop_index} (trip={current_trip}, nested={current_nested}) vs {hint_name} (trip={custom_trip}, nested={target_nested}) → loop-unroll({factor}) [trip {current_trip}→{custom_trip}]")
             if custom_trip > 0 and custom_trip <= current_trip and current_nested > 0:
                 decisions.append(('loop-tile', 'tile_size', factor))
         elif current_trip < custom_trip:
             # Cannot increase iterations via tiling/unrolling; no suitable transform.
+            print(f"  [External] loop_{loop_index} (trip={current_trip}) < {hint_name} (trip={custom_trip}) → no transform available")
             return []
 
         return decisions
@@ -496,6 +519,12 @@ class RewriteEngine:
                 needs_transformation = False
 
                 if loops and self.compiler.loop_hints:
+                    # Print loop hints from ISAX pattern
+                    print(f"[Loop Hints] From ISAX pattern:")
+                    for hint_name, hint_info in self.compiler.loop_hints.items():
+                        hint_trip = (hint_info['upper'] - hint_info['lower']) // hint_info['step'] if hint_info.get('step', 0) != 0 else 0
+                        print(f"  {hint_name}: trip={hint_trip}, nested={hint_info.get('nested_loop_count', 0)}, level={hint_info.get('nest_level', -1)}")
+
                     # Quick check: do any loops need transformation?
                     for loop_index, (loop_op, _) in list(loops.items()):
                         current_info = self._get_loop_characteristics(loop_op)
@@ -513,6 +542,8 @@ class RewriteEngine:
                             decisions = self._determine_loop_transformations(
                                 current_info,
                                 ci_loop_info,
+                                loop_index=loop_index,
+                                hint_name=ci_loop_name,
                             )
                             if decisions:  # Non-empty means transformation needed
                                 needs_transformation = True
@@ -571,12 +602,12 @@ class RewriteEngine:
                                 raise Exception("Failed to get function from standalone module")
 
                             # Save to tmp directory for debugging
-                            tmp_dir = os.path.join(os.getcwd(), "tmp")
-                            os.makedirs(tmp_dir, exist_ok=True)
+                            from megg.utils import get_temp_dir
+                            tmp_dir = get_temp_dir()
 
                             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:17]
                             filename = f"affine_extracted_{func_name}_{timestamp}.mlir"
-                            filepath = os.path.join(tmp_dir, filename)
+                            filepath = tmp_dir / filename
 
                             with open(filepath, 'w') as f:
                                 f.write(str(standalone_module))
@@ -681,6 +712,8 @@ class RewriteEngine:
                                 decisions = self._determine_loop_transformations(
                                     current_info,
                                     ci_loop_info,
+                                    loop_index=loop_index,
+                                    hint_name=ci_loop_name,
                                 )
 
                                 logger.info(f"  Decisions for '{ci_loop_name}': {decisions}")
@@ -801,7 +834,8 @@ class Compiler:
                  match_ruleset: Optional[egglog.Ruleset] = None,
                  skeletons: Optional[List] = None,
                  loop_hints: Optional[Dict[str, Dict[str, int]]] = None,
-                 instr_encodings: Optional[Dict[str, Dict[str, str]]] = None):
+                 instr_encodings: Optional[Dict[str, Dict[str, str]]] = None,
+                 debug_callback: Optional[DebugCallback] = None):
         """
         Initialize compiler with MLIR module.
 
@@ -814,12 +848,15 @@ class Compiler:
             skeletons: List of Skeleton for complex instruction matching
             loop_hints: Dictionary mapping loop names to optimization hints (unroll_factor, tile_size)
             instr_encodings: Dictionary mapping instruction names to encodings (opcode/funct3/funct7)
+            debug_callback: Optional callback function called after each phase with PhaseSnapshot
         """
         self.original_module = module
         self.target_functions = target_functions or []
         self.cost_function = cost_function if cost_function is not None else MeggCost()
         self.loop_hints = loop_hints or {}  # Store loop optimization hints
         self.instr_encodings = instr_encodings or {}  # Store instruction encodings
+        self.debug_callback = debug_callback  # Callback for phase snapshots
+        self._phase_index = 0  # Track phase number for snapshots
 
         # Core components
         self.egraphs: Dict[str, EGraph] = {}
@@ -908,6 +945,52 @@ class Compiler:
             print(f"ERROR: Failed to initialize e-graph: {e}", file=sys.stderr)
             print(f"Traceback:\n{error_details}", file=sys.stderr)
 
+    def _emit_phase_snapshot(self, phase_name: str, details: Optional[Dict[str, Any]] = None):
+        """Emit a snapshot of current compiler state to the debug callback."""
+        if self.debug_callback is None:
+            return
+
+        try:
+            # Collect e-graph statistics for each function
+            egraph_stats = {}
+            for func_name, egraph in self.egraphs.items():
+                transformer = self.transformers.get(func_name)
+                if transformer:
+                    try:
+                        megg = MeggEGraph.from_egraph(egraph, func_transformer=transformer)
+                        egraph_stats[func_name] = megg.get_statistics()
+                    except Exception as e:
+                        egraph_stats[func_name] = {"error": str(e)}
+
+            # Collect cumulative stats from state_manager
+            cumulative_stats = {}
+            if self.state_manager:
+                cumulative_stats = {
+                    "internal_rewrites": self.state_manager.internal_rewrites,
+                    "external_rewrites": self.state_manager.external_rewrites,
+                    "custom_rewrites": self.state_manager.custom_rewrites,
+                    "internal_details": self.state_manager.internal_rewrites_details,
+                    "external_details": self.state_manager.external_rewrites_details,
+                }
+
+            # Create snapshot
+            snapshot = PhaseSnapshot(
+                phase_name=phase_name,
+                phase_index=self._phase_index,
+                egraph_stats=egraph_stats,
+                cumulative_stats=cumulative_stats,
+                details=details,
+                timestamp=time.time()
+            )
+
+            self._phase_index += 1
+
+            # Call the callback
+            self.debug_callback(snapshot)
+
+        except Exception as e:
+            logger.warning(f"Failed to emit phase snapshot: {e}")
+
     def schedule(self,
                  max_iterations: int = 10,
                  time_limit: float = 60.0,
@@ -947,16 +1030,27 @@ class Compiler:
             # Collect initial e-graph statistics (before any rewrites)
             self._collect_initial_egraph_statistics()
 
+            # Emit initial snapshot (Phase 0: After E-Graph Construction)
+            self._emit_phase_snapshot("0_egraph_init", {"description": "E-Graph initialized from MLIR"})
+
             # Phase 1: Internal rewrites - expand e-graph with algebraic identities
             if internal_rewrites:
                 if enable_safeguards and state_manager.check_time_limit():
                     return state_manager.get_result(self.original_module, False, "Time limit exceeded during internal rewrites")
-                self.visualize_egraph("egraph_before_internal.svg")
+                from megg.utils import get_temp_dir
+                tmp_dir = get_temp_dir()
+                self.visualize_egraph(str(tmp_dir / "egraph_before_internal.svg"))
                 internal_count = self.rewrite_engine.apply_internal_rewrites()
                 state_manager.record_internal_rewrites(internal_count)
-                self.visualize_egraph("egraph_after_internal.svg")
+                self.visualize_egraph(str(tmp_dir / "egraph_after_internal.svg"))
                 logger.info(
                     f"Phase 1 complete: {internal_count} internal rules applied (e-graph expanded)")
+
+                # Emit snapshot after internal rewrites
+                self._emit_phase_snapshot("1_internal_rewrites", {
+                    "description": "Applied algebraic laws (commutativity, associativity, constant folding)",
+                    "rules_applied": internal_count
+                })
 
             # Phase 2: External rewrites - further expand e-graph with MLIR passes
             if external_passes:
@@ -968,6 +1062,12 @@ class Compiler:
                 logger.info(
                     f"Phase 2 complete: {external_count} external passes applied (e-graph expanded)")
 
+                # Emit snapshot after external rewrites
+                self._emit_phase_snapshot("2_external_rewrites", {
+                    "description": "Applied MLIR loop passes (unroll, tile)",
+                    "passes_applied": external_count
+                })
+
                 # Phase 2.5: Re-apply internal rewrites to simplify expressions introduced by external passes
                 # This is critical for pattern matching: loop transformations may introduce complex
                 # arithmetic expressions (e.g., (x*2)<<2) that need to be simplified (e.g., x*4)
@@ -977,17 +1077,31 @@ class Compiler:
                     state_manager.record_internal_rewrites(additional_internal)
                     logger.info(f"Phase 2.5 complete: {additional_internal} additional internal rules applied")
 
+                    # Emit snapshot after re-simplification
+                    self._emit_phase_snapshot("2.5_re_simplify", {
+                        "description": "Re-applied internal rewrites after loop transforms",
+                        "additional_rules": additional_internal
+                    })
+
             # Phase 3: Custom instruction matching - final lightweight pass
             if custom_rewrites and self.match_ruleset is not None:
                 if enable_safeguards and state_manager.check_time_limit():
                     return state_manager.get_result(self._extract_optimized_module(), False, "Time limit exceeded during custom rewrites")
 
-                self.visualize_egraph("egraph_before_custom.svg")
+                from megg.utils import get_temp_dir
+                tmp_dir = get_temp_dir()
+                self.visualize_egraph(str(tmp_dir / "egraph_before_custom.svg"))
                 custom_count = self.rewrite_engine.apply_custom_rewrites()
                 state_manager.record_custom_rewrites(custom_count)
-                self.visualize_egraph("egraph_after_custom.svg")
+                self.visualize_egraph(str(tmp_dir / "egraph_after_custom.svg"))
                 logger.info(
                     f"Phase 3 complete: {custom_count} custom instruction patterns applied (final pass)")
+
+                # Emit snapshot after custom rewrites
+                self._emit_phase_snapshot("3_custom_rewrites", {
+                    "description": "Applied egglog pattern matching rules",
+                    "patterns_matched": custom_count
+                })
 
             # Phase 3.5: Skeleton matching - complex instruction matching (新增)
             if custom_rewrites and self.skeletons:
@@ -999,8 +1113,20 @@ class Compiler:
                 logger.info(
                     f"Phase 3.5 complete: {skeleton_count} complex instructions matched via skeletons")
 
+                # Emit snapshot after skeleton matching
+                self._emit_phase_snapshot("3.5_skeleton_matching", {
+                    "description": "Applied skeleton-based control flow matching",
+                    "skeletons_matched": skeleton_count,
+                    "skeleton_names": [s.instr_name for s in self.skeletons]
+                })
+
             # Collect e-graph statistics after saturation (before extraction)
             self._collect_egraph_statistics()
+
+            # Emit final snapshot before extraction
+            self._emit_phase_snapshot("4_before_extraction", {
+                "description": "E-Graph saturated, ready for extraction"
+            })
 
             # Phase 4: Extract optimized module
             # WORKAROUND: Pass output_path to save immediately and avoid nanobind destructor crash
