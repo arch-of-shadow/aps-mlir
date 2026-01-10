@@ -188,7 +188,7 @@ LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
     StringRef globalName = getGlobalOp.getName();
     // Convert @mem_a_0 -> mem_a_0_read_1 (collect phase)
     memoryBankRule = (globalName + "_read_1").str();
-    llvm::outs() << "DEBUG: SPM load collect from global " << globalName
+    llvm::dbgs() << "DEBUG: SPM load collect from global " << globalName
                  << " using rule " << memoryBankRule << "\n";
   }
 
@@ -208,7 +208,7 @@ LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
   }
   unsigned resultWidth = intType.getWidth();
 
-  llvm::outs() << "DEBUG: SPM load collect - result width: " << resultWidth << "\n";
+  llvm::dbgs() << "DEBUG: SPM load collect - result width: " << resultWidth << "\n";
 
   // Call the scratchpad pool bank read_1 method (collect phase - returns data)
   auto callResult = b.create<circt::cmt2::CallOp>(

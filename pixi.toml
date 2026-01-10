@@ -46,8 +46,8 @@ args = ["apsir", "apsir_opt"]
 cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e --clock 8.0 -i {{ apsir }} -o {{ apsir_opt }}"
 
 [tasks.opt-debug]
-args = ["apsir"]
-cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e -i {{ apsir }} -o outputs/ --print-ir-after-all 2> error.log"
+args = ["apsir", "apsir_opt", "apsir_log"]
+cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e -i {{ apsir }} -o {{ apsir_opt }} --print-ir-after-all 2> {{ apsir_log }}"
 
 [tasks.sv]
 args = ["apsir", "sv"]
