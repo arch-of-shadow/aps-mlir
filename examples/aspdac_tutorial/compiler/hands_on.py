@@ -1025,6 +1025,241 @@ def render_step2():
 
 
 # ============================================================
+# Overview
+# ============================================================
+
+def render_overview():
+    """Render the overview/welcome page."""
+    st.markdown("### Overview")
+
+    st.markdown("""
+    Welcome to the **ASP-DAC Hands-on Tutorial** on Custom Instruction Synthesis with E-graph!
+
+    This tutorial demonstrates how to use **Megg** (MLIR E-graph) compiler to automatically
+    match and optimize code using custom RISC-V instructions.
+    """)
+
+    st.markdown("---")
+
+    # Architecture diagram
+    st.markdown("### System Architecture")
+
+    st.markdown("""
+    ```
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                        Megg Compiler                            │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                 │
+    │   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐    │
+    │   │    ISAX     │      │   C Code    │      │   C Code    │    │
+    │   │  (Pattern)  │      │  (Pattern)  │      │   (App)     │    │
+    │   └──────┬──────┘      └──────┬──────┘      └──────┬──────┘    │
+    │          │                    │                    │           │
+    │          ▼                    ▼                    ▼           │
+    │   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐    │
+    │   │  ISAX→C     │      │  Polygeist  │      │  Polygeist  │    │
+    │   │  Frontend   │      │   (C→MLIR)  │      │   (C→MLIR)  │    │
+    │   └──────┬──────┘      └──────┬──────┘      └──────┬──────┘    │
+    │          │                    │                    │           │
+    │          ▼                    ▼                    ▼           │
+    │   ┌──────────────────────────────────────────────────────┐     │
+    │   │                    MLIR                              │     │
+    │   └──────────────────────────┬───────────────────────────┘     │
+    │                              │                                 │
+    │                              ▼                                 │
+    │   ┌──────────────────────────────────────────────────────┐     │
+    │   │                   E-graph                            │     │
+    │   │  ┌────────────────────────────────────────────────┐  │     │
+    │   │  │  Internal Rewrites (algebraic laws)            │  │     │
+    │   │  │  External Rewrites (loop transforms)           │  │     │
+    │   │  │  Custom Rewrites (pattern matching)            │  │     │
+    │   │  └────────────────────────────────────────────────┘  │     │
+    │   └──────────────────────────┬───────────────────────────┘     │
+    │                              │                                 │
+    │                              ▼                                 │
+    │   ┌──────────────────────────────────────────────────────┐     │
+    │   │              Optimized MLIR + Custom Instr           │     │
+    │   └──────────────────────────┬───────────────────────────┘     │
+    │                              │                                 │
+    │                              ▼                                 │
+    │   ┌──────────────────────────────────────────────────────┐     │
+    │   │                 RISC-V Assembly                      │     │
+    │   └──────────────────────────────────────────────────────┘     │
+    │                                                                 │
+    └─────────────────────────────────────────────────────────────────┘
+    ```
+    """)
+
+    st.markdown("---")
+
+    # Tutorial steps
+    st.markdown("### Tutorial Steps")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("""
+        **E-graph Playground**
+
+        Learn the basics of e-graphs and equality saturation
+        using the interactive egglog demo.
+        """)
+
+    with col2:
+        st.markdown("""
+        **Step 1: ISAX Pattern**
+
+        Define custom instructions and convert them
+        to MLIR patterns for matching.
+
+        - ISAX → C (Frontend)
+        - C → MLIR (Polygeist)
+        """)
+
+    with col3:
+        st.markdown("""
+        **Step 2: Matching**
+
+        Apply e-graph optimization to match patterns
+        and generate optimized code.
+
+        - E-graph construction
+        - Pattern matching
+        - Code generation
+        """)
+
+    st.markdown("---")
+
+    # Key concepts
+    st.markdown("### Key Concepts")
+
+    with st.expander("What is an E-graph?", expanded=False):
+        st.markdown("""
+        An **E-graph** (equivalence graph) is a data structure that compactly represents
+        many equivalent programs. It enables **equality saturation**, where we apply
+        rewrite rules to explore all equivalent forms simultaneously, then extract
+        the optimal one.
+        """)
+
+    with st.expander("What is Megg?", expanded=False):
+        st.markdown("""
+        **Megg** (MLIR E-graph) is our compiler that uses e-graphs to optimize MLIR code.
+        It can automatically detect patterns that match custom instructions and replace
+        them, enabling transparent acceleration with custom hardware.
+        """)
+
+    st.markdown("---")
+
+    # Input Code Display
+    st.markdown("### Input Code")
+
+    example_data = st.session_state.get("example_data", {})
+    example_name = example_data.get("name", "unknown")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(f"**Application C Code** (`test_{example_name}.c`)")
+        test_c = example_data.get("test_c", "// No test C file found for this example")
+        st.code(test_c, language="c")
+
+    with col2:
+        st.markdown(f"**ISAX Definition** (`{example_name}.cadl`)")
+        cadl_code = example_data.get("cadl", "// No file found for this example")
+        st.code(cadl_code, language="rust")
+
+
+# ============================================================
+# E-graph Playground
+# ============================================================
+
+def render_egglog_playground():
+    """Render the egglog playground page with embedded demo."""
+    st.markdown("### E-graph Playground")
+    st.markdown("*Interactive egglog environment - try equality saturation in your browser!*")
+
+    st.markdown("""
+    This playground embeds the official [egglog demo](https://egraphs-good.github.io/egglog-demo/).
+    You can write egglog programs, run them, and visualize e-graphs.
+
+    **Quick Start:**
+    - Write egglog code in the editor
+    - Press `Ctrl+Enter` or click "Run" to execute
+    - View the e-graph visualization on the right
+    """)
+
+    st.markdown("---")
+
+    # Embed the egglog demo using iframe
+    import streamlit.components.v1 as components
+    components.iframe(
+        "https://egraphs-good.github.io/egglog-demo/",
+        height=800,
+        scrolling=True
+    )
+
+    st.markdown("---")
+
+    # Example code section
+    st.markdown("### Example: Arithmetic Simplification")
+    st.markdown("""
+    Copy the code below into the playground above to see how e-graphs can simplify
+    `(a * 2) / 2` to just `a` through equality saturation.
+    """)
+
+    example_code = ''';;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; 1. Language definition
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(datatype Expr
+  (Mul Expr Expr)
+  (Div Expr Expr)
+  (Shl Expr Expr)
+  (Const i64)
+  (Var String))
+
+;; 2. Expression: (a * 2) / 2
+
+(let start
+  (Div (Mul (Var "a") (Const 2))
+       (Const 2)))
+
+;; rule 1
+;; a * 2  <=>  a << 1
+(rewrite (Mul a (Const 2))
+         (Shl a (Const 1)))
+(run 5)
+;; extract
+(extract start)
+
+;; rule 2
+;; (a * b) / c <=> a * (b / c)
+(rewrite (Div (Mul a b) c)
+         (Mul a (Div b c)))
+(run 5)
+;; extract
+(extract start)
+
+;; rule 3
+;; a / a => 1
+(rewrite (Div a a)
+         (Const 1))
+(run 5)
+;; extract
+(extract start)
+
+;; rule 4
+;; a * 1 => a
+(rewrite (Mul a (Const 1)) a)
+(run 5)
+;; extract
+(extract start)
+'''
+
+    st.code(example_code, language="lisp")
+
+
+# ============================================================
 # Main
 # ============================================================
 
@@ -1060,6 +1295,8 @@ def main():
         step = st.radio(
             "Select Step:",
             [
+                "Overview",
+                "E-graph Playground",
                 "Step 1: ISAX Pattern",
                 "Step 2: Matching"
             ]
@@ -1087,7 +1324,11 @@ def main():
             st.rerun()
 
     # Render selected step
-    if step == "Step 1: ISAX Pattern":
+    if step == "Overview":
+        render_overview()
+    elif step == "E-graph Playground":
+        render_egglog_playground()
+    elif step == "Step 1: ISAX Pattern":
         render_step1()
     elif step == "Step 2: Matching":
         render_step2()
