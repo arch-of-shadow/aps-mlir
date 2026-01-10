@@ -11,6 +11,7 @@ PYTHONPATH = "${PIXI_PROJECT_ROOT}/build/python_packages/circt_core:${PYTHONPATH
 OR_TOOLS_PATH = "${PIXI_PROJECT_ROOT}/install"
 PATH = "${PIXI_PROJECT_ROOT}/circt/build/bin:${PIXI_PROJECT_ROOT}/install/bin:${PATH}:${PIXI_PROJECT_ROOT}/thirdparty/polygeist"
 MEGGINCLUDE = "${PIXI_PROJECT_ROOT}/megg/megg_include"
+LEGACY_FIRTOOL = "${CONDA_PREFIX}/bin/firtool"
 
 [tasks]
 
@@ -20,6 +21,8 @@ setup = { cmd = "pixi run chmod +x scripts/setup.sh && pixi run scripts/setup.sh
 mkdir_build = { cmd = "mkdir -p build", outputs = ["build"] }
 build = { cmd = "pixi run cmake .. -G Ninja -DCMAKE_CXX_FLAGS=\"-fuse-ld=lld\" -DCMAKE_BUILD_TYPE=Debug  && ninja", depends-on = ["mkdir_build"], cwd = "build"}
 clean = { cmd = "rm -rf build"}
+
+fix_verilator = { cmd = "sed -i -e 's|^AR *= *.*|AR = /usr/bin/ar|' -e 's|^CXX *= *.*|CXX = /usr/bin/g++|' -e 's|^LINK *= *.*|LINK = /usr/bin/g++|' $CONDA_PREFIX/share/verilator/include/verilated.mk" }
 
 # Python execution with CIRCT bindings
 python = { cmd = "python" }
@@ -75,14 +78,11 @@ numpy = ">=2.3.3,<3"
 pybind11 = ">=2.10.0,<=2.13.6"
 ml_dtypes = ">=0.5.0,<=0.6.0"
 psutil = ">=7.0.0,<8"
-lp_solve = ">=5.5.2.11,<6"
-nlohmann_json = ">=3.12.0,<4"
-verilator = ">=5.34,<6"
+verilator = ">=5.034"
 setuptools = ">=80.9.0,<81"
 setuptools_scm = ">=9.2.0,<10"
 ninja = ">=1.13.1,<2"
 z3prover = ">=4.15.3,<5"
-iverilog = ">=11.0,<12"
 sbt = ">=1.10.2,<2"
 openjdk = "20.*"
 pip = "*"
@@ -91,6 +91,7 @@ streamlit = ">=1.28.0"
 black = "<=25.1.0"
 pytokens = "*"
 riscv-tools = "1.0.6.*"
+circt = "1.75.0.*" # legacy version for chipyard
 
 [pypi-dependencies]
 lark = ">=1.1.0"
