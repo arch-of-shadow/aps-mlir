@@ -30,7 +30,6 @@ silicon = { cmd = "python dev_scripts/silicon.py" }
 aps-frontend = { cmd = "python aps-frontend" }
 parse = { cmd = "python aps-frontend parse" }
 parse-summary = { cmd = "python aps-frontend parse --summary" }
-mlir = { cmd = "python aps-frontend mlir" }
 mlir-std = { cmd = "bash scripts/mlir-std.sh" }
 cadl2c = { cmd = "python aps-frontend cadl2c" }
 
@@ -38,21 +37,29 @@ cadl2c = { cmd = "python aps-frontend cadl2c" }
 tutorial-demo = { cmd = "streamlit run examples/aspdac_tutorial/compiler/app.py --server.headless true" }
 tutorial-compiler-demo = { cmd = "streamlit run examples/aspdac_tutorial/compiler/hands_on.py --server.headless true" }
 
-[tasks.opt]
+[tasks.mlir]
 args = ["cadl", "apsir"]
-cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e --clock 8.0 -i {{ cadl }} -o outputs/ && cp outputs/$(basename {{ cadl }} .cadl).mlir {{ apsir }}"
+cmd =  "python aps-frontend mlir {{ cadl }} > {{ apsir }}"
+
+[tasks.opt]
+args = ["apsir", "apsir_opt"]
+cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e --clock 8.0 -i {{ apsir }} -o {{ apsir_opt }}"
 
 [tasks.opt-debug]
-args = ["cadl"]
-cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e -i {{ cadl }} -o outputs/ --print-ir-after-all 2> error.log"
+args = ["apsir"]
+cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e -i {{ apsir }} -o outputs/ --print-ir-after-all 2> error.log"
 
 [tasks.sv]
 args = ["apsir", "sv"]
-cmd = "./build/tools/aps-opt/aps-opt {{ apsir }} --aps-to-cmt2-gen | ./circt/build/bin/circt-opt --lower-cmt2-to-firrtl | ./circt/build/bin/firtool -format=mlir -o {{ sv }}"
+cmd = "./circt/build/bin/circt-opt {{ apsir }} --lower-cmt2-to-firrtl | ./circt/build/bin/firtool -format=mlir -o {{ sv }}"
 
 [tasks.cmt2main]
 args = ["apsir", "mainir"]
 cmd = "sed -n '/cmt2\\.module @main(%clk: !firrtl\\.clock, %rst: !firrtl\\.uint<1>)/,/^}/p' {{ apsir }} | sed '/cmt2\\.module @.*main(/!{/cmt2\\.module @/,/^}/d}' > {{ mainir }}"
+
+[tasks.compile]
+args = ["c_file", "mlir_ci", "app_out"]
+cmd = "python $PIXI_PROJECT_ROOT/megg-opt.py --mode c-e2e $(realpath \"{{ c_file }}\") --custom-instructions={{ mlir_ci }} -o {{ app_out }} --keep-intermediate"
 
 [dependencies]
 cmake = ">=4.1.1,<5"

@@ -2,6 +2,7 @@ from __future__ import annotations
 from egglog import egraph
 import pathlib
 import os
+import tempfile
 from pathlib import Path
 from typing import Literal, List, Tuple, Callable, Generic, TypeVar, Any, Set
 import logging
@@ -58,23 +59,10 @@ def get_temp_dir() -> Path:
     if temp_dir_env:
         temp_dir = Path(temp_dir_env)
     else:
-        temp_dir = Path("/tmp/megg")
+        temp_dir = Path(tempfile.mkdtemp(prefix="megg_"))
 
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["MEGG_TEMP_DIR"] = str(temp_dir)
     return temp_dir
-
-
-def visualize_egraph(graph: egraph.EGraph, target_file: str, format: Literal["png", "svg"] = "svg", **kwargs):
-    src = graph._graphviz(**kwargs)
-    src.format = format
-
-    output_path = pathlib.Path(target_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    result = src.render(filename=str(
-        output_path.with_suffix('')), cleanup=True, quiet=True)
-    logger.info(f"EGraph visualization saved to: {result}")
-    return result
-
 
 class Dispatcher(Generic[T]):
     def __init__(self, mapping: List[Tuple[Set[T], Callable]]):
