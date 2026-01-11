@@ -1,20 +1,14 @@
 {
-  "internal_rewrites": 26,
-  "external_rewrites": [
-    {
-      "pass": "loop-unroll",
-      "parameter": "unroll_factor",
-      "value": 2
-    }
-  ],
-  "custom_rewrites": 6,
+  "internal_rewrites": 17,
+  "external_rewrites": [],
+  "custom_rewrites": 5,
   "initial_egraph_statistics": {
     "num_eclasses": 43,
     "num_enodes": 102
   },
   "egraph_statistics": {
-    "num_eclasses": 143,
-    "num_enodes": 351
+    "num_eclasses": 111,
+    "num_enodes": 272
   },
-  "time_elapsed": 2.1618237495422363
+  "time_elapsed": 1.326615810394287
 }

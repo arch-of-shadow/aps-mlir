@@ -1057,8 +1057,9 @@ class Compiler:
                 if enable_safeguards and state_manager.check_time_limit():
                     return state_manager.get_result(self._extract_optimized_module(), False, "Time limit exceeded during external rewrites")
 
+                # Note: record_external_rewrites is called inside apply_external_rewrites
+                # with details, so we don't call it again here to avoid double counting
                 external_count = self.rewrite_engine.apply_external_rewrites()
-                state_manager.record_external_rewrites(external_count)
                 logger.info(
                     f"Phase 2 complete: {external_count} external passes applied (e-graph expanded)")
 

@@ -1,5 +1,5 @@
 {
-  "internal_rewrites": 21,
+  "internal_rewrites": 26,
   "external_rewrites": [
     {
       "pass": "loop-tile",
@@ -8,9 +8,13 @@
     }
   ],
   "custom_rewrites": 3,
-  "egraph_statistics": {
-    "num_eclasses": 193,
-    "num_enodes": 700
+  "initial_egraph_statistics": {
+    "num_eclasses": 53,
+    "num_enodes": 123
   },
-  "time_elapsed": 4.065057277679443
+  "egraph_statistics": {
+    "num_eclasses": 191,
+    "num_enodes": 656
+  },
+  "time_elapsed": 4.87337851524353
 }

@@ -25,44 +25,40 @@
         "custom_rewrites": 0,
         "internal_details": [
           {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_512526917300278200) __expr_-6254076111614624445) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6254076111614624445)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_2137792231909895004) __expr_-6960852488681651062) (LoopIndex _ai __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6960852488681651062) __expr_2137792231909895004) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_2137792231909895004) __expr_-6960852488681651062) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6960852488681651062)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 5
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_512526917300278200) __expr_-6254076111614624445) (LoopIndex _ai __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6254076111614624445) __expr_512526917300278200) (LoopIndex _ai __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6960852488681651062) __expr_2137792231909895004) (LoopIndex _ai __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6254076111614624445) __expr_512526917300278200) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (Add _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Add (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_512526917300278200) (Mul _a (Lit (Int 4) __expr_512526917300278200) __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_2137792231909895004) (Mul _a (Lit (Int 4) __expr_2137792231909895004) __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 1
           },
           {
-            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 5
+            "rule": "(rewrite (IndexCast (Add _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Add (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
           },
           {
             "rule": "(rule ((= _e (IndexCast _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -73,40 +69,44 @@
             "num_matches": 5
           },
           {
-            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 2
-          },
-          {
             "rule": "(rule ((= _e (Lit _l _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 1
           },
           {
-            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_512526917300278200) __expr_-6254076111614624445) (Lit (Int _ai) __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (IndexCast (Mul _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Mul (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 5
+          },
+          {
+            "rule": "(rewrite (IndexCast (Mul _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Mul (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_2137792231909895004) __expr_-6960852488681651062) (Lit (Int _ai) __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 24
+          },
+          {
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 14
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
-          },
-          {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 24
           },
           {
             "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -117,12 +117,12 @@
             "num_matches": 2
           },
           {
-            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 34
-          },
-          {
             "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 24
+          },
+          {
+            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 34
           },
           {
             "rule": "(rule ((= _e (TruncI _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -140,7 +140,7 @@
       "details": {
         "description": "E-Graph initialized from MLIR"
       },
-      "timestamp": 1767969393.6127155
+      "timestamp": 1768044005.4163942
     },
     {
       "phase_name": "1_internal_rewrites",
@@ -164,44 +164,40 @@
         "custom_rewrites": 0,
         "internal_details": [
           {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_512526917300278200) __expr_-6254076111614624445) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6254076111614624445)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_2137792231909895004) __expr_-6960852488681651062) (LoopIndex _ai __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6960852488681651062) __expr_2137792231909895004) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_2137792231909895004) __expr_-6960852488681651062) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6960852488681651062)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 5
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_512526917300278200) __expr_-6254076111614624445) (LoopIndex _ai __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6254076111614624445) __expr_512526917300278200) (LoopIndex _ai __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6960852488681651062) __expr_2137792231909895004) (LoopIndex _ai __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6254076111614624445) __expr_512526917300278200) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (Add _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Add (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_512526917300278200) (Mul _a (Lit (Int 4) __expr_512526917300278200) __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_2137792231909895004) (Mul _a (Lit (Int 4) __expr_2137792231909895004) __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 1
           },
           {
-            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 5
+            "rule": "(rewrite (IndexCast (Add _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Add (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
           },
           {
             "rule": "(rule ((= _e (IndexCast _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -212,40 +208,44 @@
             "num_matches": 5
           },
           {
-            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 2
-          },
-          {
             "rule": "(rule ((= _e (Lit _l _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 1
           },
           {
-            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_512526917300278200) __expr_-6254076111614624445) (Lit (Int _ai) __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (IndexCast (Mul _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Mul (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 5
+          },
+          {
+            "rule": "(rewrite (IndexCast (Mul _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Mul (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_2137792231909895004) __expr_-6960852488681651062) (Lit (Int _ai) __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 24
+          },
+          {
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 14
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
-          },
-          {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 24
           },
           {
             "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -256,12 +256,12 @@
             "num_matches": 2
           },
           {
-            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 34
-          },
-          {
             "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 24
+          },
+          {
+            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 34
           },
           {
             "rule": "(rule ((= _e (TruncI _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -280,7 +280,7 @@
         "description": "Applied algebraic laws (commutativity, associativity, constant folding)",
         "rules_applied": 17
       },
-      "timestamp": 1767969393.9157712
+      "timestamp": 1768044005.7405958
     },
     {
       "phase_name": "2_external_rewrites",
@@ -300,48 +300,44 @@
       },
       "cumulative_stats": {
         "internal_rewrites": 95,
-        "external_rewrites": 2,
+        "external_rewrites": 1,
         "custom_rewrites": 0,
         "internal_details": [
           {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_512526917300278200) __expr_-6254076111614624445) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6254076111614624445)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_2137792231909895004) __expr_-6960852488681651062) (LoopIndex _ai __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6960852488681651062) __expr_2137792231909895004) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_2137792231909895004) __expr_-6960852488681651062) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6960852488681651062)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 5
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_512526917300278200) __expr_-6254076111614624445) (LoopIndex _ai __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6254076111614624445) __expr_512526917300278200) (LoopIndex _ai __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6960852488681651062) __expr_2137792231909895004) (LoopIndex _ai __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6254076111614624445) __expr_512526917300278200) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (Add _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Add (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_512526917300278200) (Mul _a (Lit (Int 4) __expr_512526917300278200) __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_2137792231909895004) (Mul _a (Lit (Int 4) __expr_2137792231909895004) __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 1
           },
           {
-            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 5
+            "rule": "(rewrite (IndexCast (Add _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Add (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
           },
           {
             "rule": "(rule ((= _e (IndexCast _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -352,40 +348,44 @@
             "num_matches": 5
           },
           {
-            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 2
-          },
-          {
             "rule": "(rule ((= _e (Lit _l _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 1
           },
           {
-            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_512526917300278200) __expr_-6254076111614624445) (Lit (Int _ai) __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (IndexCast (Mul _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Mul (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 5
+          },
+          {
+            "rule": "(rewrite (IndexCast (Mul _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Mul (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_2137792231909895004) __expr_-6960852488681651062) (Lit (Int _ai) __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 24
+          },
+          {
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 14
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
-          },
-          {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 24
           },
           {
             "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -396,12 +396,12 @@
             "num_matches": 2
           },
           {
-            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 34
-          },
-          {
             "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 24
+          },
+          {
+            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 34
           },
           {
             "rule": "(rule ((= _e (TruncI _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -420,7 +420,7 @@
         "description": "Applied MLIR loop passes (unroll, tile)",
         "passes_applied": 1
       },
-      "timestamp": 1767969394.2682152
+      "timestamp": 1768044006.0934
     },
     {
       "phase_name": "2.5_re_simplify",
@@ -440,48 +440,44 @@
       },
       "cumulative_stats": {
         "internal_rewrites": 182,
-        "external_rewrites": 2,
+        "external_rewrites": 1,
         "custom_rewrites": 0,
         "internal_details": [
           {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_512526917300278200) __expr_-6254076111614624445) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6254076111614624445)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_2137792231909895004) __expr_-6960852488681651062) (LoopIndex _ai __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6960852488681651062) __expr_2137792231909895004) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_2137792231909895004) __expr_-6960852488681651062) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6960852488681651062)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 5
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_512526917300278200) __expr_-6254076111614624445) (LoopIndex _ai __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6254076111614624445) __expr_512526917300278200) (LoopIndex _ai __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6960852488681651062) __expr_2137792231909895004) (LoopIndex _ai __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6254076111614624445) __expr_512526917300278200) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (Add _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Add (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_512526917300278200) (Mul _a (Lit (Int 4) __expr_512526917300278200) __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_2137792231909895004) (Mul _a (Lit (Int 4) __expr_2137792231909895004) __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 1
           },
           {
-            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 5
+            "rule": "(rewrite (IndexCast (Add _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Add (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
           },
           {
             "rule": "(rule ((= _e (IndexCast _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -492,40 +488,44 @@
             "num_matches": 5
           },
           {
-            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 2
-          },
-          {
             "rule": "(rule ((= _e (Lit _l _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 1
           },
           {
-            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_512526917300278200) __expr_-6254076111614624445) (Lit (Int _ai) __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (IndexCast (Mul _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Mul (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 5
+          },
+          {
+            "rule": "(rewrite (IndexCast (Mul _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Mul (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_2137792231909895004) __expr_-6960852488681651062) (Lit (Int _ai) __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 24
+          },
+          {
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 14
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
-          },
-          {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 24
           },
           {
             "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -536,12 +536,12 @@
             "num_matches": 2
           },
           {
-            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 34
-          },
-          {
             "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 24
+          },
+          {
+            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 34
           },
           {
             "rule": "(rule ((= _e (TruncI _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -560,7 +560,7 @@
         "description": "Re-applied internal rewrites after loop transforms",
         "additional_rules": 9
       },
-      "timestamp": 1767969394.3980305
+      "timestamp": 1768044006.2231603
     },
     {
       "phase_name": "3_custom_rewrites",
@@ -580,48 +580,44 @@
       },
       "cumulative_stats": {
         "internal_rewrites": 182,
-        "external_rewrites": 2,
+        "external_rewrites": 1,
         "custom_rewrites": 4,
         "internal_details": [
           {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_512526917300278200) __expr_-6254076111614624445) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6254076111614624445)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_2137792231909895004) __expr_-6960852488681651062) (LoopIndex _ai __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6960852488681651062) __expr_2137792231909895004) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_2137792231909895004) __expr_-6960852488681651062) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6960852488681651062)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 5
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_512526917300278200) __expr_-6254076111614624445) (LoopIndex _ai __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6254076111614624445) __expr_512526917300278200) (LoopIndex _ai __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6960852488681651062) __expr_2137792231909895004) (LoopIndex _ai __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6254076111614624445) __expr_512526917300278200) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (Add _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Add (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_512526917300278200) (Mul _a (Lit (Int 4) __expr_512526917300278200) __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_2137792231909895004) (Mul _a (Lit (Int 4) __expr_2137792231909895004) __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 1
           },
           {
-            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 5
+            "rule": "(rewrite (IndexCast (Add _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Add (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
           },
           {
             "rule": "(rule ((= _e (IndexCast _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -632,40 +628,44 @@
             "num_matches": 5
           },
           {
-            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 2
-          },
-          {
             "rule": "(rule ((= _e (Lit _l _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 1
           },
           {
-            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_512526917300278200) __expr_-6254076111614624445) (Lit (Int _ai) __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (IndexCast (Mul _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Mul (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 5
+          },
+          {
+            "rule": "(rewrite (IndexCast (Mul _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Mul (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_2137792231909895004) __expr_-6960852488681651062) (Lit (Int _ai) __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 24
+          },
+          {
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 14
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
-          },
-          {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 24
           },
           {
             "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -676,12 +676,12 @@
             "num_matches": 2
           },
           {
-            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 34
-          },
-          {
             "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 24
+          },
+          {
+            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 34
           },
           {
             "rule": "(rule ((= _e (TruncI _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -700,7 +700,7 @@
         "description": "Applied egglog pattern matching rules",
         "patterns_matched": 4
       },
-      "timestamp": 1767969395.3429215
+      "timestamp": 1768044007.1788716
     },
     {
       "phase_name": "3.5_skeleton_matching",
@@ -720,48 +720,44 @@
       },
       "cumulative_stats": {
         "internal_rewrites": 182,
-        "external_rewrites": 2,
+        "external_rewrites": 1,
         "custom_rewrites": 6,
         "internal_details": [
           {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_512526917300278200) __expr_-6254076111614624445) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6254076111614624445)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_2137792231909895004) __expr_-6960852488681651062) (LoopIndex _ai __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6960852488681651062) __expr_2137792231909895004) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_2137792231909895004) __expr_-6960852488681651062) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6960852488681651062)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 5
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_512526917300278200) __expr_-6254076111614624445) (LoopIndex _ai __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6254076111614624445) __expr_512526917300278200) (LoopIndex _ai __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6960852488681651062) __expr_2137792231909895004) (LoopIndex _ai __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6254076111614624445) __expr_512526917300278200) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (Add _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Add (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_512526917300278200) (Mul _a (Lit (Int 4) __expr_512526917300278200) __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_2137792231909895004) (Mul _a (Lit (Int 4) __expr_2137792231909895004) __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 1
           },
           {
-            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 5
+            "rule": "(rewrite (IndexCast (Add _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Add (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
           },
           {
             "rule": "(rule ((= _e (IndexCast _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -772,40 +768,44 @@
             "num_matches": 5
           },
           {
-            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 2
-          },
-          {
             "rule": "(rule ((= _e (Lit _l _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 1
           },
           {
-            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_512526917300278200) __expr_-6254076111614624445) (Lit (Int _ai) __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (IndexCast (Mul _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Mul (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 5
+          },
+          {
+            "rule": "(rewrite (IndexCast (Mul _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Mul (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_2137792231909895004) __expr_-6960852488681651062) (Lit (Int _ai) __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 24
+          },
+          {
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 14
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
-          },
-          {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 24
           },
           {
             "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -816,12 +816,12 @@
             "num_matches": 2
           },
           {
-            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 34
-          },
-          {
             "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 24
+          },
+          {
+            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 34
           },
           {
             "rule": "(rule ((= _e (TruncI _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -843,7 +843,7 @@
           "vgemv3d_vv"
         ]
       },
-      "timestamp": 1767969395.4975903
+      "timestamp": 1768044007.3278606
     },
     {
       "phase_name": "4_before_extraction",
@@ -863,48 +863,44 @@
       },
       "cumulative_stats": {
         "internal_rewrites": 182,
-        "external_rewrites": 2,
+        "external_rewrites": 1,
         "custom_rewrites": 6,
         "internal_details": [
           {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_512526917300278200) __expr_-6254076111614624445) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6254076111614624445)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_2137792231909895004) __expr_-6960852488681651062) (LoopIndex _ai __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6960852488681651062) __expr_2137792231909895004) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (IndexCast (IndexCast _x __expr_2137792231909895004) __expr_-6960852488681651062) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_-6960852488681651062)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 4
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 5
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_512526917300278200) __expr_-6254076111614624445) (LoopIndex _ai __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6254076111614624445) __expr_512526917300278200) (LoopIndex _ai __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (LoopIndex _ai __expr_-6960852488681651062) __expr_2137792231909895004) (LoopIndex _ai __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (IndexCast _x __expr_-6254076111614624445) __expr_512526917300278200) _x :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 4
-          },
-          {
-            "rule": "(rewrite (IndexCast (Add _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Add (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 2
-          },
-          {
-            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_512526917300278200) (Mul _a (Lit (Int 4) __expr_512526917300278200) __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Shl _a (Lit (Int 2) 'i32') __expr_2137792231909895004) (Mul _a (Lit (Int 4) __expr_2137792231909895004) __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 1
           },
           {
-            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 5
+            "rule": "(rewrite (IndexCast (Add _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Add (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
           },
           {
             "rule": "(rule ((= _e (IndexCast _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -915,40 +911,44 @@
             "num_matches": 5
           },
           {
-            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 2
-          },
-          {
             "rule": "(rule ((= _e (Lit _l _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 1
           },
           {
-            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_512526917300278200) __expr_-6254076111614624445) (Lit (Int _ai) __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (IndexCast (Mul _x _y __expr_512526917300278200) __expr_-6254076111614624445) (Mul (IndexCast _x __expr_-6254076111614624445) (IndexCast _y __expr_-6254076111614624445) __expr_-6254076111614624445) :when ((= (megg_egraph_term_eclass_ty _x) __expr_512526917300278200) (= (megg_egraph_term_eclass_ty _y) __expr_512526917300278200)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 5
+          },
+          {
+            "rule": "(rewrite (IndexCast (Mul _x _y __expr_2137792231909895004) __expr_-6960852488681651062) (Mul (IndexCast _x __expr_-6960852488681651062) (IndexCast _y __expr_-6960852488681651062) __expr_-6960852488681651062) :when ((= (megg_egraph_term_eclass_ty _x) __expr_2137792231909895004) (= (megg_egraph_term_eclass_ty _y) __expr_2137792231909895004)) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 2
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 4
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_512526917300278200) (Mul _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (IndexCast (Lit (Int _ai) __expr_2137792231909895004) __expr_-6960852488681651062) (Lit (Int _ai) __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 2
+          },
+          {
+            "rule": "(rewrite (Add _a _b __expr_-6960852488681651062) (Add _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "num_matches": 24
+          },
+          {
+            "rule": "(rewrite (Mul _a _b __expr_2137792231909895004) (Mul _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
           },
           {
-            "rule": "(rewrite (Mul _a _b __expr_-6254076111614624445) (Mul _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Mul _a _b __expr_-6960852488681651062) (Mul _b _a __expr_-6960852488681651062) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 14
           },
           {
-            "rule": "(rewrite (Add _a _b __expr_512526917300278200) (Add _b _a __expr_512526917300278200) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
+            "rule": "(rewrite (Add _a _b __expr_2137792231909895004) (Add _b _a __expr_2137792231909895004) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
             "num_matches": 10
-          },
-          {
-            "rule": "(rewrite (Add _a _b __expr_-6254076111614624445) (Add _b _a __expr_-6254076111614624445) :ruleset megg.rewrites.internal_rewrites.basic_math_laws_min)",
-            "num_matches": 24
           },
           {
             "rule": "(rule ((= _e (LoopIndex _i _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -959,12 +959,12 @@
             "num_matches": 2
           },
           {
-            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
-            "num_matches": 34
-          },
-          {
             "rule": "(rule ((= _e (Mul _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
             "num_matches": 24
+          },
+          {
+            "rule": "(rule ((= _e (Add _x _y _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
+            "num_matches": 34
           },
           {
             "rule": "(rule ((= _e (TruncI _x _t)))\n      ((set (megg_egraph_term_eclass_ty _e) _t))\n        :ruleset megg.rewrites.internal_rewrites.type_annotation )",
@@ -982,7 +982,7 @@
       "details": {
         "description": "E-Graph saturated, ready for extraction"
       },
-      "timestamp": 1767969395.6574378
+      "timestamp": 1768044007.451741
     }
   ]
 }

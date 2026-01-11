@@ -37,8 +37,7 @@ mlir-std = { cmd = "bash scripts/mlir-std.sh" }
 cadl2c = { cmd = "python aps-frontend cadl2c" }
 
 # Tutorial Demo
-tutorial-demo = { cmd = "streamlit run examples/aspdac_tutorial/compiler/app.py --server.headless true" }
-tutorial-compiler-demo = { cmd = "streamlit run examples/aspdac_tutorial/compiler/hands_on.py --server.headless true" }
+tutorial-compiler-demo = { cmd = "streamlit run tutorial/compiler/hands_on.py --server.headless true" }
 
 [tasks.mlir]
 args = ["cadl", "apsir"]
@@ -60,9 +59,10 @@ cmd = "./circt/build/bin/circt-opt {{ apsir }} --lower-cmt2-to-firrtl | ./circt/
 args = ["apsir", "mainir"]
 cmd = "sed -n '/cmt2\\.module @main(%clk: !firrtl\\.clock, %rst: !firrtl\\.uint<1>)/,/^}/p' {{ apsir }} | sed '/cmt2\\.module @.*main(/!{/cmt2\\.module @/,/^}/d}' > {{ mainir }}"
 
+# Full compile task (from CADL + test.c)
 [tasks.compile]
-args = ["c_file", "mlir_ci", "app_out"]
-cmd = "python $PIXI_PROJECT_ROOT/megg-opt.py --mode c-e2e $(realpath \"{{ c_file }}\") --custom-instructions={{ mlir_ci }} -o {{ app_out }} --keep-intermediate"
+args = ["cadl", "test_c", "output"]
+cmd = "bash $PIXI_PROJECT_ROOT/scripts/compile.sh {{ cadl }} {{ test_c }} {{ output }}"
 
 [dependencies]
 cmake = ">=4.1.1,<5"

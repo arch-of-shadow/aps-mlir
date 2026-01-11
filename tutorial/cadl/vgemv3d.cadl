@@ -41,10 +41,9 @@ rtype vgemv3d_vv(rs1: u5, rs2: u5, rd: u5) {
   // Compute matrix-vector product: result[i] = Σⱼ matrix[i*4+j] * vec[j]
   // Outer loop manually unrolled by factor of 2
   with i: u32 = (0, i_) do {
-    let i_mul_2: u32 = i * 2;
-
     // First iteration (i_mul_2)
     acc = 0;
+    let i_mul_2: u32 = i * 2;
     [[unroll(4)]]
     with j: u32 = (0, j_) do {
       acc = acc + matrix[i_mul_2 * 4 + j] * vec[j];

@@ -163,6 +163,63 @@ def convert_to_c(input_file: str, output_file: Optional[str] = None) -> None:
         sys.exit(1)
 
 
+def extract_encoding(input_file: str, output_file: Optional[str] = None) -> None:
+    """Extract instruction encoding (opcode, funct3, funct7) from CADL file to JSON."""
+    import json
+    from cadl_frontend.ast import LitExpr, LiteralInner_Fixed
+
+    try:
+        with open(input_file, 'r') as f:
+            source = f.read()
+
+        dbg_info(f"Parsing CADL file: {input_file}")
+        ast = parse_proc(source, input_file)
+        dbg_info("Parse successful!")
+
+        encoding = {}
+
+        for flow_name, flow in ast.flows.items():
+            flow_encoding = {}
+
+            # Extract opcode, funct3, funct7 from flow attributes
+            for attr_name in ['opcode', 'funct3', 'funct7']:
+                attr_value = flow.attrs.get(attr_name)
+                if attr_value is not None:
+                    # attr_value should be a LitExpr with a Fixed literal
+                    if isinstance(attr_value, LitExpr):
+                        lit_inner = attr_value.literal.lit
+                        if isinstance(lit_inner, LiteralInner_Fixed):
+                            # Convert to hex string
+                            flow_encoding[attr_name] = f"0x{lit_inner.value:X}"
+
+            if flow_encoding:
+                encoding[flow_name] = flow_encoding
+                dbg_info(f"  {flow_name}: {flow_encoding}")
+
+        if not encoding:
+            dbg_warning("No instruction encodings found in CADL file")
+
+        json_output = json.dumps(encoding, indent=2)
+
+        if output_file:
+            Path(output_file).write_text(json_output)
+            dbg_info(f"Encoding JSON written to: {output_file}")
+        else:
+            print(json_output)
+
+    except CADLParseError as e:
+        dbg_critical(f"Parse Error:\n{e}")
+        sys.exit(1)
+    except FileNotFoundError:
+        dbg_critical(f"Error: File '{input_file}' not found")
+        sys.exit(1)
+    except Exception as e:
+        dbg_critical(f"Encoding extraction error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -176,6 +233,7 @@ Examples:
   aps-frontend mlir examples/simple.cadl -o out.mlir # Convert to MLIR file
   aps-frontend mlir examples/simple.cadl --no-verify # Skip MLIR verification
   aps-frontend cadl2c examples/simple.cadl          # Convert to high-level C
+  aps-frontend encoding examples/simple.cadl       # Extract encoding to JSON
 
 Debug examples (environment variables):
   APS_DEBUG=INFO pixi run mlir file.cadl                    # Set INFO level
@@ -227,6 +285,18 @@ Debug examples (environment variables):
     cadl2c_parser.add_argument(
         '-o', '--output',
         help='Output C file (default: print to stdout)'
+    )
+
+    # Encoding extraction subcommand
+    encoding_parser = subparsers.add_parser(
+        'encoding',
+        help='Extract instruction encoding to JSON',
+        description='Extract opcode, funct3, funct7 from CADL file to JSON format'
+    )
+    encoding_parser.add_argument('input', help='Input CADL file')
+    encoding_parser.add_argument(
+        '-o', '--output',
+        help='Output JSON file (default: print to stdout)'
     )
 
     # Version info
@@ -290,6 +360,8 @@ Debug examples (environment variables):
         convert_to_mlir(args.input, args.output, not args.no_verify)
     elif args.command == 'cadl2c':
         convert_to_c(args.input, args.output)
+    elif args.command == 'encoding':
+        extract_encoding(args.input, args.output)
     else:
         parser.print_help()
         sys.exit(1)

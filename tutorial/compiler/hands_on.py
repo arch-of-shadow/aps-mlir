@@ -12,8 +12,8 @@ import shutil
 import os
 import sys
 
-# examples/aspdac_tutorial/compiler/ -> need to go up 3 levels to project root
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+# tutorial/compiler/ -> need to go up 2 levels to project root
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "megg"))
 
 
@@ -23,34 +23,41 @@ def get_project_root():
 
 def get_available_examples() -> list:
     """Get list of available examples."""
-    examples_dir = PROJECT_ROOT / "examples" / "diff_match"
+    cadl_dir = PROJECT_ROOT / "tutorial" / "cadl"
     examples = []
-    for d in examples_dir.iterdir():
-        if d.is_dir() and (d / f"{d.name}.cadl").exists():
-            examples.append(d.name)
+    for f in cadl_dir.iterdir():
+        if f.is_file() and f.suffix == ".cadl":
+            examples.append(f.stem)
     return sorted(examples)
 
 
 def load_example_data(example_name: str) -> dict:
     """Load all files for an example."""
-    example_dir = PROJECT_ROOT / "examples" / "diff_match" / example_name
+    cadl_dir = PROJECT_ROOT / "tutorial" / "cadl"
+    csrc_dir = PROJECT_ROOT / "tutorial" / "csrc"
+    mlir_dir = PROJECT_ROOT / "tutorial" / "mlir"
+    output_dir = PROJECT_ROOT / "output" / "compile_logs"
 
     data = {"name": example_name}
 
-    file_mappings = {
-        "cadl": f"{example_name}.cadl",
-        "c_code": f"{example_name}.c",
-        "mlir_pattern": f"{example_name}.mlir",
-        "test_c": f"test_{example_name}.c",
-        "stats": f"{example_name}.stats.json",
-        "encoding": f"{example_name}.json",
-        "asm": f"{example_name}.asm",
+    # Source files from tutorial directories
+    source_mappings = {
+        "cadl": cadl_dir / f"{example_name}.cadl",
+        "test_c": csrc_dir / f"test_{example_name}.c",
+        "c_code": csrc_dir / f"{example_name}.c",
+        "mlir_pattern": mlir_dir / f"{example_name}.mlir",
     }
 
-    for key, filename in file_mappings.items():
-        filepath = example_dir / filename
+    # Compiled artifacts from output directory
+    output_mappings = {
+        "stats": output_dir / f"{example_name}.stats.json",
+        "encoding": output_dir / f"{example_name}.json",
+        "asm": output_dir / f"{example_name}.asm",
+    }
+
+    for key, filepath in {**source_mappings, **output_mappings}.items():
         if filepath.exists():
-            if filename.endswith('.json'):
+            if filepath.suffix == '.json':
                 with open(filepath) as f:
                     data[key] = json.load(f)
             else:
@@ -289,36 +296,13 @@ def check_asm_matches_encoding(asm_code: str, encoding: dict) -> dict:
     return result
 
 
-def run_compile_sh_handson(example_name: str, example_dir: Path) -> tuple:
-    """Run compile.sh with --handson flag and return (success, snapshots_path, output)."""
-    test_c = example_dir / f"test_{example_name}.c"
-    pattern_mlir = example_dir / f"{example_name}.mlir"
-    encoding_json = example_dir / f"{example_name}.json"
-    output_path = example_dir / f"{example_name}.out"
+def run_compile_sh_handson(example_name: str) -> tuple:
+    """Run tutorial/scripts/compile.sh with --handson flag and return (success, snapshots_path, output)."""
+    output_dir = PROJECT_ROOT / "output" / "compile_logs"
+    compile_script = PROJECT_ROOT / "tutorial" / "scripts" / "compile.sh"
 
-    if not test_c.exists():
-        return False, None, f"test file not found: {test_c}"
-    if not pattern_mlir.exists():
-        return False, None, f"pattern file not found: {pattern_mlir}"
-
-    # Build megg-opt.py command
-    cmd = [
-        "pixi", "run", "python", "./megg-opt.py",
-        "--mode", "c-e2e",
-        str(test_c),
-        "--custom-instructions", str(pattern_mlir),
-        "-o", str(output_path),
-        "--keep-intermediate",
-        "--handson"
-    ]
-
-    # Add encoding if exists
-    if encoding_json.exists():
-        cmd.extend(["--encoding-json", str(encoding_json)])
-
-    # Set environment
-    env = os.environ.copy()
-    env["PYTHONPATH"] = f"{PROJECT_ROOT}/python:{PROJECT_ROOT}/3rdparty/llvm-project/install/python_packages/mlir_core"
+    # Run the compile script
+    cmd = ["bash", str(compile_script), example_name, "--handson"]
 
     try:
         result = subprocess.run(
@@ -326,12 +310,11 @@ def run_compile_sh_handson(example_name: str, example_dir: Path) -> tuple:
             cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,
-            timeout=120,
-            env=env
+            timeout=180,  # 3 minutes for full pipeline
         )
 
         # Look for snapshots file
-        snapshots_path = example_dir / f"{example_name}.snapshots.json"
+        snapshots_path = output_dir / f"{example_name}.snapshots.json"
 
         output = result.stdout + "\n" + result.stderr
 
@@ -341,7 +324,7 @@ def run_compile_sh_handson(example_name: str, example_dir: Path) -> tuple:
             return False, None, f"Return code: {result.returncode}\n{output}"
 
     except subprocess.TimeoutExpired:
-        return False, None, "Command timed out (120s limit)"
+        return False, None, "Command timed out (180s limit)"
     except Exception as e:
         return False, None, str(e)
 
@@ -613,9 +596,11 @@ def render_external_loop_transforms(skeleton_info: dict):
         st.info("No transformations applied")
 
 
-def run_matching_with_custom_code(test_code: str, pattern_mlir: str, example_name: str, example_dir: Path) -> tuple:
+def run_matching_with_custom_code(test_code: str, pattern_mlir: str, example_name: str) -> tuple:
     """Run matching with custom test code."""
     import tempfile
+
+    output_dir = PROJECT_ROOT / "output" / "compile_logs"
 
     # Create temp directory for custom code
     work_dir = Path(tempfile.mkdtemp(prefix="megg_custom_"))
@@ -629,7 +614,7 @@ def run_matching_with_custom_code(test_code: str, pattern_mlir: str, example_nam
     custom_pattern_file.write_text(pattern_mlir)
 
     # Copy encoding JSON if exists
-    encoding_json = example_dir / f"{example_name}.json"
+    encoding_json = output_dir / f"{example_name}.json"
     if encoding_json.exists():
         import shutil
         shutil.copy(encoding_json, work_dir / f"{example_name}.json")
@@ -702,8 +687,9 @@ def render_step2():
     else:
         pattern_mlir = example_data.get("mlir_pattern", "")
 
-    example_dir = PROJECT_ROOT / "examples" / "diff_match" / example_name
-    test_c_file = example_dir / f"test_{example_name}.c"
+    csrc_dir = PROJECT_ROOT / "tutorial" / "csrc"
+    output_dir = PROJECT_ROOT / "output" / "compile_logs"
+    test_c_file = csrc_dir / f"test_{example_name}.c"
 
     # Read current file content
     current_test_c = ""
@@ -764,7 +750,7 @@ def render_step2():
     # ============ Run Matching ============
     st.markdown("---")
 
-    st.caption(f"Runs: `examples/diff_match/{example_name}/compile.sh` with --handson")
+    st.caption(f"Runs: `tutorial/scripts/compile.sh {example_name} --handson`")
 
     if st.button("Run E-graph Matching", type="primary", key="run_matching"):
         if not test_c:
@@ -774,10 +760,10 @@ def render_step2():
         else:
             with st.spinner("Running Megg E2E compiler with --handson mode..."):
                 # Always run with example files (which may have been edited)
-                success, snapshots_path, output = run_compile_sh_handson(example_name, example_dir)
+                success, snapshots_path, output = run_compile_sh_handson(example_name)
 
                 # Reload ASM
-                asm_path = example_dir / f"{example_name}.asm"
+                asm_path = output_dir / f"{example_name}.asm"
                 if asm_path.exists():
                     st.session_state["asm_code"] = asm_path.read_text()
 
@@ -795,7 +781,7 @@ def render_step2():
                     st.session_state["matching_complete"] = True
 
                     # Load stats
-                    stats_path = example_dir / f"{example_name}.stats.json"
+                    stats_path = output_dir / f"{example_name}.stats.json"
                     if stats_path.exists():
                         with open(stats_path) as f:
                             st.session_state["compile_stats"] = json.load(f)
