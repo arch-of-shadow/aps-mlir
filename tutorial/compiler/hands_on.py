@@ -460,9 +460,9 @@ def render_step1_2_c_to_mlir(example_data: dict, example_name: str):
 
         if display_mlir:
             st.code(display_mlir, language="mlir")
-            if st.button("Use in Step 1.3", key="copy_to_step1_3"):
-                st.session_state["step1_3_mlir"] = display_mlir
-                st.success("Copied! Go to Step 1.3")
+            if st.button("Use in Step 2", key="copy_to_step2"):
+                st.session_state["step2_pattern_mlir"] = display_mlir
+                st.success("Copied! Go to Step 2")
         else:
             st.info("Run C to MLIR conversion to see output here, or load example MLIR.")
 
@@ -680,12 +680,19 @@ def render_step2():
 
     st.info("Match application code against ISAX pattern using E-graph optimization")
 
-    # Load data
+    # Load pattern MLIR data
+    # Priority: 1) From Step 1, 2) From file, 3) Generate from example C code
     if "step2_pattern_mlir" in st.session_state:
         pattern_mlir = st.session_state["step2_pattern_mlir"]
         st.success("Using pattern from Step 1")
-    else:
+    elif example_data.get("mlir_pattern", ""):
         pattern_mlir = example_data.get("mlir_pattern", "")
+    else:
+        # Try to generate from example C code if available
+        pattern_mlir = ""
+        c_code = example_data.get("c_code", "")
+        if c_code:
+            st.info("No pattern MLIR found. You can generate it from the example C code below, or complete Step 1 first.")
 
     csrc_dir = PROJECT_ROOT / "tutorial" / "csrc"
     output_dir = PROJECT_ROOT / "output" / "compile_logs"
@@ -745,7 +752,23 @@ def render_step2():
         if pattern_mlir:
             st.code(pattern_mlir, language="mlir")
         else:
-            st.warning("No pattern MLIR. Complete Step 1 first.")
+            st.warning("No pattern MLIR. Complete Step 1 first, or generate from example C code.")
+            # Offer to generate from example C code
+            c_code = example_data.get("c_code", "")
+            if c_code:
+                st.markdown("**Example ISAX C Code available:**")
+                with st.expander("View C Code", expanded=False):
+                    st.code(c_code, language="c")
+                if st.button("Generate MLIR from Example C", key="gen_mlir_from_c"):
+                    with st.spinner("Running Polygeist..."):
+                        work_dir = Path(tempfile.mkdtemp(prefix="tutorial_"))
+                        success, mlir_code, error = run_polygeist(c_code, work_dir)
+                        if success and mlir_code:
+                            st.session_state["step2_pattern_mlir"] = mlir_code
+                            st.success("Generated! Refreshing...")
+                            st.rerun()
+                        else:
+                            st.error(f"Generation failed: {error}")
 
     # ============ Run Matching ============
     st.markdown("---")
@@ -1124,52 +1147,8 @@ def render_overview():
 
     # Architecture diagram
     st.markdown("### System Architecture")
-
-    st.markdown("""
-    ```
-    ┌─────────────────────────────────────────────────────────────────┐
-    │                        Megg Compiler                            │
-    ├─────────────────────────────────────────────────────────────────┤
-    │                                                                 │
-    │   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐    │
-    │   │    ISAX     │      │   C Code    │      │   C Code    │    │
-    │   │  (Pattern)  │      │  (Pattern)  │      │   (App)     │    │
-    │   └──────┬──────┘      └──────┬──────┘      └──────┬──────┘    │
-    │          │                    │                    │           │
-    │          ▼                    ▼                    ▼           │
-    │   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐    │
-    │   │  ISAX→C     │      │  Polygeist  │      │  Polygeist  │    │
-    │   │  Frontend   │      │   (C→MLIR)  │      │   (C→MLIR)  │    │
-    │   └──────┬──────┘      └──────┬──────┘      └──────┬──────┘    │
-    │          │                    │                    │           │
-    │          ▼                    ▼                    ▼           │
-    │   ┌──────────────────────────────────────────────────────┐     │
-    │   │                    MLIR                              │     │
-    │   └──────────────────────────┬───────────────────────────┘     │
-    │                              │                                 │
-    │                              ▼                                 │
-    │   ┌──────────────────────────────────────────────────────┐     │
-    │   │                   E-graph                            │     │
-    │   │  ┌────────────────────────────────────────────────┐  │     │
-    │   │  │  Internal Rewrites (algebraic laws)            │  │     │
-    │   │  │  External Rewrites (loop transforms)           │  │     │
-    │   │  │  Custom Rewrites (pattern matching)            │  │     │
-    │   │  └────────────────────────────────────────────────┘  │     │
-    │   └──────────────────────────┬───────────────────────────┘     │
-    │                              │                                 │
-    │                              ▼                                 │
-    │   ┌──────────────────────────────────────────────────────┐     │
-    │   │              Optimized MLIR + Custom Instr           │     │
-    │   └──────────────────────────┬───────────────────────────┘     │
-    │                              │                                 │
-    │                              ▼                                 │
-    │   ┌──────────────────────────────────────────────────────┐     │
-    │   │                 RISC-V Assembly                      │     │
-    │   └──────────────────────────────────────────────────────┘     │
-    │                                                                 │
-    └─────────────────────────────────────────────────────────────────┘
-    ```
-    """)
+    arch_img = Path(__file__).parent / "figs" / "architecture.png"
+    st.image(str(arch_img), width=600)
 
     st.markdown("---")
 

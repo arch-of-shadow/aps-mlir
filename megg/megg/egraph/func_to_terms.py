@@ -12,11 +12,20 @@ from megg.egraph.datatype import (
 )
 from megg.utils import MModule, MOperation, OperationType, MBlock, MValue, IRBuilder, MType
 from megg.egraph.term import Term, LitTerm, id_of, eclass_ty
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import egglog
 from egglog import EGraph
+
+# Global counter for generating unique session IDs
+_session_counter = 0
+
+def _next_session_id() -> str:
+    """Generate a unique session ID for each FuncToTerms transformation."""
+    global _session_counter
+    _session_counter += 1
+    return f"s{_session_counter}"
 
 
 CONTROL_FLOW_OPS = {
@@ -37,6 +46,7 @@ class FuncToTerms:
     - ssa_to_term: def-use chain (SSA value → Term)
     - top_block: Term for the function body
     - ssa_to_id: numeric IDs for compiler integration
+    - session_id: unique ID to avoid variable name collisions in egraph
     """
 
     func: MOperation
@@ -51,6 +61,8 @@ class FuncToTerms:
     # record loop info
     loop_to_term: Dict[int, Tuple[MOperation,Term]]
     loop_index: int = 0
+    # Unique session ID to avoid variable name collisions when same egraph is reused
+    session_id: str = field(default_factory=_next_session_id)
 
     @classmethod
     def transform(cls, func: MOperation, egraph: Optional[EGraph] = None) -> 'FuncToTerms':
@@ -417,19 +429,19 @@ class FuncToTerms:
                     # loop index
                     term = Term.loop_index(egglog.i64(
                         loop_id), mlir_type_to_egraph_ty_string(arg.type))
-                    term_ref = self.egraph.let(f"loop_{loop_id}_index", term)
+                    term_ref = self.egraph.let(f"{self.session_id}_loop_{loop_id}_index", term)
                 else:
                     # loop iter args
                     iter_arg_index = i - 1
                     term = Term.loop_iter_arg(egglog.i64(loop_id), egglog.i64(
                         iter_arg_index), mlir_type_to_egraph_ty_string(arg.type))
                     term_ref = self.egraph.let(
-                        f"loop_{loop_id}_iter_arg_{iter_arg_index}", term)
+                        f"{self.session_id}_loop_{loop_id}_iter_arg_{iter_arg_index}", term)
             else:
                 # regular block arguments
                 term = Term.block_arg(id(block), egglog.i64(
                     i), mlir_type_to_egraph_ty_string(arg.type))
-                term_ref = self.egraph.let(f"block_{id(block)}_arg_{i}", term)
+                term_ref = self.egraph.let(f"{self.session_id}_block_{id(block)}_arg_{i}", term)
 
             # register argument term
             self.ssa_to_term[arg] = term_ref
@@ -503,26 +515,26 @@ class FuncToTerms:
                 # Use unique name to avoid shadowing when transforming multiple functions
                 term = Term.arg(egglog.i64(
                     i), mlir_type_to_egraph_ty_string(arg.type))
-                term_ref = self.egraph.let(f"func_{id(block)}_arg_{i}", term)
+                term_ref = self.egraph.let(f"{self.session_id}_func_{id(block)}_arg_{i}", term)
             elif loop_id is not None:
                 # loop block arguments
                 if i == 0:
                     # loop index
                     term = Term.loop_index(egglog.i64(
                         loop_id), mlir_type_to_egraph_ty_string(arg.type))
-                    term_ref = self.egraph.let(f"loop_{loop_id}_index", term)
+                    term_ref = self.egraph.let(f"{self.session_id}_loop_{loop_id}_index", term)
                 else:
                     # loop iter args
                     iter_arg_index = i - 1
                     term = Term.loop_iter_arg(egglog.i64(loop_id), egglog.i64(
                         iter_arg_index), mlir_type_to_egraph_ty_string(arg.type))
                     term_ref = self.egraph.let(
-                        f"loop_{loop_id}_iter_arg_{iter_arg_index}", term)
+                        f"{self.session_id}_loop_{loop_id}_iter_arg_{iter_arg_index}", term)
             else:
                 # regular block arguments
                 term = Term.block_arg(id(block), egglog.i64(
                     i), mlir_type_to_egraph_ty_string(arg.type))
-                term_ref = self.egraph.let(f"block_{id(block)}_arg_{i}", term)
+                term_ref = self.egraph.let(f"{self.session_id}_block_{id(block)}_arg_{i}", term)
 
             # register argument term
             self.ssa_to_term[arg] = term_ref
@@ -576,7 +588,7 @@ class FuncToTerms:
                         cond_term = Term.block_arg(id(block), egglog.i64(
                             0), mlir_type_to_egraph_ty_string(cond_operand.type))
                         cond_term = self.egraph.let(
-                            f"block_{id(block)}_cond", cond_term)
+                            f"{self.session_id}_block_{id(block)}_cond", cond_term)
                         self.ssa_to_term[cond_operand] = cond_term
                         cond_id = self._next_id()
                         self.ssa_to_id[cond_operand] = cond_id
@@ -592,7 +604,7 @@ class FuncToTerms:
                             iter_term = Term.block_arg(id(block), egglog.i64(
                                 i), mlir_type_to_egraph_ty_string(iter_operand.type))
                             iter_term = self.egraph.let(
-                                f"block_{id(block)}_cond_arg_{i}", iter_term)
+                                f"{self.session_id}_block_{id(block)}_cond_arg_{i}", iter_term)
                             self.ssa_to_term[iter_operand] = iter_term
                             iter_id = self._next_id()
                             self.ssa_to_id[iter_operand] = iter_id
@@ -631,12 +643,12 @@ class FuncToTerms:
                 if len(op.results) == 0:
                     # No results (side effect operation) - must serialize
                     unique_id = self._next_id()
-                    name_hint = f"side_effect_{id(op)}_{unique_id}"
+                    name_hint = f"{self.session_id}_side_effect_{id(op)}_{unique_id}"
                     term_ref = self.egraph.let(name_hint, term)
                     serialized_terms.append(term_ref)
                 elif len(op.results) == 1:
                     result = op.results[0]
-                    name_hint = f"op_{id(result)}"
+                    name_hint = f"{self.session_id}_op_{id(result)}"
                     term_ref = self.egraph.let(name_hint, term)
                     self.ssa_to_term[result] = term_ref
                     result_id = self._next_id()
@@ -654,7 +666,7 @@ class FuncToTerms:
                     # Multiple results
                     # TODO: handle multiple results properly
                     main_result = op.results[0]
-                    name_hint = f"op_{id(main_result)}"
+                    name_hint = f"{self.session_id}_op_{id(main_result)}"
                     term_ref = self.egraph.let(name_hint, term)
                     for i, result in enumerate(op.results):
                         self.ssa_to_term[result] = term_ref
@@ -694,9 +706,9 @@ class FuncToTerms:
             if is_function_block:
                 # Use unique name to avoid shadowing when transforming multiple functions
                 # in the same e-graph (e.g., original + optimized functions)
-                block_name = f"func_body_{id(block)}"
+                block_name = f"{self.session_id}_func_body_{id(block)}"
             else:
-                block_name = f"block_{id(block)}"
+                block_name = f"{self.session_id}_block_{id(block)}"
 
             term_ref = self.egraph.let(block_name, block_term)
 

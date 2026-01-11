@@ -283,7 +283,7 @@ class E2ECompiler:
         cmd = [
             'clang',
             '--target=riscv32-unknown-linux-elf',
-            '-march=rv32ima_zicsr_zifencei',  # Chipyard: no RVC compression
+            '-march=rv32imac_zicsr_zifencei', # Chipyard: with RVC compression
             '-mabi=ilp32',      # Soft-float ABI (must match GCC)
             '-mcmodel=medany',  # Chipyard memory model
             # Add include paths for RISC-V headers
@@ -561,15 +561,15 @@ class E2ECompiler:
         gcc_path = self.riscv + '/bin/riscv32-unknown-elf-gcc'
         cmd = [
             gcc_path,
-            '-march=rv32ima_zicsr_zifencei',  # Chipyard: no RVC compression
+            '-march=rv32imac_zicsr_zifencei', # Chipyard: with RVC compression
             '-mabi=ilp32',                     # Soft-float ABI
-            '-specs=nosys.specs',              # Bare-metal, no OS
+            '-specs=htif_nano.specs',          # HTIF for Chipyard/Spike
             '-static',                         # Static linking for baremetal
             str(self.paths.target_o),
             str(self.paths.rest_o),
             '-o', str(self.paths.executable)
         ]
-        logger.info(f"  Using nosys specs for bare-metal linking")
+        logger.info(f"  Using htif_nano specs for Chipyard/Spike")
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -642,9 +642,9 @@ class E2ECompiler:
         riscv_gcc = self.riscv + '/bin/riscv32-unknown-elf-gcc'
         cmd = [
             riscv_gcc,
-            '-march=rv32ima_zicsr_zifencei',  # Chipyard: no RVC compression
+            '-march=rv32imac_zicsr_zifencei', # Chipyard: with RVC compression
             '-mabi=ilp32',                     # Soft-float ABI
-            '-specs=nosys.specs',              # Bare-metal, no OS
+            '-specs=htif_nano.specs',          # HTIF for Chipyard/Spike
             '-static',                         # Static linking for baremetal
             '-O2',                             # Basic optimization
             '-I' + self.riscv + '/riscv32-unknown-elf/include',

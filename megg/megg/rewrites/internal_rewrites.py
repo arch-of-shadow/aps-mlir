@@ -284,16 +284,7 @@ def basic_math_laws() -> egglog.Ruleset:
                 #         Term.shl(a, Term.lit(LitTerm.int(egglog.i64(n)), ty), ty)
                 #     )
                 # )
-            # divsi -> shrsi for powers of 1->3
-            for n in range(1, 5):
-                power_of_2 = 1 << n  # Calculate 2^n
-                rules.append(
-                    rewrite(
-                        Term.div(a, Term.lit(LitTerm.int(egglog.i64(power_of_2)), ty), ty)
-                    ).to(
-                        Term.shrsi(a, Term.lit(LitTerm.int(egglog.i64(n)), ty), ty)
-                    )
-                )
+
 
     basic_math_laws_min = egglog.ruleset(*rules, name='basic_math_laws_min')
 
