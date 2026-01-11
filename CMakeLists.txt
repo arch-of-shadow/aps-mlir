@@ -74,17 +74,43 @@ find_package(nanobind 2.4.0 CONFIG REQUIRED)
 # #-------------------------------------------------------------------------------
 # LP_SOLVE configuration
 #-------------------------------------------------------------------------------
-set(LP_SOLVE_PATH "${CMAKE_SOURCE_DIR}/thirdparty/lp_solve_5.5/lpsolve55")
+set(LP_SOLVE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/thirdparty/lp_solve_5.5")
+set(LP_SOLVE_PATH "${LP_SOLVE_SOURCE_DIR}/lpsolve55")
+set(LP_SOLVE_BUILD_LIB "${LP_SOLVE_PATH}/bin/ux64/liblpsolve55.a")
+set(LP_SOLVE_GENERATED_INCLUDE_DIR "${CMAKE_BINARY_DIR}/lp_solve_include")
+
+if (LP_SOLVE_LIB AND NOT TARGET LP_SOLVE_LIB AND NOT EXISTS "${LP_SOLVE_LIB}")
+    message(STATUS "LP_SOLVE_LIB set but not found; falling back to bundled build")
+    unset(LP_SOLVE_LIB CACHE)
+    unset(LP_SOLVE_LIB)
+endif ()
+
 if (WIN32)
     find_library(LP_SOLVE_LIB NAMES liblpsolve55.lib PATHS "${LP_SOLVE_PATH}/bin/win64")
 elseif (UNIX)
-    if (NOT EXISTS "${LP_SOLVE_PATH}/bin/ux64/liblpsolve55.a")
-        execute_process(
-                COMMAND sh "${LP_SOLVE_PATH}/ccc"
-                WORKING_DIRECTORY ${LP_SOLVE_PATH}
+    if (NOT LP_SOLVE_LIB)
+        file(MAKE_DIRECTORY "${LP_SOLVE_GENERATED_INCLUDE_DIR}/lpsolve")
+        configure_file(
+            "${LP_SOLVE_SOURCE_DIR}/lp_lib.h"
+            "${LP_SOLVE_GENERATED_INCLUDE_DIR}/lpsolve/lp_lib.h"
+            COPYONLY
         )
+        if (NOT LP_SOLVE_INCLUDE_DIR)
+            set(LP_SOLVE_INCLUDE_DIR "${LP_SOLVE_GENERATED_INCLUDE_DIR};${LP_SOLVE_SOURCE_DIR}")
+        endif ()
+
+        add_custom_command(
+            OUTPUT "${LP_SOLVE_BUILD_LIB}"
+            COMMAND sh "${LP_SOLVE_PATH}/ccc"
+            WORKING_DIRECTORY "${LP_SOLVE_PATH}"
+            COMMENT "Building lp_solve static library"
+        )
+        add_custom_target(lpsolve_build DEPENDS "${LP_SOLVE_BUILD_LIB}")
+        add_library(lpsolve55 STATIC IMPORTED GLOBAL)
+        set_target_properties(lpsolve55 PROPERTIES IMPORTED_LOCATION "${LP_SOLVE_BUILD_LIB}")
+        add_dependencies(lpsolve55 lpsolve_build)
+        set(LP_SOLVE_LIB lpsolve55)
     endif ()
-    find_library(LP_SOLVE_LIB NAMES liblpsolve55.a PATHS "${LP_SOLVE_PATH}/bin/ux64")
 endif ()
 
 set(_APS_PYTHON_INCLUDE "")
