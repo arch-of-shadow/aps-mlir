@@ -22,12 +22,16 @@ def get_project_root():
 
 
 def get_available_examples() -> list:
-    """Get list of available examples."""
+    """Get list of available examples (must have both .cadl and test_*.c)."""
     cadl_dir = PROJECT_ROOT / "tutorial" / "cadl"
+    csrc_dir = PROJECT_ROOT / "tutorial" / "csrc"
     examples = []
     for f in cadl_dir.iterdir():
         if f.is_file() and f.suffix == ".cadl":
-            examples.append(f.stem)
+            # Only include if corresponding test_*.c exists
+            test_c = csrc_dir / f"test_{f.stem}.c"
+            if test_c.exists():
+                examples.append(f.stem)
     return sorted(examples)
 
 
@@ -386,13 +390,17 @@ def render_step1_1_cadl_to_c(example_data: dict, example_name: str):
 
                     if success and c_code:
                         st.session_state["step1_generated_c"] = c_code
-                        st.success("Conversion successful!")
+                        # Auto-pass to Step 1.2
+                        st.session_state["step1_2_c_code"] = c_code
+                        st.success("Conversion successful! Result passed to Step 1.2")
                     else:
                         st.error(f"Conversion failed: {error}")
                         st.session_state["step1_generated_c"] = ""
         with col1b:
             if st.button("Load Example C", key="load_example_c"):
                 st.session_state["step1_generated_c"] = default_c
+                # Auto-pass to Step 1.2
+                st.session_state["step1_2_c_code"] = default_c
                 st.rerun()
 
     with col2:
@@ -403,9 +411,6 @@ def render_step1_1_cadl_to_c(example_data: dict, example_name: str):
 
         if display_c:
             st.code(display_c, language="c")
-            if st.button("Use in Step 1.2", key="copy_to_step1_2"):
-                st.session_state["step1_2_c_code"] = display_c
-                st.success("Copied! Go to Step 1.2")
         else:
             st.info("Run CADL to C conversion to see output here, or load example C code.")
 
@@ -443,13 +448,17 @@ def render_step1_2_c_to_mlir(example_data: dict, example_name: str):
 
                     if success and mlir_code:
                         st.session_state["step1_generated_mlir"] = mlir_code
-                        st.success("Conversion successful!")
+                        # Auto-pass to Step 2
+                        st.session_state["step2_pattern_mlir"] = mlir_code
+                        st.success("Conversion successful! Result passed to Step 2")
                     else:
                         st.error(f"Conversion failed: {error}")
                         st.session_state["step1_generated_mlir"] = ""
         with col1b:
             if st.button("Load Example MLIR", key="load_example_mlir"):
                 st.session_state["step1_generated_mlir"] = default_mlir
+                # Auto-pass to Step 2
+                st.session_state["step2_pattern_mlir"] = default_mlir
                 st.rerun()
 
     with col2:
@@ -460,9 +469,6 @@ def render_step1_2_c_to_mlir(example_data: dict, example_name: str):
 
         if display_mlir:
             st.code(display_mlir, language="mlir")
-            if st.button("Use in Step 2", key="copy_to_step2"):
-                st.session_state["step2_pattern_mlir"] = display_mlir
-                st.success("Copied! Go to Step 2")
         else:
             st.info("Run C to MLIR conversion to see output here, or load example MLIR.")
 
@@ -1063,9 +1069,39 @@ def render_step2():
     else:
         st.info("Run E-graph Matching to see skeleton-component matching")
 
-    # ============ Section 4: Result ============
+    # ============ Section 4: Extraction ============
     st.markdown("---")
-    st.markdown("### 4. Result")
+    st.markdown("### 4. Extraction")
+
+    if matching_complete:
+        st.markdown("Extract the best expression from e-graph and generate MLIR with custom instructions")
+
+        # Find the optimized MLIR file (with llvm.inline_asm)
+        optimized_mlir_files = sorted(tmp_dir.glob("megg_e2e_*/optimized.mlir"), key=lambda p: p.stat().st_mtime, reverse=True)
+
+        if optimized_mlir_files:
+            optimized_mlir_path = optimized_mlir_files[0]
+            optimized_mlir_content = optimized_mlir_path.read_text()
+
+            # Count llvm.inline_asm occurrences
+            inline_asm_count = optimized_mlir_content.count("llvm.inline_asm")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Custom Instructions", inline_asm_count)
+            with col2:
+                st.caption(f"File: {optimized_mlir_path.name}")
+
+            st.markdown("**Extracted MLIR with `llvm.inline_asm`:**")
+            st.code(optimized_mlir_content, language="mlir")
+        else:
+            st.info("No optimized MLIR found. Run matching to generate.")
+    else:
+        st.info("Run E-graph Matching to see extracted MLIR")
+
+    # ============ Section 5: Result ============
+    st.markdown("---")
+    st.markdown("### 5. Result")
 
     matching_complete = st.session_state.get("matching_complete", False)
     display_asm = st.session_state.get("asm_code", "")
@@ -1372,7 +1408,7 @@ def main():
         **Step 2: Matching**
         - E-graph Optimization
         - Skeleton & Components
-        - Pattern Matching
+        - Extraction
         - Code Generation
         """)
 

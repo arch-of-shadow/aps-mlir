@@ -32,7 +32,13 @@ if [ -z "$EXAMPLE_NAME" ]; then
     echo "Usage: $0 <example_name> [--handson]"
     echo ""
     echo "Available examples:"
-    ls -1 "$PROJECT_ROOT/tutorial/cadl/" | sed 's/.cadl$//'
+    # Only list examples that have both .cadl and test_*.c files
+    for cadl in "$PROJECT_ROOT/tutorial/cadl/"*.cadl; do
+        name=$(basename "$cadl" .cadl)
+        if [ -f "$PROJECT_ROOT/tutorial/csrc/test_${name}.c" ]; then
+            echo "  $name"
+        fi
+    done
     exit 1
 fi
 
