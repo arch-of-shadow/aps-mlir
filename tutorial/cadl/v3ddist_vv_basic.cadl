@@ -1,36 +1,9 @@
-#[partition_dim_array([0])]
-#[partition_factor_array([4])]
-#[partition_cyclic_array([1])]
 static points1_x: [u32; 16];
-
-#[partition_dim_array([0])]
-#[partition_factor_array([4])]
-#[partition_cyclic_array([1])]
 static points1_y: [u32; 16];
-
-#[partition_dim_array([0])]
-#[partition_factor_array([4])]
-#[partition_cyclic_array([1])]
 static points1_z: [u32; 16];
-
-#[partition_dim_array([0])]
-#[partition_factor_array([4])]
-#[partition_cyclic_array([1])]
 static points2_x: [u32; 16];
-
-#[partition_dim_array([0])]
-#[partition_factor_array([4])]
-#[partition_cyclic_array([1])]
 static points2_y: [u32; 16];
-
-#[partition_dim_array([0])]
-#[partition_factor_array([4])]
-#[partition_cyclic_array([1])]
 static points2_z: [u32; 16];
-
-#[partition_dim_array([0])]
-#[partition_factor_array([4])]
-#[partition_cyclic_array([1])]
 static dist_out: [u32; 16];
 
 #[opcode(7'b0001011)]
@@ -44,7 +17,6 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
   points2_x[0 +: ] = _burst_read[addr1 + 192 +: 16];
   points2_y[0 +: ] = _burst_read[addr1 + 256 +: 16];
   points2_z[0 +: ] = _burst_read[addr1 + 320 +: 16];
-  [[unroll(4)]]
   with i: u32 = (0, i + 1) do {
     let dx: u32 = points1_x[i] - points2_x[i];
     let dy: u32 = points1_y[i] - points2_y[i];
