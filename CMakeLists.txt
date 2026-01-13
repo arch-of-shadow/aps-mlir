@@ -48,6 +48,7 @@ else()
 endif()
 
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 list(APPEND CMAKE_MODULE_PATH "${CIRCT_CMAKE_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
@@ -70,80 +71,8 @@ mlir_detect_nanobind_install()
 find_package(Python3 3.8 COMPONENTS Interpreter Development)
 find_package(Python3 3.8 COMPONENTS Interpreter Development.Module)
 find_package(nanobind 2.4.0 CONFIG REQUIRED)
-
-# #-------------------------------------------------------------------------------
-# LP_SOLVE configuration
-#-------------------------------------------------------------------------------
-set(LP_SOLVE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/thirdparty/lp_solve_5.5")
-set(LP_SOLVE_PATH "${LP_SOLVE_SOURCE_DIR}/lpsolve55")
-set(LP_SOLVE_BUILD_LIB "${LP_SOLVE_PATH}/bin/ux64/liblpsolve55.a")
-set(LP_SOLVE_GENERATED_INCLUDE_DIR "${CMAKE_BINARY_DIR}/lp_solve_include")
-
-if (LP_SOLVE_LIB AND NOT TARGET LP_SOLVE_LIB AND NOT EXISTS "${LP_SOLVE_LIB}")
-    message(STATUS "LP_SOLVE_LIB set but not found; falling back to bundled build")
-    unset(LP_SOLVE_LIB CACHE)
-    unset(LP_SOLVE_LIB)
-endif ()
-
-if (WIN32)
-    find_library(LP_SOLVE_LIB NAMES liblpsolve55.lib PATHS "${LP_SOLVE_PATH}/bin/win64")
-elseif (UNIX)
-    if (NOT LP_SOLVE_LIB)
-        file(MAKE_DIRECTORY "${LP_SOLVE_GENERATED_INCLUDE_DIR}/lpsolve")
-        configure_file(
-            "${LP_SOLVE_SOURCE_DIR}/lp_lib.h"
-            "${LP_SOLVE_GENERATED_INCLUDE_DIR}/lpsolve/lp_lib.h"
-            COPYONLY
-        )
-        if (NOT LP_SOLVE_INCLUDE_DIR)
-            set(LP_SOLVE_INCLUDE_DIR "${LP_SOLVE_GENERATED_INCLUDE_DIR};${LP_SOLVE_SOURCE_DIR}")
-        endif ()
-
-        add_custom_command(
-            OUTPUT "${LP_SOLVE_BUILD_LIB}"
-            COMMAND sh "${LP_SOLVE_PATH}/ccc"
-            WORKING_DIRECTORY "${LP_SOLVE_PATH}"
-            COMMENT "Building lp_solve static library"
-        )
-        add_custom_target(lpsolve_build DEPENDS "${LP_SOLVE_BUILD_LIB}")
-        add_library(lpsolve55 STATIC IMPORTED GLOBAL)
-        set_target_properties(lpsolve55 PROPERTIES IMPORTED_LOCATION "${LP_SOLVE_BUILD_LIB}")
-        add_dependencies(lpsolve55 lpsolve_build)
-        set(LP_SOLVE_LIB lpsolve55)
-    endif ()
-endif ()
-
-set(_APS_PYTHON_INCLUDE "")
-if (Python3_INCLUDE_DIRS)
-    list(GET Python3_INCLUDE_DIRS 0 _APS_PYTHON_INCLUDE)
-endif ()
-
-if (_APS_PYTHON_INCLUDE)
-    get_filename_component(_APS_PYTHON_INCLUDE_PARENT "${_APS_PYTHON_INCLUDE}" DIRECTORY)
-    get_filename_component(_APS_PYTHON_ENV_PREFIX "${_APS_PYTHON_INCLUDE_PARENT}" DIRECTORY)
-endif ()
-
-if (NOT LP_SOLVE_LIB AND _APS_PYTHON_INCLUDE_PARENT AND EXISTS "${_APS_PYTHON_INCLUDE_PARENT}/lpsolve/lp_lib.h")
-    set(LP_SOLVE_INCLUDE_DIR "${_APS_PYTHON_INCLUDE_PARENT}")
-    find_library(
-        LP_SOLVE_LIB
-        NAMES lpsolve55 liblpsolve55
-        PATHS "${_APS_PYTHON_ENV_PREFIX}/lib" "${_APS_PYTHON_ENV_PREFIX}/lib64"
-        NO_DEFAULT_PATH
-    )
-endif ()
-
-if (NOT DEFINED LP_SOLVE_INCLUDE_DIR AND _APS_PYTHON_INCLUDE_PARENT AND EXISTS "${_APS_PYTHON_INCLUDE_PARENT}/lpsolve/lp_lib.h")
-    set(LP_SOLVE_INCLUDE_DIR "${_APS_PYTHON_INCLUDE_PARENT}")
-endif ()
-
-#-------------------------------------------------------------------------------
-# JSON configuration
-#-------------------------------------------------------------------------------
-message(STATUS "Using nlohmann_json in: thirdparty/json")
-set(JSON_BuildTests OFF CACHE INTERNAL "")
-add_subdirectory(thirdparty/json)
-include_directories(thirdparty/json/include)
+find_package(LPSOLVE REQUIRED)
+find_package(nlohmann_json 3.12.0 REQUIRED)
 
 IF(CMAKE_BUILD_TYPE MATCHES Debug)
   message(STATUS "Build Debug version")
@@ -154,19 +83,6 @@ IF(CMAKE_BUILD_TYPE MATCHES Release)
   add_compile_options(-fstack-protector-all)
   add_compile_options(-s)
 ENDIF()
-
-
-# APS CONFIGURATION
-set(APS_MAIN_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR} ) # --src-root
-set(APS_MAIN_INCLUDE_DIR ${APS_MAIN_SRC_DIR}/include)
-
-set(APS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(APS_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-set(APS_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
-set(APS_LIBRARY_DIR ${CMAKE_BINARY_DIR}/lib)
-set(APS_TOOLS_DIR ${CMAKE_BINARY_DIR}/bin)
-set(APS_UTILS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/utils)
-set(APS_PYTHON_PACKAGES_DIR ${APS_BINARY_DIR}/python_packages)
 
 add_compile_options(-Wno-dev)
 add_compile_options(-fexceptions)
@@ -182,7 +98,6 @@ add_definitions(${LLVM_DEFINITIONS})
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
-
 
 # ============================================================================
 # Build mlir_utils Python Extension For MEGG
