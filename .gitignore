@@ -84,3 +84,5 @@ output/
 outputs/
 
 !__init__.py
+
+thirdparty/firtool*/

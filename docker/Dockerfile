@@ -19,6 +19,7 @@ RUN pixi run --help
 RUN pixi run clean
 RUN rm -rf circt/build
 RUN pixi run setup-ortools
+RUN pixi run setup-firtool
 RUN pixi run setup
 RUN pixi run build
 RUN pixi run fix_verilator

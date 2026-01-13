@@ -11,7 +11,9 @@ PYTHONPATH = "${PIXI_PROJECT_ROOT}/build/python_packages/circt_core:${PYTHONPATH
 OR_TOOLS_PATH = "${PIXI_PROJECT_ROOT}/install"
 PATH = "${PIXI_PROJECT_ROOT}/circt/build/bin:${PATH}:${PIXI_PROJECT_ROOT}/install/bin:${PIXI_PROJECT_ROOT}/thirdparty/polygeist"
 MEGGINCLUDE = "${PIXI_PROJECT_ROOT}/megg/megg_include" # put extra include files for megg here
-LEGACY_FIRTOOL = "${CONDA_PREFIX}/bin/firtool" # this is for chipyard compatibility
+# Chipyard is not compatable with new firtool, so we have to use a pre-built binary from github release
+LEGACY_FIRTOOL_PATH = "https://github.com/llvm/circt/releases/download/firtool-1.75.0/firrtl-bin-linux-x64.tar.gz"
+LEGACY_FIRTOOL = "${PIXI_PROJECT_ROOT}/thirdparty/firtool-1.75.0/bin/firtool" # this is for chipyard compatibility
 # tutorial docker environment
 APS = "${PIXI_PROJECT_ROOT}"
 APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard"
@@ -21,6 +23,7 @@ APS_VLSI = "${PIXI_PROJECT_ROOT}/aps-mlir-chipyard/nextvlsi"
 [tasks]
 
 setup-ortools = { cmd = "pixi run chmod +x scripts/setup-ortools.sh && pixi run scripts/setup-ortools.sh", inputs = ["scripts/setup-ortools.sh"], outputs = ["__setup-ortools.success"] }
+setup-firtool = { cmd = "cd $PIXI_PROJECT_ROOT/thirdparty && wget -O firtool.tar.gz $LEGACY_FIRTOOL_PATH && tar xvzf firtool.tar.gz && rm firtool.tar.gz", outputs = ["__setup-firtool.success" ]}
 setup = { cmd = "pixi run chmod +x scripts/setup.sh && pixi run scripts/setup.sh $CIRCT_COMMIT", inputs = ["scripts/setup.sh","__setup-ortools.success"], outputs = ["__setup.success"] }
 
 mkdir_build = { cmd = "mkdir -p build", outputs = ["build"] }
@@ -101,7 +104,6 @@ black = "<=25.1.0"
 pytokens = "*"
 riscv-tools = "1.0.6.*"
 iverilog = ">=11.0,<12"
-# circt = "1.75.0.*" # legacy version for chipyard
 
 [pypi-dependencies]
 lark = ">=1.1.0"
