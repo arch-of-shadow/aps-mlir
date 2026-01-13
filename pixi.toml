@@ -71,6 +71,10 @@ cmd = "sed -n '/cmt2\\.module @main(%clk: !firrtl\\.clock, %rst: !firrtl\\.uint<
 args = ["cadl", "test_c", "output"]
 cmd = "bash $PIXI_PROJECT_ROOT/scripts/compile.sh {{ cadl }} {{ test_c }} {{ output }}"
 
+[tasks.compile-handson]
+args = ["cadl", "test_c", "output"]
+cmd = "bash $PIXI_PROJECT_ROOT/scripts/compile.sh {{ cadl }} {{ test_c }} {{ output }} --handson"
+
 [tasks.compile-native]
 args = ["test_c", "output"]
 cmd = "riscv32-unknown-elf-gcc -std=gnu99 -O3 -Wall -Wextra -fno-common -fno-builtin-printf -march=rv32imaf_zicsr_zifencei -mabi=ilp32f -mcmodel=medany -specs=htif_nano.specs -static -T htif.ld -I$MEGGINCLUDE -o {{ output }} {{ test_c }} -lm"

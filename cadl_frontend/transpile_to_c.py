@@ -970,6 +970,38 @@ class CTranspiler:
                             _, step_val = step_info
                             adjusted = right_val - step_val
                             return f"{primary.id} <= {adjusted}"
+
+        # Handle case where next is a BinaryExpr like (i + 1) and condition uses same pattern
+        # e.g., with i = (0, i + 1) do {...} while (i + 1 < 16)
+        # In CADL do-while semantics, body runs first then condition is checked
+        # So "while (i + 1 < 16)" means loop while next value < 16
+        # For C for-loop (checks condition before body), we need "i < 16"
+        if isinstance(condition, BinaryExpr) and isinstance(primary.next, BinaryExpr):
+            next_expr = primary.next
+            cond_left = condition.left
+            # Check if condition.left matches the next expression pattern
+            if isinstance(cond_left, BinaryExpr):
+                # Check if both are "var op const" patterns with same var and op
+                if (isinstance(next_expr.left, IdentExpr) and
+                    isinstance(cond_left.left, IdentExpr) and
+                    next_expr.left.name == primary.id and
+                    cond_left.left.name == primary.id and
+                    next_expr.op == cond_left.op):
+                    # Check if the step values match
+                    next_step = self.try_eval_constant(next_expr.right)
+                    cond_step = self.try_eval_constant(cond_left.right)
+                    if next_step is not None and cond_step is not None and next_step == cond_step:
+                        # Rewrite (i + step) < bound to i < bound for LT
+                        # Rewrite (i + step) <= bound to i <= (bound - step) for LE
+                        if condition.op == BinaryOp.LT:
+                            right = self.generate_expr(condition.right)
+                            return f"{primary.id} < {right}"
+                        if condition.op == BinaryOp.LE:
+                            right_val = self.try_eval_constant(condition.right)
+                            if right_val is not None:
+                                adjusted = right_val - next_step
+                                return f"{primary.id} <= {adjusted}"
+
         return self.generate_expr(condition)
 
     def generate_flow(self, flow: Flow, proc: Proc, analysis: FlowAnalysisData):
