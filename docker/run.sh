@@ -6,8 +6,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE_NAME="aps-mlir:latest"
-CONTAINER_NAME="aps-mlir"
+IMAGE_NAME="aps-mlir:v0.1"
+CONTAINER_NAME="aps-mlir-tute"
 
 # Check if image exists
 if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then

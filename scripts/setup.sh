@@ -20,25 +20,11 @@ if [ -z "$CIRCT_COMMIT" ]; then
     exit 1
 fi
 
-# Clone the CIRCT repository
-if [ ! -d "circt" ]; then
-    git clone git@github.com:arch-of-shadow/circt-cmt2.git circt
-fi
+# Submodule update
+git submodule update --init --recursive
 
 # cd into the CIRCT repository, pushd is better for this
 pushd circt
-
-# Fetch latest changes from remote
-git fetch origin
-
-# Checkout the CIRCT commit (use origin/ prefix for remote branch)
-git checkout origin/$CIRCT_COMMIT
-
-# Submodule update
-git submodule init
-
-# Submodule update
-git submodule update
 
 # Mkdir build 
 mkdir -p build
