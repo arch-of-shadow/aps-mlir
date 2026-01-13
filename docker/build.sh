@@ -26,7 +26,6 @@ echo "  APS_DIR: $APS_DIR"
 echo "  Image:   $IMAGE_NAME"
 
 docker build \
-    --no-cache \
     --progress=plain \
     -t "$IMAGE_NAME" \
     --target runtime \
