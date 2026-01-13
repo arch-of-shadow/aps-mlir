@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Build the APS image with pre-built .pixi using multi-stage build
+# Build the APS builder image with pre-built .pixi
 # Usage: ./build.sh [APS_DIR]
 
 set -e
@@ -19,17 +19,16 @@ if [ ! -d "$APS_DIR" ]; then
     exit 1
 fi
 
-IMAGE_NAME="aps-mlir:latest"
+BUILDER_IMAGE="aps-mlir-builder:latest"
 
-echo "Building APS image (multi-stage build)..."
+echo "Building APS builder image..."
 echo "  APS_DIR: $APS_DIR"
-echo "  Image:   $IMAGE_NAME"
+echo "  Image:   $BUILDER_IMAGE"
 
 docker build \
-    -t "$IMAGE_NAME" \
-    --target runtime \
-    -f "$SCRIPT_DIR/Dockerfile" \
+    -t "$BUILDER_IMAGE" \
+    -f "$SCRIPT_DIR/Dockerfile.builder" \
     "$APS_DIR"
 
-echo "Image '$IMAGE_NAME' created successfully."
+echo "Builder image '$BUILDER_IMAGE' created successfully."
 echo "This image contains a pre-built .pixi directory with correct container paths."

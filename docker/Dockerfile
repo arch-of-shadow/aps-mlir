@@ -1,40 +1,29 @@
-FROM ubuntu:22.04 AS builder
+# Stage 1: Builder - compile .pixi with correct container paths
+FROM uvxiao/aps-mlir:v0 AS builder
+
 WORKDIR /root
 
-# Language
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
+# Copy the APS source code
+COPY . /root/aps
 
-SHELL [ "/bin/bash", "-c" ]
+# Run pixi setup commands to build .pixi with correct container paths
+RUN /root/.pixi/bin/pixi run -manifest-path /root/aps/pixi.toml setup-ortools
+RUN /root/.pixi/bin/pixi run -manifest-path /root/aps/pixi.toml setup
+RUN /root/.pixi/bin/pixi run -manifest-path /root/aps/pixi.toml build
+RUN /root/.pixi/bin/pixi run -manifest-path /root/aps/pixi.toml fix_verilator
 
-# Change apt source to local mirror
-RUN sed -ri.bak -e 's/\/\/.*?(archive.ubuntu.com|mirrors.*?)\/ubuntu/\/\/mirrors.pku.edu.cn\/ubuntu/g' -e '/security.ubuntu.com\/ubuntu/d' /etc/apt/sources.list
+# Stage 2: Runtime - copy .pixi from builder
+FROM uvxiao/aps-mlir:v0 AS runtime
 
-# Install dependent packages
-RUN \
-    apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    autoconf bison build-essential ccache flex help2man libfl2 libfl-dev libgoogle-perftools-dev \
-    numactl perl perl-doc curl wget git sudo ca-certificates keyboard-configuration console-setup \
-    libreadline-dev gawk tcl-dev libffi-dev graphviz xdot libboost-system-dev python3-pip \
-    libboost-python-dev libboost-filesystem-dev zlib1g-dev time device-tree-compiler libelf-dev \
-    bc unzip zlib1g zlib1g-dev libtcl8.6 iverilog pkg-config clang verilator vim ripgrep cmake openjdk-8-jre && \
-    apt-get clean
+WORKDIR /root
 
-# Install utils
-RUN ln -s /usr/bin/python3 /usr/bin/python
-RUN pip3 install rich parse scipy seaborn matplotlib
-RUN apt-get update && apt-get install -y cloc zip ssh ninja-build gperf
+ARG GIT_REPO=https://github.com/pku-liang/aps-mlir.git
+ARG GIT_BRANCH=aspdac
 
-RUN wget -qO- https://pixi.sh/install.sh | sh
+# Shallow clone the repo (no submodules, no history)
+RUN git clone --depth 1 --branch "$GIT_BRANCH" "$GIT_REPO" /root/aps
 
-# # Install rust
-# RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
-# ENV PATH="/root/.cargo/bin:${PATH}"
-
-# # add /root/.local/bin to PATH in bash
-# RUN echo "export PATH=\"/root/.local/bin:\$PATH\"" >> /root/.bashrc
-
-# RUN git clone https://github.com/pku-liang/Cement.git /root/cement
+# Copy the pre-built .pixi from builder stage
+COPY --from=builder /root/aps/.pixi /root/aps/.pixi
 
 CMD [ "/bin/bash", "-l" ]
