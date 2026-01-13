@@ -17,8 +17,8 @@ LEGACY_FIRTOOL = "${PIXI_PROJECT_ROOT}/thirdparty/firtool-1.75.0/bin/firtool" # 
 # tutorial docker environment
 APS = "${PIXI_PROJECT_ROOT}"
 APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard"
-APS_SIM = "${PIXI_PROJECT_ROOT}/aps-mlir-chipyard/sims/verilator"
-APS_VLSI = "${PIXI_PROJECT_ROOT}/aps-mlir-chipyard/nextvlsi"
+APS_SIM = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard/sims/verilator"
+APS_VLSI = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard/nextvlsi"
 
 [tasks]
 
