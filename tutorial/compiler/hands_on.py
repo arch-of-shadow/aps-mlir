@@ -1184,7 +1184,7 @@ def render_overview():
     # Architecture diagram
     st.markdown("### System Architecture")
     arch_img = Path(__file__).parent / "figs" / "architecture.png"
-    st.image(str(arch_img), width=600)
+    st.image(str(arch_img), use_container_width=True)
 
     st.markdown("---")
 
