@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if [ -z "$APS" ]; then
+  echo 'APS environment variable is not set. Please run `pixi shell` first.'
+  exit 1
+fi
+
 mkdir -p $APS/tutorial/outputs
 
 # Run CADL-to-MLIR parser
