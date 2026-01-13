@@ -36,8 +36,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Extract base name from CADL file
 CADL_BASENAME=$(basename "$CADL_FILE" .cadl)
 
-# All intermediate files go to output/compile_logs
-INTERMEDIATE_DIR="$PROJECT_ROOT/output/compile_logs"
+OUTPUT_DIR="$(dirname "${OUTPUT}")"
+INTERMEDIATE_DIR="$OUTPUT_DIR/compile_logs"
 mkdir -p "$INTERMEDIATE_DIR"
 
 PATTERN_C="$INTERMEDIATE_DIR/${CADL_BASENAME}.c"
