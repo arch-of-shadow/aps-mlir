@@ -1,8 +1,17 @@
 #!/bin/bash
 
-CADL_INPUT="${1:-tutorial/cadl/vgemv3d.cadl}"
+if [ -z "$APS" ]; then
+  echo 'APS environment variable is not set. Please run `pixi shell` first.'
+  exit 1
+fi
+
+mkdir -p $APS/tutorial/outputs
+
+cd $APS/tutorial
+
+CADL_INPUT="${1:-$APS/tutorial/cadl/vgemv3d.cadl}"
 NAME="$(basename "$CADL_INPUT" .cadl)"
-OUT_DIR="output/$NAME"
+OUT_DIR="$APS/tutorial/outputs/$NAME"
 
 mkdir -p "$OUT_DIR"
 
