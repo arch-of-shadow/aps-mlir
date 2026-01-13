@@ -10,8 +10,13 @@ CIRCT_COMMIT = "cmt2-edsl"
 PYTHONPATH = "${PIXI_PROJECT_ROOT}/build/python_packages/circt_core:${PYTHONPATH}"
 OR_TOOLS_PATH = "${PIXI_PROJECT_ROOT}/install"
 PATH = "${PIXI_PROJECT_ROOT}/circt/build/bin:${PIXI_PROJECT_ROOT}/install/bin:${PATH}:${PIXI_PROJECT_ROOT}/thirdparty/polygeist"
-MEGGINCLUDE = "${PIXI_PROJECT_ROOT}/megg/megg_include"
-LEGACY_FIRTOOL = "${CONDA_PREFIX}/bin/firtool"
+MEGGINCLUDE = "${PIXI_PROJECT_ROOT}/megg/megg_include" # put extra include files for megg here
+LEGACY_FIRTOOL = "${CONDA_PREFIX}/bin/firtool" # this is for chipyard compatibility
+# tutorial docker environment
+APS = "${PIXI_PROJECT_ROOT}"
+APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard"
+APS_SIM = "${PIXI_PROJECT_ROOT}/aps-mlir-chipyard/sims/verilator"
+APS_VLSI = "${PIXI_PROJECT_ROOT}/aps-mlir-chipyard/nextvlsi"
 
 [tasks]
 
@@ -59,10 +64,13 @@ cmd = "./circt/build/bin/circt-opt {{ apsir }} --lower-cmt2-to-firrtl | ./circt/
 args = ["apsir", "mainir"]
 cmd = "sed -n '/cmt2\\.module @main(%clk: !firrtl\\.clock, %rst: !firrtl\\.uint<1>)/,/^}/p' {{ apsir }} | sed '/cmt2\\.module @.*main(/!{/cmt2\\.module @/,/^}/d}' > {{ mainir }}"
 
-# Full compile task (from CADL + test.c)
 [tasks.compile]
 args = ["cadl", "test_c", "output"]
 cmd = "bash $PIXI_PROJECT_ROOT/scripts/compile.sh {{ cadl }} {{ test_c }} {{ output }}"
+
+[tasks.compile_native]
+args = ["test_c", "output"]
+cmd = "riscv32-unknown-elf-gcc -std=gnu99 -O3 -Wall -Wextra -fno-common -fno-builtin-printf -march=rv32imaf_zicsr_zifencei -mabi=ilp32f -mcmodel=medany -specs=htif_nano.specs -static -T htif.ld -o {{ output }} {{ test_c }} -lm"
 
 [dependencies]
 cmake = ">=4.1.1,<5"
