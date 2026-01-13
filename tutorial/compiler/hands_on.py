@@ -4,9 +4,12 @@ Allows participants to run compilation steps and see intermediate results.
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import subprocess
 import tempfile
 import json
+import re
+import html
 from pathlib import Path
 import shutil
 import os
@@ -19,6 +22,226 @@ sys.path.insert(0, str(PROJECT_ROOT / "megg"))
 
 def get_project_root():
     return PROJECT_ROOT
+
+
+def render_cadl_code(cadl_code: str, height: int = 400):
+    """Render CADL code with syntax highlighting using custom HTML/CSS."""
+    import uuid
+    placeholders = {}
+
+    def make_placeholder(match, css_class):
+        token = f"__PLACEHOLDER_{uuid.uuid4().hex}__"
+        content = html.escape(match.group(1))
+        placeholders[token] = f'<span class="{css_class}">{content}</span>'
+        return token
+
+    highlighted = cadl_code
+
+    # Step 1: Replace comments and strings first
+    # Single-line comments
+    highlighted = re.sub(r'(//[^\n]*)', lambda m: make_placeholder(m, 'cadl-comment'), highlighted)
+    # Strings
+    highlighted = re.sub(r'("(?:[^"\\]|\\.)*")', lambda m: make_placeholder(m, 'cadl-string'), highlighted)
+
+    # Step 2: Escape HTML entities
+    highlighted = html.escape(highlighted)
+
+    # Step 3: Apply highlighting patterns
+    patterns = [
+        # Attributes like #[opcode(...)]
+        (r'(#\[[^\]]+\])', r'<span class="cadl-attr">\1</span>'),
+        # Types
+        (r'\b(u5|u8|u16|u32|u64|i8|i16|i32|i64|bool)\b', r'<span class="cadl-type">\1</span>'),
+        # Keywords
+        (r'\b(static|let|with|do|while|if|else|return|rtype|itype|fn)\b', r'<span class="cadl-keyword">\1</span>'),
+        # Special variables
+        (r'(_irf|_burst_read|_burst_write|_mem)', r'<span class="cadl-special">\1</span>'),
+        # Numbers (binary, hex, decimal)
+        (r"\b(\d+'[bhdoBHDO][0-9a-fA-F_]+|\d+)\b", r'<span class="cadl-number">\1</span>'),
+    ]
+
+    for pattern, replacement in patterns:
+        highlighted = re.sub(pattern, replacement, highlighted)
+
+    # Step 4: Restore placeholders
+    for token, replacement in placeholders.items():
+        highlighted = highlighted.replace(token, replacement)
+
+    html_content = f'''
+    <style>
+        .cadl-container {{
+            background-color: #f8f8f8;
+            color: #333333;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+            overflow: auto;
+            max-height: {height}px;
+            white-space: pre;
+        }}
+        .cadl-keyword {{ color: #0000ff; font-weight: bold; }}
+        .cadl-type {{ color: #267f99; }}
+        .cadl-attr {{ color: #af00db; }}
+        .cadl-special {{ color: #795e26; }}
+        .cadl-number {{ color: #098658; }}
+        .cadl-string {{ color: #a31515; }}
+        .cadl-comment {{ color: #008000; font-style: italic; }}
+    </style>
+    <div class="cadl-container">{highlighted}</div>
+    '''
+
+    components.html(html_content, height=height + 30, scrolling=True)
+
+
+def render_c_code(c_code: str, height: int = 400):
+    """Render C code with syntax highlighting using custom HTML/CSS."""
+    # Use placeholder tokens to avoid regex conflicts with inserted HTML
+    import uuid
+    placeholders = {}
+
+    def make_placeholder(match, css_class):
+        token = f"__PLACEHOLDER_{uuid.uuid4().hex}__"
+        # Escape the matched content for HTML safety
+        content = html.escape(match.group(1))
+        placeholders[token] = f'<span class="{css_class}">{content}</span>'
+        return token
+
+    highlighted = c_code
+
+    # Step 1: Replace comments and strings first (they can contain other syntax)
+    # Single-line comments
+    highlighted = re.sub(r'(//[^\n]*)', lambda m: make_placeholder(m, 'c-comment'), highlighted)
+    # Multi-line comments
+    highlighted = re.sub(r'(/\*[\s\S]*?\*/)', lambda m: make_placeholder(m, 'c-comment'), highlighted)
+    # Strings
+    highlighted = re.sub(r'("(?:[^"\\]|\\.)*")', lambda m: make_placeholder(m, 'c-string'), highlighted)
+    # Character literals
+    highlighted = re.sub(r"('(?:[^'\\]|\\.)*')", lambda m: make_placeholder(m, 'c-string'), highlighted)
+
+    # Step 2: Escape HTML entities in the remaining code
+    highlighted = html.escape(highlighted)
+
+    # Step 3: Apply other highlighting patterns
+    patterns = [
+        # Preprocessor directives
+        (r'(#\w+)', r'<span class="c-preprocessor">\1</span>'),
+        # Types
+        (r'\b(void|int|char|short|long|float|double|signed|unsigned|uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|size_t|bool)\b',
+         r'<span class="c-type">\1</span>'),
+        # Keywords
+        (r'\b(if|else|for|while|do|switch|case|default|break|continue|return|goto|struct|union|enum|typedef|static|extern|const|volatile|inline|sizeof)\b',
+         r'<span class="c-keyword">\1</span>'),
+        # Numbers (hex, float, int)
+        (r'\b(0x[0-9a-fA-F]+|0b[01]+|\d+\.?\d*(?:[eE][+-]?\d+)?[fFlLuU]*)\b', r'<span class="c-number">\1</span>'),
+    ]
+
+    for pattern, replacement in patterns:
+        highlighted = re.sub(pattern, replacement, highlighted)
+
+    # Step 4: Restore placeholders
+    for token, replacement in placeholders.items():
+        highlighted = highlighted.replace(token, replacement)
+
+    html_content = f'''
+    <style>
+        .c-container {{
+            background-color: #f8f8f8;
+            color: #333333;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+            overflow: auto;
+            max-height: {height}px;
+            white-space: pre;
+        }}
+        .c-keyword {{ color: #0000ff; font-weight: bold; }}
+        .c-type {{ color: #267f99; }}
+        .c-preprocessor {{ color: #af00db; }}
+        .c-number {{ color: #098658; }}
+        .c-string {{ color: #a31515; }}
+        .c-comment {{ color: #008000; font-style: italic; }}
+    </style>
+    <div class="c-container">{highlighted}</div>
+    '''
+
+    components.html(html_content, height=height + 30, scrolling=True)
+
+
+def render_mlir_code(mlir_code: str, height: int = 400):
+    """Render MLIR code with syntax highlighting using custom HTML/CSS."""
+    # Escape HTML entities first
+    escaped = html.escape(mlir_code)
+
+    # Define highlighting patterns (order matters - more specific first)
+    patterns = [
+        # Comments (// ...)
+        (r'(//[^\n]*)', r'<span class="mlir-comment">\1</span>'),
+        # Strings
+        (r'("(?:[^"\\]|\\.)*")', r'<span class="mlir-string">\1</span>'),
+        # Types (i32, f32, index, memref, tensor, etc.)
+        (r'\b(i\d+|f\d+|bf16|index|none)\b', r'<span class="mlir-type">\1</span>'),
+        (r'\b(memref|tensor|vector|tuple|complex)(&lt;[^&]*&gt;)?', r'<span class="mlir-type">\1\2</span>'),
+        # Dialect prefixes and operations (func.func, arith.addi, scf.for, etc.)
+        (r'\b(func|arith|scf|affine|memref|linalg|tensor|vector|builtin|llvm|cf|math)\.(\w+)\b',
+         r'<span class="mlir-dialect">\1</span>.<span class="mlir-op">\2</span>'),
+        # Keywords
+        (r'\b(module|func|return|yield|if|else|for|while|iter_args|step|to)\b',
+         r'<span class="mlir-keyword">\1</span>'),
+        # Block arguments and SSA values (%name, %0, %arg0)
+        (r'(%[\w\d_]+)', r'<span class="mlir-ssa">\1</span>'),
+        # Block labels (^bb0:)
+        (r'(\^[\w\d_]+:?)', r'<span class="mlir-block">\1</span>'),
+        # Attributes (#map, @func_name)
+        (r'(#[\w\d_]+)', r'<span class="mlir-attr">\1</span>'),
+        (r'(@[\w\d_]+)', r'<span class="mlir-symbol">\1</span>'),
+        # Numbers
+        (r'\b(\d+\.?\d*(?:e[+-]?\d+)?)\b', r'<span class="mlir-number">\1</span>'),
+        # Arrows
+        (r'(-&gt;)', r'<span class="mlir-arrow">\1</span>'),
+    ]
+
+    highlighted = escaped
+    for pattern, replacement in patterns:
+        highlighted = re.sub(pattern, replacement, highlighted)
+
+    html_content = f'''
+    <style>
+        .mlir-container {{
+            background-color: #f8f8f8;
+            color: #333333;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+            overflow: auto;
+            max-height: {height}px;
+            white-space: pre;
+        }}
+        .mlir-keyword {{ color: #0000ff; font-weight: bold; }}
+        .mlir-type {{ color: #267f99; }}
+        .mlir-dialect {{ color: #af00db; }}
+        .mlir-op {{ color: #795e26; }}
+        .mlir-ssa {{ color: #001080; }}
+        .mlir-block {{ color: #a31515; }}
+        .mlir-attr {{ color: #098658; }}
+        .mlir-symbol {{ color: #0070c1; }}
+        .mlir-number {{ color: #098658; }}
+        .mlir-string {{ color: #a31515; }}
+        .mlir-comment {{ color: #008000; font-style: italic; }}
+        .mlir-arrow {{ color: #333333; }}
+    </style>
+    <div class="mlir-container">{highlighted}</div>
+    '''
+
+    components.html(html_content, height=height + 30, scrolling=True)
 
 
 def get_available_examples() -> list:
@@ -44,19 +267,22 @@ def load_example_data(example_name: str) -> dict:
 
     data = {"name": example_name}
 
-    # Source files from tutorial directories
+    # For v3ddist_vv, use _cy variant for CADL but keep original name for test_c
+    cadl_name = example_name
+    if example_name == "v3ddist_vv":
+        cadl_name = "v3ddist_vv_cy"
     source_mappings = {
-        "cadl": cadl_dir / f"{example_name}.cadl",
+        "cadl": cadl_dir / f"{cadl_name}.cadl",
         "test_c": csrc_dir / f"test_{example_name}.c",
-        "c_code": csrc_dir / f"{example_name}.c",
-        "mlir_pattern": mlir_dir / f"{example_name}.mlir",
+        "c_code": csrc_dir / f"{cadl_name}.c",
+        "mlir_pattern": mlir_dir / f"{cadl_name}.mlir",
     }
 
-    # Compiled artifacts from output directory
+    # Compiled artifacts from output directory (use cadl_name for output files)
     output_mappings = {
-        "stats": output_dir / f"{example_name}.stats.json",
-        "encoding": output_dir / f"{example_name}.json",
-        "asm": output_dir / f"{example_name}.asm",
+        "stats": output_dir / f"{cadl_name}.stats.json",
+        "encoding": output_dir / f"{cadl_name}.json",
+        "asm": output_dir / f"{cadl_name}.asm",
     }
 
     for key, filepath in {**source_mappings, **output_mappings}.items():
@@ -301,12 +527,26 @@ def check_asm_matches_encoding(asm_code: str, encoding: dict) -> dict:
 
 
 def run_compile_sh_handson(example_name: str) -> tuple:
-    """Run tutorial/scripts/compile.sh with --handson flag and return (success, snapshots_path, output)."""
+    """Run pixi run compile-handson and return (success, snapshots_path, output)."""
     output_dir = PROJECT_ROOT / "output" / "compile_logs"
-    compile_script = PROJECT_ROOT / "tutorial" / "scripts" / "compile.sh"
 
-    # Run the compile script
-    cmd = ["bash", str(compile_script), example_name, "--handson"]
+    # Build paths for tutorial examples
+    # For v3ddist_vv, use _cy variant for CADL but keep original name for test_c
+    cadl_name = example_name
+    if example_name == "v3ddist_vv":
+        cadl_name = "v3ddist_vv_cy"
+    cadl_file = f"tutorial/cadl/{cadl_name}.cadl"
+    test_c_file = f"tutorial/csrc/test_{example_name}.c"
+    output_exe = f"tutorial/{cadl_name}.riscv"
+
+    # Check input files exist
+    if not (PROJECT_ROOT / cadl_file).exists():
+        return False, None, f"Error: CADL file not found: {cadl_file}"
+    if not (PROJECT_ROOT / test_c_file).exists():
+        return False, None, f"Error: Test C file not found: {test_c_file}"
+
+    # Run pixi run compile-handson
+    cmd = ["pixi", "run", "compile-handson", cadl_file, test_c_file, output_exe]
 
     try:
         result = subprocess.run(
@@ -317,8 +557,8 @@ def run_compile_sh_handson(example_name: str) -> tuple:
             timeout=180,  # 3 minutes for full pipeline
         )
 
-        # Look for snapshots file
-        snapshots_path = output_dir / f"{example_name}.snapshots.json"
+        # Snapshots file is moved to output/compile_logs/ by compile.sh
+        snapshots_path = output_dir / f"{cadl_name}.snapshots.json"
 
         output = result.stdout + "\n" + result.stderr
 
@@ -334,143 +574,82 @@ def run_compile_sh_handson(example_name: str) -> tuple:
 
 
 # ============================================================
-# STEP 1: ISAX Pattern Generation (CADL -> C -> MLIR -> Skeleton)
+# STEP 1: ISAX Pattern Generation (CADL -> MLIR)
 # ============================================================
 
+def run_step1_cadl_to_mlir(example_data: dict):
+    """Execute CADL to MLIR conversion (called from sidebar)."""
+    default_cadl = example_data.get("cadl", "")
+
+    if not default_cadl:
+        st.session_state["step1_status"] = ("error", "No CADL file")
+        st.rerun()
+        return
+
+    work_dir = Path(tempfile.mkdtemp(prefix="tutorial_"))
+
+    # Step 1: CADL to C
+    cadl_file = work_dir / "input.cadl"
+    cadl_file.write_text(default_cadl)
+
+    cmd = ["python", "aps-frontend", "cadl2c", str(cadl_file)]
+    success, stdout, stderr = run_command(cmd)
+
+    c_file = work_dir / "input.c"
+    if c_file.exists():
+        c_code = c_file.read_text()
+    elif success and stdout:
+        c_code = stdout
+    else:
+        st.session_state["step1_status"] = ("error", "CADL→C failed")
+        st.session_state["step1_generated_mlir"] = ""
+        st.rerun()
+        return
+
+    # Step 2: C to MLIR
+    success, mlir_code, error = run_polygeist(c_code, work_dir)
+
+    if success and mlir_code:
+        st.session_state["step1_generated_mlir"] = mlir_code
+        st.session_state["step2_pattern_mlir"] = mlir_code
+        st.session_state["step1_status"] = ("success", "Done!")
+        st.rerun()
+    else:
+        st.session_state["step1_status"] = ("error", "C→MLIR failed")
+        st.session_state["step1_generated_mlir"] = ""
+        st.rerun()
+
+
 def render_step1():
-    """Step 1: ISAX Pattern Generation - Three sub-steps."""
+    """Step 1: ISAX Pattern Generation - CADL to MLIR conversion."""
     st.markdown("## Step 1: ISAX Pattern Generation")
 
     example_data = st.session_state.get("example_data", {})
-    example_name = example_data.get("name", "unknown")
 
-    st.info("Generate ISAX pattern from CADL description through C to MLIR, then extract skeleton and components")
+    st.info("Convert CADL definition to MLIR pattern (via Polygeist). Click **Run** in the sidebar to execute.")
 
-    # Sub-step selector
-    sub_step = st.radio(
-        "Select Sub-step:",
-        ["1.1 CADL -> C", "1.2 C -> MLIR"],
-        horizontal=True,
-        key="step1_substep"
-    )
-
-    if sub_step == "1.1 CADL -> C":
-        render_step1_1_cadl_to_c(example_data, example_name)
-    elif sub_step == "1.2 C -> MLIR":
-        render_step1_2_c_to_mlir(example_data, example_name)
-
-
-def render_step1_1_cadl_to_c(example_data: dict, example_name: str):
-    """Sub-step 1.1: CADL to C conversion."""
-    st.markdown("### 1.1 CADL -> C (ISAX Definition)")
+    st.markdown("### CADL -> MLIR")
 
     default_cadl = example_data.get("cadl", "// No CADL file found for this example")
-    default_c = example_data.get("c_code", "")
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("**CADL Source**")
-        st.code(default_cadl, language="rust")
-
-        cadl_code = st.text_area(
-            "Edit CADL code:",
-            value=default_cadl,
-            height=250,
-            key=f"cadl_input_{example_name}",
-            label_visibility="collapsed"
-        )
-
-        col1a, col1b = st.columns(2)
-        with col1a:
-            if st.button("Run CADL to C", type="primary", key="run_cadl2c"):
-                with st.spinner("Converting CADL to C..."):
-                    work_dir = Path(tempfile.mkdtemp(prefix="tutorial_"))
-                    success, c_code, error = run_cadl2c(cadl_code, work_dir)
-
-                    if success and c_code:
-                        st.session_state["step1_generated_c"] = c_code
-                        # Auto-pass to Step 1.2
-                        st.session_state["step1_2_c_code"] = c_code
-                        st.success("Conversion successful! Result passed to Step 1.2")
-                    else:
-                        st.error(f"Conversion failed: {error}")
-                        st.session_state["step1_generated_c"] = ""
-        with col1b:
-            if st.button("Load Example C", key="load_example_c"):
-                st.session_state["step1_generated_c"] = default_c
-                # Auto-pass to Step 1.2
-                st.session_state["step1_2_c_code"] = default_c
-                st.rerun()
-
-    with col2:
-        st.markdown("**Generated ISAX C Code**")
-
-        # Show empty if not run yet, otherwise show generated
-        display_c = st.session_state.get("step1_generated_c", "")
-
-        if display_c:
-            st.code(display_c, language="c")
+        if default_cadl:
+            render_cadl_code(default_cadl, height=400)
         else:
-            st.info("Run CADL to C conversion to see output here, or load example C code.")
-
-
-def render_step1_2_c_to_mlir(example_data: dict, example_name: str):
-    """Sub-step 1.2: C to MLIR conversion."""
-    st.markdown("### 1.2 C -> MLIR (ISAX Pattern)")
-
-    example_c = example_data.get("c_code", "// No C file found")
-    default_mlir = example_data.get("mlir_pattern", "")
-
-    # Use C from step 1.1 if available
-    input_c = st.session_state.get("step1_2_c_code", example_c)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**ISAX C Code**")
-        st.code(input_c, language="c")
-
-        c_code = st.text_area(
-            "Edit C code:",
-            value=input_c,
-            height=200,
-            key=f"c_input_{example_name}",
-            label_visibility="collapsed"
-        )
-
-        col1a, col1b = st.columns(2)
-        with col1a:
-            if st.button("Run C to MLIR", type="primary", key="run_polygeist"):
-                with st.spinner("Running Polygeist..."):
-                    work_dir = Path(tempfile.mkdtemp(prefix="tutorial_"))
-                    success, mlir_code, error = run_polygeist(c_code, work_dir)
-
-                    if success and mlir_code:
-                        st.session_state["step1_generated_mlir"] = mlir_code
-                        # Auto-pass to Step 2
-                        st.session_state["step2_pattern_mlir"] = mlir_code
-                        st.success("Conversion successful! Result passed to Step 2")
-                    else:
-                        st.error(f"Conversion failed: {error}")
-                        st.session_state["step1_generated_mlir"] = ""
-        with col1b:
-            if st.button("Load Example MLIR", key="load_example_mlir"):
-                st.session_state["step1_generated_mlir"] = default_mlir
-                # Auto-pass to Step 2
-                st.session_state["step2_pattern_mlir"] = default_mlir
-                st.rerun()
+            st.warning("No CADL file found for this example")
 
     with col2:
         st.markdown("**ISAX Pattern MLIR**")
 
-        # Show empty if not run yet
         display_mlir = st.session_state.get("step1_generated_mlir", "")
 
         if display_mlir:
-            st.code(display_mlir, language="mlir")
+            render_mlir_code(display_mlir, height=400)
         else:
-            st.info("Run C to MLIR conversion to see output here, or load example MLIR.")
+            st.info("Click **Run** in the sidebar to convert CADL to MLIR, or **Load Example** to use pre-generated MLIR.")
 
 
 # ============================================================
@@ -528,6 +707,49 @@ def render_skeleton_and_components(skeleton_info: dict):
     # Raw info in expander
     if raw_info:
         with st.expander("Raw Output (Debug)", expanded=False):
+            st.code(raw_info, language="bash")
+
+
+def render_skeleton_and_components_inline(skeleton_info: dict):
+    """Render skeleton and components in a compact inline format for side-by-side display."""
+    import streamlit as st
+
+    instr_name = skeleton_info.get("instr_name", "")
+    skeleton_tree_str = skeleton_info.get("skeleton_tree_str", "")
+    rewrites = skeleton_info.get("rewrites", [])
+    num_leaf_patterns = skeleton_info.get("num_leaf_patterns", 0)
+    raw_info = skeleton_info.get("raw_skeleton_info", "")
+
+    # If no skeleton info, show a message
+    if not instr_name and not skeleton_tree_str and not rewrites:
+        st.info("No skeleton info found (simple pattern mode or not yet run)")
+        return
+
+    # Header with instruction name
+    if instr_name:
+        st.markdown(f"**Instruction: `{instr_name}`**")
+
+    # Skeleton (Control Flow Graph)
+    st.markdown("**Skeleton:**")
+    if skeleton_tree_str:
+        st.code(skeleton_tree_str, language="text")
+    else:
+        st.caption("(simple pattern)")
+
+    # Component Rewrites - compact list
+    st.markdown(f"**Components ({len(rewrites)}):**")
+    if rewrites:
+        for rw in rewrites:
+            pattern = rw.get("pattern", "")
+            component = rw.get("component", "")
+            with st.expander(f"`{component}`", expanded=False):
+                st.code(pattern, language="text")
+    else:
+        st.caption("No component rewrites")
+
+    # Raw info in expander (optional)
+    if raw_info:
+        with st.expander("Debug Info", expanded=False):
             st.code(raw_info, language="bash")
 
 
@@ -677,6 +899,64 @@ def run_matching_with_custom_code(test_code: str, pattern_mlir: str, example_nam
         return False, None, str(e), "", str(work_dir)
 
 
+def run_step2_matching(example_data: dict):
+    """Execute E-graph matching (called from sidebar)."""
+    example_name = example_data.get("name", "unknown")
+    output_dir = PROJECT_ROOT / "output" / "compile_logs"
+
+    # For v3ddist_vv, use _cy variant for output files
+    cadl_name = example_name
+    if example_name == "v3ddist_vv":
+        cadl_name = "v3ddist_vv_cy"
+
+    # Check prerequisites
+    pattern_mlir = st.session_state.get("step2_pattern_mlir", "") or example_data.get("mlir_pattern", "")
+    csrc_dir = PROJECT_ROOT / "tutorial" / "csrc"
+    test_c_file = csrc_dir / f"test_{example_name}.c"
+
+    if not test_c_file.exists():
+        st.session_state["step2_status"] = ("error", "No app code")
+        st.rerun()
+        return
+    if not pattern_mlir:
+        st.session_state["step2_status"] = ("error", "No pattern")
+        st.rerun()
+        return
+
+    success, snapshots_path, output = run_compile_sh_handson(example_name)
+
+    # Reload ASM (use cadl_name for output files)
+    asm_path = output_dir / f"{cadl_name}.asm"
+    if asm_path.exists():
+        st.session_state["asm_code"] = asm_path.read_text()
+
+    st.session_state["compile_output"] = output
+
+    # Parse skeleton and components from output
+    skeleton_info = parse_skeleton_from_output(output)
+    st.session_state["skeleton_info"] = skeleton_info
+
+    if success and snapshots_path:
+        with open(snapshots_path) as f:
+            snapshots_data = json.load(f)
+
+        st.session_state["snapshots_data"] = snapshots_data
+        st.session_state["matching_complete"] = True
+
+        # Load stats (use cadl_name for output files)
+        stats_path = output_dir / f"{cadl_name}.stats.json"
+        if stats_path.exists():
+            with open(stats_path) as f:
+                st.session_state["compile_stats"] = json.load(f)
+
+        st.session_state["step2_status"] = ("success", "Done!")
+        st.rerun()
+    else:
+        st.session_state["step2_status"] = ("error", "Failed")
+        st.session_state["matching_complete"] = False
+        st.rerun()
+
+
 def render_step2():
     """Step 2: Application Matching with E-graph optimization."""
     st.markdown("## Step 2: Application Matching")
@@ -684,7 +964,7 @@ def render_step2():
     example_data = st.session_state.get("example_data", {})
     example_name = example_data.get("name", "unknown")
 
-    st.info("Match application code against ISAX pattern using E-graph optimization")
+    st.info("Match application code against ISAX pattern using E-graph optimization. Click **Run E-graph Matching** in the sidebar to execute.")
 
     # Load pattern MLIR data
     # Priority: 1) From Step 1, 2) From file, 3) Generate from example C code
@@ -716,47 +996,15 @@ def render_step2():
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"**Application Code** (`test_{example_name}.c`)")
-
-        # Toggle between view and edit mode
-        edit_mode = st.checkbox("Edit Mode", key="edit_mode_toggle")
-
-        if edit_mode:
-            # Editable text area
-            edited_code = st.text_area(
-                "Edit test code:",
-                value=current_test_c,
-                height=350,
-                key="test_code_editor",
-                label_visibility="collapsed"
-            )
-
-            col1a, col1b = st.columns(2)
-            with col1a:
-                if st.button("Save Changes", type="primary", key="save_test_code"):
-                    try:
-                        test_c_file.write_text(edited_code)
-                        st.success(f"Saved to {test_c_file}")
-                        # Reload example data
-                        st.session_state["example_data"]["test_c"] = edited_code
-                    except Exception as e:
-                        st.error(f"Failed to save: {e}")
-            with col1b:
-                if st.button("Discard Changes", key="discard_test_code"):
-                    st.rerun()
-
-            test_c = edited_code
+        if current_test_c:
+            render_c_code(current_test_c, height=350)
         else:
-            # Rendered code view
-            if current_test_c:
-                st.code(current_test_c, language="c")
-            else:
-                st.warning("No test_*.c file found")
-            test_c = current_test_c
+            st.warning("No test_*.c file found")
 
     with col2:
         st.markdown("**ISAX Pattern (*.mlir)**")
         if pattern_mlir:
-            st.code(pattern_mlir, language="mlir")
+            render_mlir_code(pattern_mlir, height=350)
         else:
             st.warning("No pattern MLIR. Complete Step 1 first, or generate from example C code.")
             # Offer to generate from example C code
@@ -775,56 +1023,6 @@ def render_step2():
                             st.rerun()
                         else:
                             st.error(f"Generation failed: {error}")
-
-    # ============ Run Matching ============
-    st.markdown("---")
-
-    st.caption(f"Runs: `tutorial/scripts/compile.sh {example_name} --handson`")
-
-    if st.button("Run E-graph Matching", type="primary", key="run_matching"):
-        if not test_c:
-            st.error("No application code found")
-        elif not pattern_mlir:
-            st.error("No pattern MLIR. Complete Step 1 first.")
-        else:
-            with st.spinner("Running Megg E2E compiler with --handson mode..."):
-                # Always run with example files (which may have been edited)
-                success, snapshots_path, output = run_compile_sh_handson(example_name)
-
-                # Reload ASM
-                asm_path = output_dir / f"{example_name}.asm"
-                if asm_path.exists():
-                    st.session_state["asm_code"] = asm_path.read_text()
-
-                st.session_state["compile_output"] = output
-
-                # Parse skeleton and components from output
-                skeleton_info = parse_skeleton_from_output(output)
-                st.session_state["skeleton_info"] = skeleton_info
-
-                if success and snapshots_path:
-                    with open(snapshots_path) as f:
-                        snapshots_data = json.load(f)
-
-                    st.session_state["snapshots_data"] = snapshots_data
-                    st.session_state["matching_complete"] = True
-
-                    # Load stats
-                    stats_path = output_dir / f"{example_name}.stats.json"
-                    if stats_path.exists():
-                        with open(stats_path) as f:
-                            st.session_state["compile_stats"] = json.load(f)
-
-                    st.success("Matching complete!")
-                else:
-                    st.error(f"Matching failed")
-                    st.session_state["matching_complete"] = False
-
-    # Show compile output
-    compile_output = st.session_state.get("compile_output")
-    if compile_output:
-        with st.expander("Compiler Output", expanded=False):
-            st.code(compile_output, language="bash")
 
     # ============ Helper functions ============
     from megg.utils import get_temp_dir
@@ -921,7 +1119,7 @@ def render_step2():
             latest_affine = affine_mlir_files[0]
             with st.expander("Application MLIR (Polygeist output)", expanded=False):
                 mlir_content = latest_affine.read_text()
-                st.code(mlir_content, language="mlir")
+                render_mlir_code(mlir_content, height=300)
 
         with st.expander("Initial E-graph Visualization", expanded=True):
             render_svg(tmp_dir / "egraph_before_internal.svg")
@@ -1014,7 +1212,7 @@ def render_step2():
                     st.markdown("**Before (Extracted)**")
                     if affine_mlir_files:
                         st.caption(affine_mlir_files[0].name)
-                        st.code(affine_mlir_files[0].read_text(), language="mlir")
+                        render_mlir_code(affine_mlir_files[0].read_text(), height=250)
                     else:
                         st.info("No extracted MLIR found")
 
@@ -1022,7 +1220,7 @@ def render_step2():
                     st.markdown("**After (Transformed)**")
                     if loop_mlir_files:
                         st.caption(loop_mlir_files[0].name)
-                        st.code(loop_mlir_files[0].read_text(), language="mlir")
+                        render_mlir_code(loop_mlir_files[0].read_text(), height=250)
                     else:
                         st.info("No transformed MLIR found")
         else:
@@ -1040,8 +1238,22 @@ def render_step2():
     if matching_complete:
         st.markdown("Match application patterns against ISAX skeleton and components")
 
-        # Skeleton & Components
-        render_skeleton_and_components(skeleton_info)
+        # Two-column layout: MLIR on left, Skeleton/Components on right
+        col_mlir, col_skeleton = st.columns(2)
+
+        with col_mlir:
+            st.markdown("**ISAX Pattern MLIR**")
+            # Get pattern MLIR from session state or example data
+            example_data = st.session_state.get("example_data", {})
+            pattern_mlir = st.session_state.get("step2_pattern_mlir", "") or example_data.get("mlir_pattern", "")
+            if pattern_mlir:
+                render_mlir_code(pattern_mlir, height=400)
+            else:
+                st.info("No pattern MLIR available")
+
+        with col_skeleton:
+            # Skeleton & Components (inline version)
+            render_skeleton_and_components_inline(skeleton_info)
 
         # Custom matching result
         st.markdown("---")
@@ -1093,7 +1305,7 @@ def render_step2():
                 st.caption(f"File: {optimized_mlir_path.name}")
 
             st.markdown("**Extracted MLIR with `llvm.inline_asm`:**")
-            st.code(optimized_mlir_content, language="mlir")
+            render_mlir_code(optimized_mlir_content, height=350)
         else:
             st.info("No optimized MLIR found. Run matching to generate.")
     else:
@@ -1184,7 +1396,7 @@ def render_overview():
     # Architecture diagram
     st.markdown("### System Architecture")
     arch_img = Path(__file__).parent / "figs" / "architecture.png"
-    st.image(str(arch_img), width=600)
+    st.image(str(arch_img), use_container_width=True)
 
     st.markdown("---")
 
@@ -1205,11 +1417,10 @@ def render_overview():
         st.markdown("""
         **Step 1: ISAX Pattern**
 
-        Define custom instructions and convert them
-        to MLIR patterns for matching.
+        Convert CADL definition to MLIR patterns
+        for matching.
 
-        - ISAX → C (Frontend)
-        - C → MLIR (Polygeist)
+        - CADL → MLIR
         """)
 
     with col3:
@@ -1237,12 +1448,6 @@ def render_overview():
         the optimal one.
         """)
 
-    with st.expander("What is Megg?", expanded=False):
-        st.markdown("""
-        **Megg** (MLIR E-graph) is our compiler that uses e-graphs to optimize MLIR code.
-        It can automatically detect patterns that match custom instructions and replace
-        them, enabling transparent acceleration with custom hardware.
-        """)
 
     st.markdown("---")
 
@@ -1263,6 +1468,17 @@ def render_overview():
         st.markdown(f"**ISAX Definition** (`{example_name}.cadl`)")
         cadl_code = example_data.get("cadl", "// No file found for this example")
         st.code(cadl_code, language="rust")
+
+    st.markdown("---")
+
+    # Output Display
+    st.markdown("### Output")
+    st.markdown("After compilation, the custom instruction is generated:")
+    output_asm = """800001a8 <vgemv3d_vv>:
+800001a8:	62b5752b          	.insn	4, 0x62b5752b
+800001ac:	00000513          	li	a0,0
+800001b0:	00008067          	ret"""
+    st.code(output_asm, language="asm")
 
 
 # ============================================================
@@ -1382,35 +1598,104 @@ def main():
             key="selected_example"
         )
 
+        # Clear previous results when example changes
+        prev_example = st.session_state.get("_prev_example", None)
+        if prev_example != selected_example:
+            # Clear Step 1 results
+            st.session_state.pop("step1_generated_mlir", None)
+            st.session_state.pop("step1_status", None)
+            st.session_state.pop("step2_pattern_mlir", None)
+            # Clear Step 2 results
+            st.session_state.pop("step2_status", None)
+            st.session_state.pop("snapshots_data", None)
+            st.session_state.pop("matching_complete", None)
+            st.session_state.pop("asm_code", None)
+            st.session_state.pop("compile_output", None)
+            st.session_state.pop("skeleton_info", None)
+            st.session_state.pop("compile_stats", None)
+            # Remember current example
+            st.session_state["_prev_example"] = selected_example
+
         # Load example data
         example_data = load_example_data(selected_example)
         st.session_state["example_data"] = example_data
 
         st.markdown("---")
+        st.markdown("### Steps")
 
-        step = st.radio(
-            "Select Step:",
-            [
-                "Overview",
-                "E-graph Playground",
-                "Step 1: ISAX Pattern",
-                "Step 2: Matching"
-            ]
-        )
+        # Custom step selector with Run buttons inline
+        # Initialize step in session state
+        if "current_step" not in st.session_state:
+            st.session_state["current_step"] = "Overview"
 
+        # Overview
+        if st.button("Overview", key="nav_overview", use_container_width=True,
+                     type="primary" if st.session_state["current_step"] == "Overview" else "secondary"):
+            st.session_state["current_step"] = "Overview"
+            st.rerun()
+
+        # E-graph Playground
+        if st.button("E-graph Playground", key="nav_playground", use_container_width=True,
+                     type="primary" if st.session_state["current_step"] == "E-graph Playground" else "secondary"):
+            st.session_state["current_step"] = "E-graph Playground"
+            st.rerun()
+
+        # Step 1 with Run button (vertically centered)
         st.markdown("---")
-        st.markdown("### Pipeline")
-        st.markdown("""
-        **Step 1: ISAX Pattern**
-        - 1.1 CADL -> C
-        - 1.2 C -> MLIR
+        col1a, col1b = st.columns([4, 1], vertical_alignment="center")
+        with col1a:
+            if st.button("Step 1: ISAX Pattern", key="nav_step1", use_container_width=True,
+                         type="primary" if st.session_state["current_step"] == "Step 1: ISAX Pattern" else "secondary"):
+                st.session_state["current_step"] = "Step 1: ISAX Pattern"
+                st.session_state.pop("step1_status", None)  # Clear status on nav
+                st.rerun()
+        with col1b:
+            if st.button("▶", key="run_step1", type="primary", use_container_width=True,
+                         help="Run CADL to MLIR"):
+                st.session_state["current_step"] = "Step 1: ISAX Pattern"
+                st.session_state["step1_status"] = ("info", "Running...")
+                st.rerun()
 
-        **Step 2: Matching**
-        - E-graph Optimization
-        - Skeleton & Components
-        - Extraction
-        - Code Generation
-        """)
+        # Show Step 1 status
+        step1_status = st.session_state.get("step1_status")
+        if step1_status:
+            status_type, status_msg = step1_status
+            if status_type == "success":
+                st.success(status_msg)
+            elif status_type == "error":
+                st.error(status_msg)
+            elif status_type == "info":
+                st.info(status_msg)
+                # Actually run the task after showing status
+                run_step1_cadl_to_mlir(example_data)
+
+        # Step 2 with Run button (vertically centered)
+        col2a, col2b = st.columns([4, 1], vertical_alignment="center")
+        with col2a:
+            if st.button("Step 2: Matching", key="nav_step2", use_container_width=True,
+                         type="primary" if st.session_state["current_step"] == "Step 2: Matching" else "secondary"):
+                st.session_state["current_step"] = "Step 2: Matching"
+                st.session_state.pop("step2_status", None)  # Clear status on nav
+                st.rerun()
+        with col2b:
+            if st.button("▶", key="run_step2", type="primary", use_container_width=True,
+                         help="Run E-graph Matching"):
+                st.session_state["current_step"] = "Step 2: Matching"
+                st.session_state["step2_status"] = ("info", "Running...")
+                st.rerun()
+
+        # Show Step 2 status
+        step2_status = st.session_state.get("step2_status")
+        if step2_status:
+            status_type, status_msg = step2_status
+            if status_type == "success":
+                st.success(status_msg)
+            elif status_type == "error":
+                st.error(status_msg)
+            elif status_type == "info":
+                st.info(status_msg)
+                # Actually run the task after showing status
+                run_step2_matching(example_data)
 
         st.markdown("---")
         if st.button("Reset All"):
@@ -1420,6 +1705,7 @@ def main():
             st.rerun()
 
     # Render selected step
+    step = st.session_state.get("current_step", "Overview")
     if step == "Overview":
         render_overview()
     elif step == "E-graph Playground":

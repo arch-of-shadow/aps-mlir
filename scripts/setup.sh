@@ -32,13 +32,29 @@ mkdir -p build
 # Cd into build
 pushd build
 
-# Cmake
+# Workaround for protobuf version conflict:
+# OR-Tools bundles protobuf 5.26, but pixi has protobuf 6.x
+# Solution: Clear CMAKE_PREFIX_PATH to prevent CMake from finding pixi's protobuf
+# We only keep the paths we explicitly need
+
+# Save paths we need from pixi
+PIXI_ZSTD_INCLUDE="$CONDA_PREFIX/include"
+PIXI_ZSTD_LIB="$CONDA_PREFIX/lib/libzstd.so"
+PIXI_PYTHON="$CONDA_PREFIX/bin/python3"
+
+# Clear pixi's influence on CMake search paths
+unset CMAKE_PREFIX_PATH
+unset CPLUS_INCLUDE_PATH
+unset C_INCLUDE_PATH
+
+# Cmake - use explicit paths for everything we need
 cmake -G Ninja ../llvm/llvm \
     -DCMAKE_BUILD_TYPE=Debug \
     -DLLVM_ENABLE_PROJECTS="mlir" \
     -DLLVM_TARGETS_TO_BUILD="host;RISCV" \
     -DLLVM_ENABLE_BINDINGS=OFF \
     -DOR_TOOLS_PATH=${OR_TOOLS_PATH} \
+    -DCMAKE_PREFIX_PATH="${OR_TOOLS_PATH}" \
     -DLLVM_ENABLE_ASSERTIONS=ON \
     -DLLVM_EXTERNAL_PROJECTS=circt \
     -DLLVM_EXTERNAL_CIRCT_SOURCE_DIR=.. \
@@ -49,8 +65,9 @@ cmake -G Ninja ../llvm/llvm \
     -DCIRCT_BINDINGS_PYTHON_ENABLED=ON \
     -DCMAKE_INSTALL_PREFIX=../../install \
     -DLLVM_ENABLE_ZSTD=FORCE_ON \
-    -DZSTD_INCLUDE_DIR="$CONDA_PREFIX/include" \
-    -DZSTD_LIBRARY="$CONDA_PREFIX/lib/libzstd.so"
+    -DZSTD_INCLUDE_DIR="${PIXI_ZSTD_INCLUDE}" \
+    -DZSTD_LIBRARY="${PIXI_ZSTD_LIB}" \
+    -DPython3_EXECUTABLE="${PIXI_PYTHON}"
 
 # Ninja
 ninja
