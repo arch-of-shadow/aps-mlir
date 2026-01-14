@@ -19,16 +19,19 @@ RUN pixi clean
 RUN pixi run --help
 RUN pixi run clean
 
-RUN rm -rf circt/build
-RUN pixi run setup-ortools
-RUN pixi run setup-firtool
-RUN pixi run setup-yosys-slang
-RUN pixi run fix-verilator
-
+# More likely to fail, run first
 # We assume outside has done running "init-submodules" provided by chipyard
-RUN pixi run setup-chipyard-docker
+RUN pixi run fix-verilator
+RUN pixi run setup-ortools
+RUN pixi run setup-yosys-slang
+RUN pixi run setup-firtool
+RUN pixi run setup-riscv-extra
+# This command must be run without pixi task, i don't understand. 
+# It will give "Argument list too long" if run in pixi task
+RUN cd thirdparty/chipyard/sims/verilator && pixi run make
 
 # aps
+RUN rm -rf circt/build
 RUN pixi run setup
 RUN pixi run build
 
