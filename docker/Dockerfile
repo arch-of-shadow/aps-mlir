@@ -20,9 +20,10 @@ RUN pixi run clean
 RUN rm -rf circt/build
 RUN pixi run setup-ortools
 RUN pixi run setup-firtool
+RUN pixi run setup-yosys-slang
+RUN pixi run fix-verilator
 RUN pixi run setup
 RUN pixi run build
-RUN pixi run fix_verilator
 
 # # Stage 2: Runtime - copy .pixi from builder
 # FROM uvxiao/aps-mlir:v0 AS runtime
