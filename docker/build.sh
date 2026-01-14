@@ -28,7 +28,6 @@ echo "  Image:   $IMAGE_NAME"
 docker build \
     --progress=plain \
     -t "$IMAGE_NAME" \
-    --target runtime \
     -f "$SCRIPT_DIR/Dockerfile" \
     "$APS_DIR"
 

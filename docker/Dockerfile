@@ -24,22 +24,24 @@ RUN pixi run setup
 RUN pixi run build
 RUN pixi run fix_verilator
 
-# Stage 2: Runtime - copy .pixi from builder
-FROM uvxiao/aps-mlir:v0 AS runtime
+# # Stage 2: Runtime - copy .pixi from builder
+# FROM uvxiao/aps-mlir:v0 AS runtime
+
+# WORKDIR /root
+
+# ARG GIT_REPO=https://github.com/arch-of-shadow/aps-mlir.git
+# ARG GIT_BRANCH=aspdac
+
+# # Shallow clone the repo (no submodules, no history)
+# RUN git clone --branch "$GIT_BRANCH" "$GIT_REPO" /root/aps
+
+# # Copy the pre-built .pixi from builder stage
+# COPY --from=builder /root/aps/.pixi /root/aps/.pixi
+# # Copy the aps/build and circt directories to avoid re-building
+# COPY --from=builder /root/aps/build /root/aps/build
+# COPY --from=builder /root/aps/circt /root/aps/circt
 
 WORKDIR /root
-
-ARG GIT_REPO=https://github.com/arch-of-shadow/aps-mlir.git
-ARG GIT_BRANCH=aspdac
-
-# Shallow clone the repo (no submodules, no history)
-RUN git clone --depth 2 --branch "$GIT_BRANCH" "$GIT_REPO" /root/aps
-
-# Copy the pre-built .pixi from builder stage
-COPY --from=builder /root/aps/.pixi /root/aps/.pixi
-# Copy the aps/build and circt/build directories to avoid re-building
-COPY --from=builder /root/aps/build /root/aps/build
-COPY --from=builder /root/aps/circt/build /root/aps/circt/build
 
 
 CMD [ "/bin/bash", "-l" ]
