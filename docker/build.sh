@@ -26,11 +26,10 @@ echo "  APS_DIR: $APS_DIR"
 echo "  Image:   $IMAGE_NAME"
 
 docker build \
-    --no-cache \
     --progress=plain \
     -t "$IMAGE_NAME" \
     -f "$SCRIPT_DIR/Dockerfile" \
-    "$APS_DIR/../"
+    "$APS_DIR"
 
 echo "Image '$IMAGE_NAME' created successfully."
 echo "This image contains a pre-built .pixi directory with correct container paths."

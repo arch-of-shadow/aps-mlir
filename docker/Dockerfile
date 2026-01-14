@@ -10,14 +10,12 @@ WORKDIR /root
 # RUN git clone --branch "$GIT_BRANCH" "$GIT_REPO" /root/aps
 
 COPY . /root/aps
-RUN ls /root/aps
-COPY ../tutorial_chipyard /root/aps-mlir-chipyard
-
 WORKDIR /root/aps
 
 ENV PATH="/root/.pixi/bin:${PATH}"
 
 # Run pixi setup commands to build .pixi with correct container paths
+RUN pixi clean
 RUN pixi run --help
 RUN pixi run clean
 
