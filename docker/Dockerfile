@@ -10,7 +10,9 @@ WORKDIR /root
 # RUN git clone --branch "$GIT_BRANCH" "$GIT_REPO" /root/aps
 
 COPY . /root/aps
+RUN ls /root/aps
 COPY ../tutorial_chipyard /root/aps-mlir-chipyard
+
 WORKDIR /root/aps
 
 ENV PATH="/root/.pixi/bin:${PATH}"
@@ -19,17 +21,16 @@ ENV PATH="/root/.pixi/bin:${PATH}"
 RUN pixi run --help
 RUN pixi run clean
 
-# build chipyard
-# run this outside container please!!!
-# RUN pixi run bash -c 'cd /root/aps-mlir-chipyard && ./scripts/init-submodules-no-riscv-tools-nolog.sh' 
-RUN pixi run bash -c 'cd /root/aps-mlir-chipyard && ./scripts/build-toolchain-extra-32.sh -p $RISCV'
-RUN pixi run bash -c 'cd /root/aps-mlir-chipyard && sbt compile'
-
 RUN rm -rf circt/build
 RUN pixi run setup-ortools
 RUN pixi run setup-firtool
 RUN pixi run setup-yosys-slang
 RUN pixi run fix-verilator
+
+# We assume outside has done running "init-submodules" provided by chipyard
+RUN pixi run setup-chipyard-docker
+
+# aps
 RUN pixi run setup
 RUN pixi run build
 
