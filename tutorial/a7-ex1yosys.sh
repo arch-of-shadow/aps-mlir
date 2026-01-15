@@ -5,4 +5,4 @@ if [ -z "$APS" ]; then
   exit 1
 fi
 
-cd $APS/tutorial && make yosys CONFIG=APSRocketConfig
+cd $APS_VLSI && make yosys CONFIG=APSRocketConfig
