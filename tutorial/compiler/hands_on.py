@@ -1495,30 +1495,12 @@ def render_egglog_playground():
     You can write egglog programs, run them, and visualize e-graphs.
 
     **Quick Start:**
-    - Write egglog code in the editor
+    - Click **Load Example** below to load the arithmetic simplification example
     - Press `Ctrl+Enter` or click "Run" to execute
     - View the e-graph visualization on the right
     """)
 
-    st.markdown("---")
-
-    # Embed the egglog demo using iframe
-    import streamlit.components.v1 as components
-    components.iframe(
-        "https://egraphs-good.github.io/egglog-demo/",
-        height=800,
-        scrolling=True
-    )
-
-    st.markdown("---")
-
-    # Example code section
-    st.markdown("### Example: Arithmetic Simplification")
-    st.markdown("""
-    Copy the code below into the playground above to see how e-graphs can simplify
-    `(a * 2) / 2` to just `a` through equality saturation.
-    """)
-
+    # Example code for the tutorial
     example_code = ''';;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; 1. Language definition
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1568,7 +1550,97 @@ def render_egglog_playground():
 (extract start)
 '''
 
-    st.code(example_code, language="lisp")
+    # Escape the code for JavaScript
+    escaped_code = json.dumps(example_code)
+
+    st.markdown("---")
+
+    # Create HTML component with iframe and load button
+    import streamlit.components.v1 as components
+
+    html_content = f'''
+    <style>
+        .egglog-container {{
+            width: 100%;
+        }}
+        .load-btn {{
+            background-color: #ff4b4b;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }}
+        .load-btn:hover {{
+            background-color: #ff3333;
+        }}
+        .load-btn:disabled {{
+            background-color: #ccc;
+            cursor: not-allowed;
+        }}
+        .status {{
+            font-size: 12px;
+            color: #666;
+            margin-left: 10px;
+        }}
+        #egglog-iframe {{
+            width: 100%;
+            height: 750px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }}
+    </style>
+
+    <div class="egglog-container">
+        <button class="load-btn" id="load-btn" onclick="loadExample()">Load Example: Arithmetic Simplification</button>
+        <span class="status" id="status"></span>
+        <br><br>
+        <iframe id="egglog-iframe" src="https://egraphs-good.github.io/egglog-demo/"></iframe>
+    </div>
+
+    <script type="module">
+        // Import LZMA compression from egglog-demo
+        const lzmaModule = await import('https://egraphs-good.github.io/egglog-demo/lzma-url.mjs');
+        const compressUrlSafe = lzmaModule.compressUrlSafe;
+
+        const exampleCode = {escaped_code};
+
+        window.loadExample = function() {{
+            const btn = document.getElementById('load-btn');
+            const status = document.getElementById('status');
+            const iframe = document.getElementById('egglog-iframe');
+
+            btn.disabled = true;
+            status.textContent = 'Compressing...';
+
+            try {{
+                const compressed = compressUrlSafe(exampleCode);
+                const url = 'https://egraphs-good.github.io/egglog-demo/?program=' + compressed;
+                iframe.src = url;
+                status.textContent = 'Loaded!';
+                setTimeout(() => {{ status.textContent = ''; }}, 2000);
+            }} catch (e) {{
+                status.textContent = 'Error: ' + e.message;
+            }}
+
+            btn.disabled = false;
+        }};
+    </script>
+    '''
+
+    components.html(html_content, height=850, scrolling=False)
+
+    st.markdown("---")
+
+    # Show the example code for reference
+    with st.expander("View Example Code", expanded=False):
+        st.markdown("""
+        This example demonstrates how e-graphs can simplify `(a * 2) / 2` to just `a`
+        through equality saturation by applying algebraic rewrite rules.
+        """)
+        st.code(example_code, language="lisp")
 
 
 # ============================================================
