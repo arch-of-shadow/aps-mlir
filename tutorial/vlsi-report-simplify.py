@@ -3,7 +3,6 @@
 import os
 import re
 
-
 def extract_chip_area(filepath: str) -> float | None:
     """Extract chip area from Yosys area report file."""
     expanded_path = os.path.expandvars(filepath)
