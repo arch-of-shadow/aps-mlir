@@ -1,6 +1,13 @@
+![APS Logo](assets/images/logo.png)
 # APS: Agile Processor Specialization
 
 APS (Agile Processor Specialization) is an open-source framework for agile hardware-software co-design of domain-specific processors. It provides both hardware synthesis and compiler infrastructure to facilitate the development of instruction extensions (ISAXs) for domain acceleration on RISC-V platforms.
+
+## Quick Links
+
+- **Home page:** [http://aps.ericlyun.me/](http://aps.ericlyun.me/)
+- **Publications:** [http://aps.ericlyun.me/publications/](http://aps.ericlyun.me/publications/)
+- **Tutorials:** [http://aps.ericlyun.me/tutorials/](http://aps.ericlyun.me/tutorials/)
 
 ## APS's Ecosystem
 
@@ -45,18 +52,24 @@ Generates the complete hardware architecture for RISC-V integration:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/arch-of-shadow/aps-mlir.git
+git clone https://github.com/arch-of-shadow/aps-mlir.git --init --recursive
 cd aps-mlir
 ```
 
-2. Install dependencies and build CIRCT:
+2. Setup chipyard
 ```bash
+pixi run fix-verilator
 pixi run setup-ortools
-pixi run setup
+pixi run setup-yosys-slang
+pixi run setup-firtool
+pixi run setup-chipyard
+cd thirdparty/chipyard/sims/verilator && pixi run make
 ```
 
-3. Build the project:
+3. Build CIRCT and APS passes:
 ```bash
+rm -rf circt/build
+pixi run setup
 pixi run build
 ```
 
@@ -75,30 +88,15 @@ rtype hello(rs1: u5, rs2: u5, rd: u5) {
 }
 ```
 
-#### Run Hardware Synthesis
-```bash
-pixi shell
-./tutorial/s1-hello-synth.sh
-```
-
-#### Full Compilation Pipeline
-```bash
-pixi shell
-./tutorial/a1-ex1synth.sh    # Synthesize CADL to hardware
-./tutorial/a2-ex1compile.sh  # Compile test program with custom instruction
-```
-
 See the `tutorial/` directory for more examples including matrix operations (`vgemv3d.cadl`) and distance calculations (`v3ddist_vv.cadl`).
 
-## Chipyard Integration
-
-For full SoC simulation and synthesis:
-
+#### Full ASIP Pipeline
 ```bash
-# Setup Chipyard (one-time)
-pixi run setup-chipyard
-
-# Build and run simulation
-cd thirdparty/chipyard
-./scripts/build-toolchain-extra-32.sh -p $RISCV
+# Synthesize CADL to hardware
+./tutorial/a1-ex1synth.sh
+# Compile test program with custom instruction
+./tutorial/a2-ex1compile.sh
+# Full SoC simulation and synthesis
+./tutorial/a6-ex1sim.sh
+./tutorial/a7-ex1yosys.sh
 ```
