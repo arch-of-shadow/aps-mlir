@@ -84,6 +84,24 @@ def InferAffineMemAccess : Pass<"infer-affine-mem-access"> {
   let dependentDialects = ["affine::AffineDialect", "arith::ArithDialect", "memref::MemRefDialect"];
 }
 
+def InferAffineMemAccessNew : Pass<"infer-affine-mem-access-new", "::mlir::func::FuncOp"> {
+  let summary = "Infer affine maps for memref.load/store by cloning index arithmetic";
+  let description = [{
+    This pass converts memref.load/store to affine.load/store by:
+    1. Recursively cloning the index arithmetic chain in index type
+    2. Building an AffineExpr from the clean index-type computation
+    3. Creating affine.load/store with the inferred affine map
+
+    Unlike infer-affine-mem-access, this pass handles arbitrary nested
+    arithmetic including patterns like ((i*2+1)*4+j) by cloning the entire
+    computation tree in index type first, then analyzing it.
+
+    Run CSE afterward to deduplicate any redundant index computations.
+  }];
+  let constructor = "mlir::createInferAffineMemAccessNewPass()";
+  let dependentDialects = ["affine::AffineDialect", "arith::ArithDialect", "memref::MemRefDialect"];
+}
+
 def APSMemLoadDuplication : Pass<"aps-memload-duplication", "mlir::tor::FuncOp"> {
   let summary = "Duplicate memory loads to reduce FIFO usage";
   let description = [{

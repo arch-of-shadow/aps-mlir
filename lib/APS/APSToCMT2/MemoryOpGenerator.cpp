@@ -333,6 +333,10 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   if (!globalName.empty()) {
     auto &memEntryMap = bbHandler->getMemEntryMap();
     
+for (const auto &Pair : memEntryMap) {
+  llvm::errs() << "  Key: " << Pair.first << "\n";
+}
+    
     // First try exact match
     auto exactIt = memEntryMap.find(globalName);
     if (exactIt != memEntryMap.end()) {

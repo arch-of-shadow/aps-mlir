@@ -246,7 +246,7 @@ def render_mlir_code(mlir_code: str, height: int = 400):
 
 def get_available_examples() -> list:
     """Get list of available examples (must have both .cadl and test_*.c)."""
-    cadl_dir = PROJECT_ROOT / "tutorial" / "cadl"
+    cadl_dir = PROJECT_ROOT / "tutorial" / "cadl" / "compiler"
     csrc_dir = PROJECT_ROOT / "tutorial" / "csrc"
     examples = []
     for f in cadl_dir.iterdir():
@@ -260,17 +260,14 @@ def get_available_examples() -> list:
 
 def load_example_data(example_name: str) -> dict:
     """Load all files for an example."""
-    cadl_dir = PROJECT_ROOT / "tutorial" / "cadl"
+    cadl_dir = PROJECT_ROOT / "tutorial" / "cadl" / "compiler"
     csrc_dir = PROJECT_ROOT / "tutorial" / "csrc"
     mlir_dir = PROJECT_ROOT / "tutorial" / "mlir"
-    output_dir = PROJECT_ROOT / "output" / "compile_logs"
+    output_dir = PROJECT_ROOT / "tutorial" / "outputs" / "compile_logs"
 
     data = {"name": example_name}
 
-    # For v3ddist_vv, use _cy variant for CADL but keep original name for test_c
     cadl_name = example_name
-    if example_name == "v3ddist_vv":
-        cadl_name = "v3ddist_vv_cy"
     source_mappings = {
         "cadl": cadl_dir / f"{cadl_name}.cadl",
         "test_c": csrc_dir / f"test_{example_name}.c",
@@ -528,16 +525,13 @@ def check_asm_matches_encoding(asm_code: str, encoding: dict) -> dict:
 
 def run_compile_sh_handson(example_name: str) -> tuple:
     """Run pixi run compile-handson and return (success, snapshots_path, output)."""
-    output_dir = PROJECT_ROOT / "output" / "compile_logs"
+    output_dir = PROJECT_ROOT / "tutorial" / "outputs" / "compile_logs"
 
     # Build paths for tutorial examples
-    # For v3ddist_vv, use _cy variant for CADL but keep original name for test_c
     cadl_name = example_name
-    if example_name == "v3ddist_vv":
-        cadl_name = "v3ddist_vv_cy"
-    cadl_file = f"tutorial/cadl/{cadl_name}.cadl"
+    cadl_file = f"tutorial/cadl/compiler/{cadl_name}.cadl"
     test_c_file = f"tutorial/csrc/test_{example_name}.c"
-    output_exe = f"tutorial/{cadl_name}.riscv"
+    output_exe = f"tutorial/outputs/{cadl_name}.riscv"
 
     # Check input files exist
     if not (PROJECT_ROOT / cadl_file).exists():
@@ -828,7 +822,7 @@ def run_matching_with_custom_code(test_code: str, pattern_mlir: str, example_nam
     """Run matching with custom test code."""
     import tempfile
 
-    output_dir = PROJECT_ROOT / "output" / "compile_logs"
+    output_dir = PROJECT_ROOT / "tutorial" / "outputs" / "compile_logs"
 
     # Create temp directory for custom code
     work_dir = Path(tempfile.mkdtemp(prefix="megg_custom_"))
@@ -902,12 +896,9 @@ def run_matching_with_custom_code(test_code: str, pattern_mlir: str, example_nam
 def run_step2_matching(example_data: dict):
     """Execute E-graph matching (called from sidebar)."""
     example_name = example_data.get("name", "unknown")
-    output_dir = PROJECT_ROOT / "output" / "compile_logs"
+    output_dir = PROJECT_ROOT / "tutorial" / "outputs" / "compile_logs"
 
-    # For v3ddist_vv, use _cy variant for output files
     cadl_name = example_name
-    if example_name == "v3ddist_vv":
-        cadl_name = "v3ddist_vv_cy"
 
     # Check prerequisites
     pattern_mlir = st.session_state.get("step2_pattern_mlir", "") or example_data.get("mlir_pattern", "")
@@ -981,7 +972,7 @@ def render_step2():
             st.info("No pattern MLIR found. You can generate it from the example C code below, or complete Step 1 first.")
 
     csrc_dir = PROJECT_ROOT / "tutorial" / "csrc"
-    output_dir = PROJECT_ROOT / "output" / "compile_logs"
+    output_dir = PROJECT_ROOT / "tutorial" / "outputs" / "compile_logs"
     test_c_file = csrc_dir / f"test_{example_name}.c"
 
     # Read current file content

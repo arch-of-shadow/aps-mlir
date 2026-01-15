@@ -1254,7 +1254,7 @@ APSToCMT2GenPass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
                    << firstBankSymAttr.getValue() << ", using defaults\n";
     }
 
-    if (addrWidth == 0) {
+    if (addrWidth == 0 && numBanks == 1) {
       continue; // Only one element, not a memory, skip this entry
     }
 

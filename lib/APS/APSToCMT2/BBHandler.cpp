@@ -535,8 +535,10 @@ LogicalResult BBHandler::generateSlotRules() {
       // Process all operations in this slot
       for (Operation *op : slotMap[slot].ops) {
         LogicalResult result = generateRuleForOperation(op, b, loc, slot, localMap);
-        if (failed(result))
+        if (failed(result)) {
+          op->emitError("failed to generate rule for operation in slot " + std::to_string(slot));
           return;
+        }
       }
 
       // Write token to next stage at the end
