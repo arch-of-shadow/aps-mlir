@@ -1,9 +1,6 @@
 [submodule "circt"]
   path = circt
 	url = https://github.com/arch-of-shadow/circt-cmt2.git
-[submodule "thirdparty/json"]
-	path = thirdparty/json
-	url = https://github.com/nlohmann/json.git
-[submodule "thirdparty/lp_solve_5.5"]
-	path = thirdparty/lp_solve_5.5
-	url = https://github.com/lp-solve/lp_solve.git
+[submodule "thirdparty/chipyard"]
+	path = thirdparty/chipyard
+	url = git@github.com:arch-of-shadow/aps-mlir-chipyard.git

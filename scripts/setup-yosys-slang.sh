@@ -5,6 +5,8 @@ if [ -z "$APS" ]; then
   exit 1
 fi
 
+mkdir -p $APS/install
+
 pushd $APS/install
 
 git clone https://github.com/povik/yosys-slang.git --recursive

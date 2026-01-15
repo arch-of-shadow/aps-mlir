@@ -1,137 +1,104 @@
-# CADL Frontend (Python)
+# APS: Agile Processor Specialization
 
-A Python implementation of the CADL (Computer Architecture Description Language) parser and MLIR compiler using Lark.
+APS (Agile Processor Specialization) is an open-source framework for agile hardware-software co-design of domain-specific processors. It provides both hardware synthesis and compiler infrastructure to facilitate the development of instruction extensions (ISAXs) for domain acceleration on RISC-V platforms.
 
-This project provides a complete toolchain from CADL source code to optimized MLIR IR, with intelligent loop transformations and directive support.
+## APS's Ecosystem
 
-## Features
+![APS Ecosystem Overview](assets/images/overview.png)
 
-### Parser
-- Full CADL language parsing using Lark LALR parser
-- AST generation with type-aware literals
-- Width-specified number literals (e.g., `5'b101010` → `u5` type)
-- Support for flows, functions, loops, directives, and more
+APS aims to build a comprehensive ecosystem based on the MLIR infrastructure, covering the entire hardware-software co-design flow. Our ultimate vision is to only take applications in the target domain as the inputs, and automatically generate the complete solution artifacts comprising optimized ISAXs, architecture designs, hardware implementation, and software stacks without any manual intervention.
 
-### MLIR Compiler
-- Direct lowering from CADL AST to MLIR operations
-- Integration with CIRCT dialects (SCF, Comb, HW, APS)
-- Supports control flow, memory operations, and function calls
+## Overview
 
-### Loop Transformation
-- **Automatic loop optimization**: Raises `do-while` loops to `scf.for` when pattern-detectable
-- **Pattern detection**: Recognizes affine loops with constant bounds and steps
-- **Loop-carried variables**: Full support via `iter_args` mechanism
-- **Directive support**: Applies `[[unroll(N)]]` and other directives as MLIR attributes
-- **Fallback to `scf.while`**: Handles general loops that don't match patterns
+The framework consists of three major components:
 
-## Installation
+### Hardware Synthesis
 
-Using pixi (recommended):
+- **CADL**: A high-level domain-specific language for describing ISAXs (Instruction Set Architecture eXtensions). CADL provides intuitive syntax for register file access, memory operations, bit manipulation, and loop constructs, allowing designers to focus on algorithm logic rather than hardware details.
+- **MLIR Passes**: A comprehensive set of transformation and optimization passes, including loop unrolling, array partitioning, SDC-based scheduling, and RTL generation.
+
+### Compiler
+
+Enables automatic utilization of custom instructions in application code:
+
+- **Megg**: An E-graph based compiler that performs pattern matching to identify code fragments that can be replaced with custom instructions.
+- **C/C++ Frontend**: Integration with Polygeist/cgeist for C/C++ to MLIR conversion.
+- **LLVM Backend**: Code generation targeting RISC-V with custom instruction encodings.
+
+### Architecture
+
+Generates the complete hardware architecture for RISC-V integration:
+
+- **CMT2 → FIRRTL → Verilog**: Multi-stage RTL generation pipeline using CIRCT infrastructure.
+- **RoCC Interface**: Generates accelerators compatible with Rocket Chip's custom coprocessor interface.
+- **Memory System**: Scratchpad memory pool with burst DMA support for efficient data movement.
+- **Chipyard Integration**: Seamless integration with the Chipyard SoC framework for full-system simulation and FPGA deployment.
+
+## Getting Started
+
+### Prerequisites
+
+- Linux (Ubuntu 20.04+ recommended)
+- [Pixi](https://pixi.sh/) package manager
+
+### Installation
+
+1. Clone the repository:
 ```bash
-pixi install
+git clone https://github.com/arch-of-shadow/aps-mlir.git
+cd aps-mlir
 ```
 
-Using pip:
+2. Install dependencies and build CIRCT:
 ```bash
-pip install -e .
+pixi run setup-ortools
+pixi run setup
 ```
 
-For development:
+3. Build the project:
 ```bash
-pip install -e ".[dev]"
+pixi run build
 ```
 
-## Usage
+### Quick Start
 
-### Parse CADL to AST
-```python
-from cadl_frontend import parse_proc
+The `tutorial/` directory contains example CADL files and scripts. Here's a simple example (`tutorial/cadl/hello.cadl`):
 
-with open("example.cadl", "r") as f:
-    source = f.read()
-
-ast = parse_proc(source, "example.cadl")
-print(f"Flows: {len(ast.flows)}, Functions: {len(ast.functions)}")
-```
-
-### Convert CADL to MLIR
-```bash
-pixi run mlir examples/simple.cadl
-pixi run mlir examples/raise_while_to_for.cadl
-```
-
-Or programmatically:
-```python
-from cadl_frontend import parse_proc
-from cadl_frontend.mlir_converter import CADLMLIRConverter
-
-ast = parse_proc(source, filename)
-converter = CADLMLIRConverter()
-mlir_module = converter.convert_proc(ast)
-print(mlir_module)
-```
-
-## Loop Transformation Examples
-
-### Pattern 1: Binding Expression Increment
 ```cadl
-with i: u8 = (0, i + 1), crc: u8 = (0, crc_)
-do {
-    let crc_: u8 = crc ^ (data >> i);
-} while i + 1 < 8;
+#[opcode(7'b0101011)]
+#[funct7(7'b0000000)]
+rtype hello(rs1: u5, rs2: u5, rd: u5) {
+  let a: u32 = _irf[rs1];
+  let b: u32 = _irf[rs2];
+  let c: u32 = a + b;
+  _irf[rd] = c;
+}
 ```
-Output: `Loop -> scf.for: i=0..8 step 1, iter_args=[crc]`
 
-### Pattern 2: With Directive
-```cadl
-[[unroll(4)]]
-with i: u8 = (0, i + 1), crc: u8 = (0, crc_)
-do { ... } while i + 1 < 8;
-```
-Generates: `scf.for ... { ... } {unroll = 4 : i32}`
-
-### Pattern 3: Backward Loop
-```cadl
-let i0: u8 = 8;
-with i: u8 = (i0, i - 1), crc: u8 = (0, crc_)
-do { ... } while i > 0;
-```
-Output: `Loop -> scf.for: i=8..0 step -1, iter_args=[crc]`
-
-## Development
-
-Run tests:
+#### Run Hardware Synthesis
 ```bash
-pixi run pytest tests/ -v
-# OR
-make test
+pixi shell
+./tutorial/s1-hello-synth.sh
 ```
 
-Test specific suites:
+#### Full Compilation Pipeline
 ```bash
-pixi run pytest tests/test_parser.py -v
-pixi run pytest tests/test_zyy_examples.py -v
+pixi shell
+./tutorial/a1-ex1synth.sh    # Synthesize CADL to hardware
+./tutorial/a2-ex1compile.sh  # Compile test program with custom instruction
 ```
 
-Format code:
+See the `tutorial/` directory for more examples including matrix operations (`vgemv3d.cadl`) and distance calculations (`v3ddist_vv.cadl`).
+
+## Chipyard Integration
+
+For full SoC simulation and synthesis:
+
 ```bash
-make format
-make lint
-```
+# Setup Chipyard (one-time)
+pixi run setup-chipyard
 
-## Architecture
-
+# Build and run simulation
+cd thirdparty/chipyard
+./scripts/build-toolchain-extra-32.sh -p $RISCV
 ```
-cadl_frontend/
-├── grammar.lark          # Lark grammar definition
-├── parser.py             # AST transformers
-├── ast.py                # AST node definitions
-├── mlir_converter.py     # CADL → MLIR lowering
-└── loop_transform.py     # Loop optimization logic
-```
-
-### Key Components
-- **Parser**: Lark-based parser with custom transformers
-- **Type System**: Width-aware types matching Rust implementation
-- **MLIR Converter**: Direct lowering to MLIR SCF/CIRCT dialects
-- **Loop Transformer**: AST-level pattern detection and optimization

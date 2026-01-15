@@ -16,14 +16,14 @@ LEGACY_FIRTOOL_PATH = "https://github.com/llvm/circt/releases/download/firtool-1
 LEGACY_FIRTOOL = "${PIXI_PROJECT_ROOT}/install/firtool-1.75.0/bin/firtool" # this is for chipyard compatibility
 # tutorial docker environment
 APS = "${PIXI_PROJECT_ROOT}"
-APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard"
-APS_SIM = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard/sims/verilator"
-APS_VLSI = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard/nextvlsi"
+APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/thirdparty/chipyard"
+APS_SIM = "${APS_CHIPYARD}/sims/verilator"
+APS_VLSI = "${APS_CHIPYARD}/nextvlsi"
 
 [tasks]
 
 setup-ortools = { cmd = "pixi run chmod +x scripts/setup-ortools.sh && pixi run scripts/setup-ortools.sh", inputs = ["scripts/setup-ortools.sh"], outputs = ["__setup-ortools.success"] }
-setup-firtool = { cmd = "cd $PIXI_PROJECT_ROOT/install && wget -O firtool.tar.gz $LEGACY_FIRTOOL_PATH && tar xvzf firtool.tar.gz && rm firtool.tar.gz", outputs = ["__setup-firtool.success" ]}
+setup-firtool = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/install && cd $PIXI_PROJECT_ROOT/install && wget -O firtool.tar.gz $LEGACY_FIRTOOL_PATH && tar xvzf firtool.tar.gz && rm firtool.tar.gz", outputs = ["__setup-firtool.success" ]}
 setup-yosys-slang = { cmd = "cd $PIXI_PROJECT_ROOT/scripts && bash setup-yosys-slang.sh", outputs = ["__setup-yosys-slang.success"] }
 setup = { cmd = "pixi run chmod +x scripts/setup.sh && pixi run scripts/setup.sh $CIRCT_COMMIT", inputs = ["scripts/setup.sh","__setup-ortools.success"], outputs = ["__setup.success"] }
 
@@ -32,6 +32,12 @@ build = { cmd = "pixi run cmake .. -G Ninja -DCMAKE_CXX_FLAGS=\"-fuse-ld=lld\" -
 clean = { cmd = "rm -rf build"}
 
 fix-verilator = { cmd = "sed -i -e 's|^AR *= *.*|AR = /usr/bin/ar|' -e 's|^CXX *= *.*|CXX = /usr/bin/g++|' -e 's|^LINK *= *.*|LINK = /usr/bin/g++|' $CONDA_PREFIX/share/verilator/include/verilated.mk" }
+
+# don't run this in docker
+setup-chipyard = { cmd = "cd $PIXI_PROJECT_ROOT && git submodule update --init && cd $PIXI_PROJECT_ROOT/thirdparty/chipyard && bash ./scripts/init-submodules-no-riscv-tools-nolog.sh && bash ./scripts/build-toolchain-extra-32.sh -p $RISCV", outputs = ["__setup-chipyard.success"] }
+
+# We assume the user has done running "init-submodules" provided by chipyard
+setup-riscv-extra = { cmd = "cd $PIXI_PROJECT_ROOT/thirdparty/chipyard && bash ./scripts/build-toolchain-extra-32.sh -p $RISCV", outputs = ["__setup-chipyard.success"] }
 
 # Python execution with CIRCT bindings
 python = { cmd = "python" }

@@ -21,7 +21,9 @@ if [ -z "$CIRCT_COMMIT" ]; then
 fi
 
 # Submodule update
-git submodule update --init --recursive
+# be careful, don't update chipyard's submodule, it's fragile
+# and must be updated with it's own script!!!
+git submodule update --init --recursive circt/
 
 # cd into the CIRCT repository, pushd is better for this
 pushd circt
