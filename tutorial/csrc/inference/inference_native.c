@@ -15,16 +15,37 @@
 
 #define HEAP_SIZE (64 * 1024 * 1024)  // 64 MB heap for rv64
 #define HEAP_BLOCKS 1024              // max number of allocation blocks
-#define HEAP_SPLIT_THRESH 64          // split threshold
-#define HEAP_ALIGNMENT 128            // 128-byte alignment for vector ops
+#define HEAP_SPLIT_THRESH 16          // split threshold
+#define HEAP_ALIGNMENT 8              // base alignment (we handle 128B in wrapper)
 static char heap_buffer[HEAP_SIZE] __attribute__((aligned(128)));
+
+// Pad heap to 128-byte alignment after ta_init (call once at startup)
+static inline void ta_align_heap(void) {
+    void* probe = ta_alloc(1);  // Uses 8 bytes (HEAP_ALIGNMENT)
+    uintptr_t next_addr = (uintptr_t)probe + 8;
+    size_t misalign = next_addr % 128;
+    if (misalign != 0) {
+        ta_alloc(128 - misalign);  // Pad to 128-byte boundary
+    }
+}
+
+// Round up size to 128-byte multiple
+static inline void* aligned_malloc(size_t size) {
+    size_t aligned_size = (size + 127) & ~(size_t)127;
+    return ta_alloc(aligned_size);
+}
+
+static inline void* aligned_calloc(size_t num, size_t size) {
+    size_t aligned_size = ((num * size) + 127) & ~(size_t)127;
+    return ta_calloc(1, aligned_size);
+}
 
 // Override stdlib allocators with tinyalloc
 #undef malloc
 #undef calloc
 #undef free
-#define malloc(size) ta_alloc(size)
-#define calloc(num, size) ta_calloc(num, size)
+#define malloc(size) aligned_malloc(size)
+#define calloc(num, size) aligned_calloc(num, size)
 #define free(ptr) ta_free(ptr)
 // ----------------------------------------------------------------------------
 // Globals
@@ -913,11 +934,15 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
     printf("\n");
 
-    // report achieved tok/s (pos-1 because the timer starts after first iteration)
+    // Report timing
     if (pos > 1) {
         long end = time_in_ms();
-        fprintf(stderr, "used token: %d\n", pos );
-        fprintf(stderr, "achieved token: %f\n", (pos - 1) / ((end - start) / 1000.0f) );
+        long elapsed_ms = end - start;
+        long toks = pos - 1;
+        long tok_per_s_int = (toks * 1000) / elapsed_ms;
+        long tok_per_s_frac = ((toks * 100000) / elapsed_ms) % 100;
+        fprintf(stderr, "tokens: %d, elapsed: %ld ms, tok/s: %ld.%02ld\n",
+                pos, elapsed_ms, tok_per_s_int, tok_per_s_frac);
     }
 
     free(prompt_tokens);
@@ -1034,7 +1059,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
 // ----------------------------------------------------------------------------
 #define BM_TEMPERATURE  1.0f    // 0.0 = greedy deterministic, 1.0 = original
 #define BM_TOPP         0.9f    // top-p in nucleus sampling, 1.0 = off
-#define BM_STEPS        0     // number of steps to run for, 0 = max_seq_len
+#define BM_STEPS        32     // number of steps to run for, 0 = max_seq_len
 #define BM_RNG_SEED     0       // 0 = use cycle counter, else fixed seed
 #define BM_PROMPT       NULL    // input prompt, NULL for default generation
 // ----------------------------------------------------------------------------
@@ -1042,6 +1067,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
 int main(void) {
     // Initialize tinyalloc heap
     ta_init(heap_buffer, heap_buffer + HEAP_SIZE, HEAP_BLOCKS, HEAP_SPLIT_THRESH, HEAP_ALIGNMENT);
+    ta_align_heap();  // Pad to 128-byte alignment for RoCC DMA
 
     // parameters from config
     float temperature = BM_TEMPERATURE;

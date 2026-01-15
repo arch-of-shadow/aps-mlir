@@ -2,7 +2,6 @@
 // Computes squared Euclidean distance between pairs of 3D points
 // Formula: dist² = (x₂-x₁)² + (y₂-y₁)² + (z₂-z₁)²
 
-// Static arrays for burst read (needed for cadl2c comment generation)
 static x1_data: [u32; 16];
 static y1_data: [u32; 16];
 static z1_data: [u32; 16];
@@ -17,7 +16,6 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
   let out_addr: u32 = _irf[rs2];  // Base address for output distances
   let vl: u32 = 16;               // Vector length
 
-  // Burst read coordinates (SOA layout)
   x1_data[0 +: ] = _burst_read[addr1 +: 16];
   y1_data[0 +: ] = _burst_read[addr1 + 64 +: 16];
   z1_data[0 +: ] = _burst_read[addr1 + 128 +: 16];
@@ -30,17 +28,14 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
     let i_end: u32 = ib + 4;      // Tile end position
 
     with i: u32 = (ib, i_) do {
-      // Read coordinates (x1, y1, z1)
       let x1: i32 = rs1[i];
       let y1: i32 = rs1[16 + i];
       let z1: i32 = rs1[32 + i];
-
-      // Read coordinates (x2, y2, z2)
+      
       let x2: i32 = rs1[48 + i];
       let y2: i32 = rs1[64 + i];
       let z2: i32 = rs1[80 + i];
-
-      // Compute (dx^2 + dy^2 + dz^2)
+      
       let dx: i32 = x1 - x2;
       let dx2: i32 = dx * dx;
 
@@ -52,7 +47,6 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
 
       let dist2: i32 = dx2 + dy2 + dz2;
 
-      // Store result
       rs2[i] = dist2;
 
       let i_: u32 = i + 1;
@@ -61,7 +55,6 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
     let ib_: u32 = ib + 4;
   } while (ib_ < 16);
 
-  // Burst write results
   _burst_write[out_addr +: 16] = x1_data[0 +: ];
 
   _irf[rd] = 0;

@@ -1,6 +1,5 @@
 /* Inference for Llama-2 Transformer model in pure C, int8 quantized forward pass. */
 /* Bare metal version - no filesystem, weights embedded in header */
-/* RoCC accelerated version - uses custom GEMV extension instructions */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,106 +10,44 @@
 
 #define CPU_FREQ_HZ 80000000  // 80 MHz
 
-// ============================================================================
-// RoCC Custom Instruction Encodings (GEMV accelerator)
-// ============================================================================
-
-// gemv16_i8: opcode=0b0001011, funct7=0b0000000
-// Computes C[i] = sum_k(A[i,k] * B[k]) + C[i] for 8x16 tile
 #define GEMV16_I8(rd, rs1, rs2) \
     asm volatile (".insn r 0x0B, 0x3, 0, %0, %1, %2" : "=r"(rd) : "r"(rs1), "r"(rs2))
 
-// loadmat_a_4tile: opcode=0b1111011, funct7=0b0000000
-// Loads 512B (4 tiles of 8x16) from row-major DRAM to tiled SPM
 #define LOADMAT_A_4TILE(rd, rs1, rs2) \
     asm volatile (".insn r 0x7B, 0x3, 0, %0, %1, %2" : "=r"(rd) : "r"(rs1), "r"(rs2))
 
-// loadmat_b_256B: opcode=0b1111011, funct7=0b0000001
-// Loads 256B row-major vector data
 #define LOADMAT_B_256B(rd, rs1, rs2) \
     asm volatile (".insn r 0x7B, 0x3, 1, %0, %1, %2" : "=r"(rd) : "r"(rs1), "r"(rs2))
 
-// loadmat_b_32B: opcode=0b1111011, funct7=0b0000010
-// Loads 32B row-major vector data (for smaller transfers)
 #define LOADMAT_B_32B(rd, rs1, rs2) \
     asm volatile (".insn r 0x7B, 0x3, 2, %0, %1, %2" : "=r"(rd) : "r"(rs1), "r"(rs2))
 
-// storemat_c_256B: opcode=0b1111011, funct7=0b0000011
-// Stores 256B (64 i32 elements) to DRAM
 #define STOREMAT_C_256B(rd, rs1, rs2) \
     asm volatile (".insn r 0x7B, 0x3, 3, %0, %1, %2" : "=r"(rd) : "r"(rs1), "r"(rs2))
 
-// storemat_c_128B: opcode=0b1111011, funct7=0b0000100
-// Stores 128B (32 i32 elements) to DRAM
 #define STOREMAT_C_128B(rd, rs1, rs2) \
     asm volatile (".insn r 0x7B, 0x3, 4, %0, %1, %2" : "=r"(rd) : "r"(rs1), "r"(rs2))
 
-// ============================================================================
-// RoCC Helper Functions for Instruction Operand Packing
-// ============================================================================
+#define TILE_ROWS 8
+#define TILE_COLS 16
 
-// Hardware tile dimensions
-#define TILE_ROWS 8      // Rows per A tile (output block size)
-#define TILE_COLS 16     // Cols per A tile (vector block size for B)
-
-/**
- * Pack rs2 for DMA load A instruction:
- *   rs2[31:16] = spm_addr (SPM address in elements)
- *   rs2[15:0]  = dram_row_stride (DRAM row stride in bytes)
- */
 static inline uint32_t pack_dma_a_rs2(uint32_t spm_addr, uint32_t dram_row_stride) {
     return (spm_addr << 16) | (dram_row_stride & 0xFFFF);
 }
 
-/**
- * Pack rs2 for DMA load B instruction:
- *   rs2[31:16] = spm_addr (SPM address in elements)
- */
 static inline uint32_t pack_dma_b_rs2(uint32_t spm_addr) {
     return spm_addr << 16;
 }
 
-/**
- * Pack rs1 for GEMV instruction:
- *   rs1[31:16] = offsetA (tile index for matrix A, each tile = 128 elements)
- *   rs1[15]    = use_c (1 = accumulate with C, 0 = overwrite C)
- *   rs1[14:0]  = offsetB (block index for vector B, each block = 16 elements)
- */
 static inline uint32_t pack_gemv_rs1(uint16_t offsetA, uint8_t use_c, uint16_t offsetB) {
     return ((uint32_t)offsetA << 16) | ((uint32_t)(use_c & 1) << 15) | (offsetB & 0x7FFF);
 }
 
-/**
- * Pack rs2 for GEMV instruction:
- *   rs2[15:0] = offsetC (block index for output vector C, each block = 8 elements)
- */
 static inline uint32_t pack_gemv_rs2(uint16_t offsetC) {
     return offsetC & 0xFFFF;
 }
 
-// Global dummy register for instruction outputs
 static volatile uint32_t rocc_rd;
-
-// ============================================================================
-// Profiling
-// ============================================================================
-static inline uint64_t rdcycle(void) {
-    uint32_t lo, hi, hi2;
-    do {
-        asm volatile ("rdcycleh %0" : "=r"(hi));
-        asm volatile ("rdcycle %0" : "=r"(lo));
-        asm volatile ("rdcycleh %0" : "=r"(hi2));
-    } while (hi != hi2);
-    return ((uint64_t)hi << 32) | lo;
-}
-
-// Profiling counters
-static uint64_t prof_matmul_total = 0;    // Total cycles in matmul
-static uint64_t prof_isax_total = 0;      // Cycles in ISAX instructions (DMA + GEMV)
-static uint64_t prof_accum_total = 0;     // Cycles in accumulation/scaling
-static uint64_t prof_overall_start = 0;   // Start of generation
-static int matmul_hw_count = 0;
-static int matmul_sw_count = 0;
 
 // Use tinyalloc instead of stdlib malloc/calloc/free
 #include "tinyalloc/tinyalloc.h"
@@ -142,7 +79,7 @@ static inline void* aligned_calloc(size_t num, size_t size) {
     return ta_calloc(1, aligned_size);
 }
 
-// Override stdlib allocators with aligned wrappers
+// Override stdlib allocators with tinyalloc
 #undef malloc
 #undef calloc
 #undef free
@@ -285,17 +222,6 @@ void malloc_run_state(RunState* s, Config* p) {
         fprintf(stderr, "malloc failed!\n");
         exit(EXIT_FAILURE);
     }
-
-    // Check alignment of quantized buffers (used by RoCC)
-    printf("[ALIGN] xq.q=%p (mod 128 = %lu)\n", (void*)s->xq.q, (unsigned long)((uintptr_t)s->xq.q % 128));
-    printf("[ALIGN] hq.q=%p (mod 128 = %lu)\n", (void*)s->hq.q, (unsigned long)((uintptr_t)s->hq.q % 128));
-    if ((uintptr_t)s->xq.q % 128 != 0) {
-        printf("[ALIGN] WARNING: xq.q not 128-byte aligned! RoCC will use SW fallback.\n");
-    }
-    if ((uintptr_t)s->hq.q % 128 != 0) {
-        printf("[ALIGN] WARNING: hq.q not 128-byte aligned! RoCC will use SW fallback.\n");
-    }
-    fflush(stdout);
 }
 
 void free_run_state(RunState* s) {
@@ -466,68 +392,12 @@ void softmax(float* x, int size) {
     }
 }
 
-// Software fallback matmul (original implementation)
-void matmul_sw(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
-    // W (d,n) @ x (n,) -> xout (d,)
-    // inputs to this function are both quantized
-    matmul_sw_count++;
-
-    int i;
-    #pragma omp parallel for private(i)
-    for (i = 0; i < d; i++) {
-
-        float val = 0.0f;
-        int32_t ival = 0;
-        int in = i * n;
-
-        // do the matmul in groups of GS
-        int j;
-        for (j = 0; j <= n - GS; j += GS) {
-            for (int k = 0; k < GS; k++) {
-                ival += ((int32_t) x->q[j + k]) * ((int32_t) w->q[in + j + k]);
-            }
-            val += ((float) ival) * w->s[(in + j) / GS] * x->s[j / GS];
-            ival = 0;
-        }
-
-        xout[i] = val;
-    }
-}
-
-// ============================================================================
-// RoCC Accelerated GEMV (matmul)
-// ============================================================================
-
-/**
- * RoCC-accelerated quantized matrix-vector multiplication
- * W (d,n) @ x (n,) -> xout (d,)
- *
- * Hardware constraints:
- * - Tile size: 8 rows x 16 cols for matrix A
- * - Vector block: 16 elements for B, 8 elements for C
- * - GS (group size) should be multiple of 16 for optimal performance
- *
- * Strategy:
- * 1. Process output in chunks of TILE_ROWS (8 rows)
- * 2. For each chunk, iterate through GS-sized groups for scaling
- * 3. Within each group, use hardware GEMV for 16-element blocks
- * 4. Apply quantization scales after hardware accumulation
- */
 void matmul(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
-    uint64_t t_start = rdcycle();
-    uint64_t t_isax = 0, t_accum = 0, t0;
+    // W (d,n) @ x (n,) -> xout (d,)
+    // by far the most amount of time is spent inside this little function
+    // inputs to this function are both quantized
+
     uint32_t rs1, rs2;
-
-    // Fallback to software if not compatible with HW
-    if (GS % TILE_COLS != 0 || n < TILE_COLS || d < TILE_ROWS ||
-        (uintptr_t)x->q % 128 != 0 || (uintptr_t)w->q % 128 != 0) {
-        matmul_sw(xout, x, w, n, d);
-        matmul_sw_count++;
-        prof_matmul_total += rdcycle() - t_start;
-        return;
-    }
-
-    matmul_hw_count++;
     int d_tiles = d / TILE_ROWS;
     int d_remainder = d % TILE_ROWS;
     int n_tiles_per_group = GS / TILE_COLS;
@@ -541,8 +411,6 @@ void matmul(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
         for (int g = 0; g < num_groups; g++) {
             int j_group = g * GS;
 
-            // === ISAX: Load B ===
-            t0 = rdcycle();
             for (int b_offset = 0; b_offset < GS; b_offset += 256) {
                 int load_size = (GS - b_offset) >= 256 ? 256 : (GS - b_offset);
                 rs1 = (uintptr_t)&x->q[j_group + b_offset];
@@ -560,7 +428,6 @@ void matmul(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
                 }
             }
 
-            // === ISAX: Load A ===
             for (int k_tile = 0; k_tile < n_tiles_per_group; k_tile += 4) {
                 int j = j_group + k_tile * TILE_COLS;
                 rs1 = (uintptr_t)&w->q[i_base * n + j];
@@ -570,7 +437,6 @@ void matmul(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
                 asm volatile ("fence");
             }
 
-            // === ISAX: GEMV ===
             for (int k_tile = 0; k_tile < n_tiles_per_group; k_tile++) {
                 uint8_t use_c = (k_tile == 0) ? 0 : 1;
                 rs1 = pack_gemv_rs1(k_tile, use_c, k_tile);
@@ -579,26 +445,20 @@ void matmul(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
                 asm volatile ("fence");
             }
 
-            // === ISAX: Store C ===
             rs1 = (uintptr_t)partial_c;
             rs2 = pack_dma_b_rs2(0);
             STOREMAT_C_128B(rocc_rd, rs1, rs2);
             asm volatile ("fence");
-            t_isax += rdcycle() - t0;
 
-            // === Accumulation: scale and add ===
-            t0 = rdcycle();
             float x_scale = x->s[g];
             for (int r = 0; r < TILE_ROWS; r++) {
                 int w_group_idx = (i_base + r) * (n / GS) + g;
                 float w_scale = w->s[w_group_idx];
                 xout[i_base + r] += (float)partial_c[r] * w_scale * x_scale;
             }
-            t_accum += rdcycle() - t0;
         }
     }
-
-    // Handle remaining rows in software
+    
     if (d_remainder > 0) {
         int i_base = d_tiles * TILE_ROWS;
         for (int i = i_base; i < d; i++) {
@@ -615,10 +475,6 @@ void matmul(float* xout, QuantizedTensor *x, QuantizedTensor *w, int n, int d) {
             xout[i] = val;
         }
     }
-
-    prof_matmul_total += rdcycle() - t_start;
-    prof_isax_total += t_isax;
-    prof_accum_total += t_accum;
 }
 
 float* forward(Transformer* transformer, int token, int pos) {
@@ -639,8 +495,11 @@ float* forward(Transformer* transformer, int token, int pos) {
 
     // forward all the layers
     for(int l = 0; l < p->n_layers; l++) {
+
         // attention rmsnorm
         rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
+
+        // qkv matmuls for this position
         quantize(&s->xq, s->xb, dim);
         matmul(s->q, &s->xq, w->wq + l, dim, dim);
         matmul(s->k, &s->xq, w->wk + l, dim, kv_dim);
@@ -1129,49 +988,48 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     char *empty_prompt = "";
     if (prompt == NULL) { prompt = empty_prompt; }
 
+    // encode the (string) prompt into tokens sequence
     int num_prompt_tokens = 0;
-    int* prompt_tokens = (int*)malloc((strlen(prompt)+3) * sizeof(int));
+    int* prompt_tokens = (int*)malloc((strlen(prompt)+3) * sizeof(int)); // +3 for '\0', ?BOS, ?EOS
     encode(tokenizer, prompt, 1, 0, prompt_tokens, &num_prompt_tokens);
     if (num_prompt_tokens < 1) {
         fprintf(stderr, "something is wrong, expected at least 1 prompt token\n");
         exit(EXIT_FAILURE);
     }
 
-    long start = 0;
-    int next;
-    int token = prompt_tokens[0];
-    int pos = 0;
-
-    // Reset profiling counters
-    matmul_hw_count = 0;
-    matmul_sw_count = 0;
-    prof_matmul_total = 0;
-    prof_isax_total = 0;
-    prof_accum_total = 0;
-    prof_overall_start = rdcycle();
-
+    // start the main loop
+    long start = 0;  // used to time our code, only initialized after first iteration
+    int next;        // will store the next token in the sequence
+    int token = prompt_tokens[0]; // kick off with the first token in the prompt
+    int pos = 0;     // position in the sequence
     while (pos < steps) {
+
+        // forward the transformer to get logits for the next token
         float* logits = forward(transformer, token, pos);
 
+        // advance the state state machine
         if (pos < num_prompt_tokens - 1) {
+            // if we are still processing the input prompt, force the next prompt token
             next = prompt_tokens[pos + 1];
         } else {
+            // otherwise sample the next token from the logits
             next = sample(sampler, logits);
         }
         pos++;
+        
+        // data-dependent terminating condition: the BOS (=1) token delimits sequences
+        if (next == 1) { break; }
 
-        if (next == 1) break;
-
+        // print the token as string, decode it with the Tokenizer object
         char* piece = decode(tokenizer, token, next);
         safe_printf(piece);
         fflush(stdout);
         token = next;
 
+        // init the timer here because the first iteration can be slower
         if (start == 0) { start = time_in_ms(); }
     }
     printf("\n");
-
-    uint64_t overall_cycles = rdcycle() - prof_overall_start;
 
     // Report timing
     if (pos > 1) {
@@ -1183,25 +1041,6 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         fprintf(stderr, "tokens: %d, elapsed: %ld ms, tok/s: %ld.%02ld\n",
                 pos, elapsed_ms, tok_per_s_int, tok_per_s_frac);
     }
-
-    // Report profiling (print 64-bit as hi:lo for bare metal compatibility)
-    uint64_t other_cycles = prof_matmul_total - prof_isax_total - prof_accum_total;
-    uint32_t matmul_pct = (uint32_t)(prof_matmul_total * 100 / overall_cycles);
-    uint32_t isax_pct = prof_matmul_total ? (uint32_t)(prof_isax_total * 100 / prof_matmul_total) : 0;
-    uint32_t accum_pct = prof_matmul_total ? (uint32_t)(prof_accum_total * 100 / prof_matmul_total) : 0;
-    uint32_t other_pct = prof_matmul_total ? (uint32_t)(other_cycles * 100 / prof_matmul_total) : 0;
-
-    fprintf(stderr, "\n=== Profiling ===\n");
-    fprintf(stderr, "matmul calls: HW=%d, SW=%d\n", matmul_hw_count, matmul_sw_count);
-    fprintf(stderr, "overall cycles:  0x%08x_%08x\n", (uint32_t)(overall_cycles >> 32), (uint32_t)overall_cycles);
-    fprintf(stderr, "matmul cycles:   0x%08x_%08x (%u%%)\n",
-            (uint32_t)(prof_matmul_total >> 32), (uint32_t)prof_matmul_total, matmul_pct);
-    fprintf(stderr, "  isax cycles:   0x%08x_%08x (%u%% of matmul)\n",
-            (uint32_t)(prof_isax_total >> 32), (uint32_t)prof_isax_total, isax_pct);
-    fprintf(stderr, "  accum cycles:  0x%08x_%08x (%u%% of matmul)\n",
-            (uint32_t)(prof_accum_total >> 32), (uint32_t)prof_accum_total, accum_pct);
-    fprintf(stderr, "  other cycles:  0x%08x_%08x (%u%% of matmul)\n",
-            (uint32_t)(other_cycles >> 32), (uint32_t)other_cycles, other_pct);
 
     free(prompt_tokens);
 }
@@ -1327,25 +1166,6 @@ int main(void) {
     ta_init(heap_buffer, heap_buffer + HEAP_SIZE, HEAP_BLOCKS, HEAP_SPLIT_THRESH, HEAP_ALIGNMENT);
     ta_align_heap();  // Pad to 128-byte alignment for RoCC DMA
 
-    // ========================================================================
-    // RoCC GEMV Accelerator Debug Info
-    // ========================================================================
-    printf("============================================================\n");
-    printf("LLaMA-2 Inference (RoCC GEMV Accelerated Version)\n");
-    printf("============================================================\n");
-    printf("Hardware tile size: %d rows x %d cols\n", TILE_ROWS, TILE_COLS);
-    printf("CPU frequency: %d MHz\n", CPU_FREQ_HZ / 1000000);
-    printf("Heap size: %d MB, alignment: %d bytes\n", HEAP_SIZE / (1024 * 1024), HEAP_ALIGNMENT);
-    printf("------------------------------------------------------------\n");
-
-    // Check heap buffer alignment
-    printf("[ALIGN] heap_buffer=%p (mod 128 = %lu)\n",
-           (void*)heap_buffer, (unsigned long)((uintptr_t)heap_buffer % 128));
-    if ((uintptr_t)heap_buffer % 128 != 0) {
-        printf("[ALIGN] ERROR: heap_buffer not 128-byte aligned!\n");
-    }
-    fflush(stdout);
-
     // parameters from config
     float temperature = BM_TEMPERATURE;
     float topp = BM_TOPP;
@@ -1354,60 +1174,22 @@ int main(void) {
     char *prompt = BM_PROMPT;
 
     // build the Transformer from embedded weights
-    printf("[INIT] Building transformer from embedded weights...\n");
-    fflush(stdout);
     Transformer transformer;
     build_transformer(&transformer);
-    printf("[INIT] Transformer built successfully\n");
-    fflush(stdout);
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len;
 
-    // Print model and RoCC configuration
-    printf("Model config:\n");
-    printf("  dim: %d, hidden_dim: %d, n_layers: %d\n",
-           transformer.config.dim, transformer.config.hidden_dim, transformer.config.n_layers);
-    printf("  n_heads: %d, n_kv_heads: %d, vocab_size: %d\n",
-           transformer.config.n_heads, transformer.config.n_kv_heads, transformer.config.vocab_size);
-    printf("  seq_len: %d, group_size (GS): %d\n", transformer.config.seq_len, GS);
-    printf("------------------------------------------------------------\n");
-    printf("RoCC acceleration status:\n");
-    if (GS % TILE_COLS == 0) {
-        printf("  [OK] GS=%d is multiple of TILE_COLS=%d -> HW path enabled\n", GS, TILE_COLS);
-    } else {
-        printf("  [WARN] GS=%d not multiple of TILE_COLS=%d -> SW fallback\n", GS, TILE_COLS);
-    }
-    if (transformer.config.dim >= TILE_ROWS && transformer.config.dim >= TILE_COLS) {
-        printf("  [OK] dim=%d >= tile size -> HW path for most matmuls\n", transformer.config.dim);
-    } else {
-        printf("  [WARN] dim=%d < tile size -> SW fallback for some matmuls\n", transformer.config.dim);
-    }
-    printf("============================================================\n\n");
-    fflush(stdout);
-
     // build the Tokenizer from embedded data
-    printf("[INIT] Building tokenizer...\n");
-    fflush(stdout);
     Tokenizer tokenizer;
     build_tokenizer(&tokenizer, transformer.config.vocab_size);
-    printf("[INIT] Tokenizer built successfully\n");
-    fflush(stdout);
 
     // build the Sampler
-    printf("[INIT] Building sampler...\n");
-    fflush(stdout);
     Sampler sampler;
     build_sampler(&sampler, transformer.config.vocab_size, temperature, topp, rng_seed);
-    printf("[INIT] Sampler built successfully\n");
-    fflush(stdout);
 
     // run generation
-    printf("[INIT] Starting generation...\n");
-    fflush(stdout);
     generate(&transformer, &tokenizer, &sampler, prompt, steps);
 
     // cleanup
-    printf("[CLEANUP] Freeing resources...\n");
-    fflush(stdout);
     free_sampler(&sampler);
     free_tokenizer(&tokenizer);
     free_transformer(&transformer);

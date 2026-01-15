@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "marchid.h"
 #include <riscv-pk/encoding.h>
+
 #pragma megg optimize
 uint8_t vgemv3d_vv(int32_t *array1, int32_t *array2) {
     int32_t acc = 0;
@@ -30,16 +31,8 @@ volatile int32_t input_data[20] __attribute__((aligned(128))) = {
     1, 1, 1, 1
 };
 volatile int32_t output_data[4] __attribute__((aligned(128))) = {0};
+
 int main(void) {
-  printf("VGEMV3D Test - General Matrix-Vector Multiply\n");
-  printf("Input data address: 0x%lx\n", (unsigned long)input_data);
-  printf("Output data address: 0x%lx\n", (unsigned long)output_data);
-
-  uint64_t marchid = read_csr(marchid);
-  const char *march = get_march(marchid);
-  printf("Running on: %s\n\n", march);
-
-  // Call custom instruction
   volatile uint32_t result = 0;
   for (int i = 0; i < 10; i++) {
     result = vgemv3d_vv((int32_t *)input_data, (int32_t *)output_data);
