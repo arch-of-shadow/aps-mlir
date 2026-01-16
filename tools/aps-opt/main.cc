@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
     args.push_back("--raise-scf-to-affine");
     args.push_back("--canonicalize");
     args.push_back("--affine-raise-from-memref");
-    args.push_back("--infer-affine-mem-access-new");
+    args.push_back("--infer-affine-mem-access");
     args.push_back("--canonicalize");
     args.push_back("--hls-unroll");
     args.push_back("--cse");
