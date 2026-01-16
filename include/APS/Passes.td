@@ -290,4 +290,35 @@ def APSHoistReadRF : Pass<"aps-hoist-readrf", "::mlir::func::FuncOp"> {
   let dependentDialects = ["aps::APSDialect"];
 }
 
+def APSScalarMemToGlobal : Pass<"aps-scalar-mem-to-global", "::mlir::func::FuncOp"> {
+  let summary = "Convert aps.memload/memstore on memref<1xT> to aps.globalload/globalstore";
+  let description = [{
+    This pass converts aps.memload and aps.memstore operations that access
+    single-element memrefs (memref<1xT>) to aps.globalload and aps.globalstore
+    operations.
+
+    A memref<1xT> is semantically equivalent to a scalar value, and using
+    the global operations enables better optimization through the existing
+    canonicalizers:
+    - FoldGlobalLoadAfterStore: Folds loads that follow stores to same global
+    - RemoveDeadGlobalStore: Removes stores that are immediately overwritten
+
+    This is particularly useful after loop unrolling where store-load patterns
+    emerge on scalar variables stored in memref<1xT>.
+
+    Example transformation:
+      %0 = memref.get_global @vec_0 : memref<1xi32>
+      aps.memstore %val, %0[%c0] : i32, memref<1xi32>, i32
+      %1 = aps.memload %0[%c0] : memref<1xi32>, i32 -> i32
+    becomes:
+      aps.globalstore %val, @vec_0 : i32
+      %1 = aps.globalload @vec_0 : i32
+
+    The pass traces memref values back to memref.get_global operations to
+    determine the global symbol name for the conversion.
+  }];
+  let constructor = "mlir::createAPSScalarMemToGlobalPass()";
+  let dependentDialects = ["aps::APSDialect", "memref::MemRefDialect"];
+}
+
 #endif // APS_PASSES

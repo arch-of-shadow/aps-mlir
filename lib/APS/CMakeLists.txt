@@ -10,6 +10,7 @@ add_mlir_library(APS
   MemLoadDuplication.cpp
   APSSplitMemoryOpsPass.cpp
   APSHoistReadRF.cpp
+  APSScalarMemToGlobal.cpp
   APSToCMT2/APSToCMT2GenPass.cpp
   APSToCMT2/APSOpRuleGenerate.cpp
   APSToCMT2/BlockHandler.cpp

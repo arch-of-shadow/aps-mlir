@@ -91,6 +91,7 @@ int main(int argc, char **argv) {
     args.push_back("--canonicalize");
     args.push_back("--affine-mem-to-aps-mem");
     args.push_back("--memref-to-aps-mem");
+    args.push_back("--aps-scalar-mem-to-global");
     args.push_back("--arith-muldiv-to-shift");
     args.push_back("--canonicalize");
     // Lower affine to SCF

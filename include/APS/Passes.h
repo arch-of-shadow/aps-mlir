@@ -19,6 +19,7 @@ std::unique_ptr<OperationPass<mlir::func::FuncOp>> createInferAffineMemAccessNew
 std::unique_ptr<OperationPass<mlir::tor::FuncOp>> createAPSMemLoadDuplicationPass();
 std::unique_ptr<OperationPass<mlir::tor::DesignOp>> createAPSSplitMemoryOpsPass();
 std::unique_ptr<Pass> createAPSHoistReadRFPass();
+std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAPSScalarMemToGlobalPass();
 std::unique_ptr<Pass> createAPSToCMT2GenPass();
 std::unique_ptr<Pass> createAPSToStandardPass();
 std::unique_ptr<Pass> createCombExtractToArithTruncPass();

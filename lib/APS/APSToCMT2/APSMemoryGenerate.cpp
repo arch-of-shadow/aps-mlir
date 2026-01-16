@@ -1254,7 +1254,10 @@ APSToCMT2GenPass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
                    << firstBankSymAttr.getValue() << ", using defaults\n";
     }
 
-    if (addrWidth == 0 && numBanks == 1) {
+    // We only check addrWidth here. If it's array partitioned to be a
+    // single memory, we should convert it before to a globalload/store,
+    // and should not treat it as a memory here.
+    if (addrWidth == 0) {
       continue; // Only one element, not a memory, skip this entry
     }
 
