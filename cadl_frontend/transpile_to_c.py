@@ -68,6 +68,8 @@ class ScratchpadAlias:
     offset_elements: Optional[int]
     element_type: str
     element_size: int
+    # For _mem-based aliases: maps static array index -> element offset from register base
+    index_to_offset: Optional[Dict[int, int]] = None
 
 
 @dataclass
@@ -280,6 +282,7 @@ class CTranspiler:
                 offset_elements=alias.offset_elements,
                 element_type=alias.element_type,
                 element_size=alias.element_size,
+                index_to_offset=dict(alias.index_to_offset) if alias.index_to_offset else None,
             ) for name, alias in self.scratchpad_aliases.items()},
             needs_mem_pointer=self.needs_mem_pointer,
             explicit_return_types=[list(types) for types in self.explicit_return_types],
@@ -355,6 +358,8 @@ class CTranspiler:
 
             self._maybe_record_burst_alias(stmt)
             self._maybe_record_burst_write_alias(stmt)
+            self._maybe_record_mem_read_alias(stmt)
+            self._maybe_record_mem_write_alias(stmt)
 
             if lhs_name:
                 if lhs_name not in self.var_types:
@@ -658,6 +663,154 @@ class CTranspiler:
         if info:
             info.pointer_element_types.add(element_type)
 
+    def _maybe_record_mem_read_alias(self, stmt: AssignStmt):
+        """Detect pattern: static[i] = _mem[addr + offset] and build alias mapping.
+
+        Example:
+            vec[0] = _mem[addr + 64];
+            vec[1] = _mem[addr + 68];
+
+        This builds a mapping from vec to the register backing addr.
+        """
+        # LHS must be IndexExpr into a static array
+        if not isinstance(stmt.lhs, IndexExpr):
+            return
+        lhs_base = stmt.lhs.expr
+        if not isinstance(lhs_base, IdentExpr):
+            return
+        static_name = lhs_base.name
+        if not self.proc or static_name not in self.proc.statics:
+            return
+        if not stmt.lhs.indices:
+            return
+        static_index = self.try_eval_constant(stmt.lhs.indices[0])
+        if static_index is None:
+            return
+
+        # RHS must be _mem[addr + offset]
+        if not isinstance(stmt.rhs, IndexExpr):
+            return
+        rhs_base = stmt.rhs.expr
+        if not isinstance(rhs_base, IdentExpr) or rhs_base.name != "_mem":
+            return
+        if not stmt.rhs.indices:
+            return
+
+        pointer_info = self._extract_register_base(stmt.rhs.indices[0])
+        if not pointer_info:
+            return
+        register_key, offset_bytes = pointer_info
+
+        static_obj = self.proc.statics.get(static_name)
+        if not static_obj:
+            return
+        element_type = self.map_static_array_type(static_obj)
+        element_size = self.c_type_size(element_type)
+        if element_size <= 0:
+            return
+        if offset_bytes % element_size != 0:
+            return
+        offset_elements = offset_bytes // element_size
+
+        # Get or create alias for this static array
+        if static_name in self.scratchpad_aliases:
+            alias = self.scratchpad_aliases[static_name]
+            # Verify it's the same register
+            if alias.register_key != register_key:
+                return  # Mixed register sources, can't alias
+            if alias.index_to_offset is None:
+                alias.index_to_offset = {}
+            alias.index_to_offset[static_index] = offset_elements
+        else:
+            alias = ScratchpadAlias(
+                static_name=static_name,
+                register_key=register_key,
+                offset_elements=None,  # Will use index_to_offset instead
+                element_type=element_type,
+                element_size=element_size,
+                index_to_offset={static_index: offset_elements},
+            )
+            self.scratchpad_aliases[static_name] = alias
+
+        # Mark the register as needing pointer type
+        info = self._ensure_register_info(register_key, stmt.rhs.indices[0])
+        info.pointer_element_types.add(element_type)
+        self._mark_register_pointer_aliases(register_key, element_type)
+
+    def _maybe_record_mem_write_alias(self, stmt: AssignStmt):
+        """Detect pattern: _mem[addr + offset] = static[i] and build alias mapping.
+
+        Example:
+            _mem[out_addr] = result[0];
+            _mem[out_addr + 4] = result[1];
+
+        This builds a mapping from result to the register backing out_addr.
+        """
+        # LHS must be _mem[addr + offset]
+        if not isinstance(stmt.lhs, IndexExpr):
+            return
+        lhs_base = stmt.lhs.expr
+        if not isinstance(lhs_base, IdentExpr) or lhs_base.name != "_mem":
+            return
+        if not stmt.lhs.indices:
+            return
+
+        pointer_info = self._extract_register_base(stmt.lhs.indices[0])
+        if not pointer_info:
+            return
+        register_key, offset_bytes = pointer_info
+
+        # RHS must be IndexExpr into a static array
+        if not isinstance(stmt.rhs, IndexExpr):
+            return
+        rhs_base = stmt.rhs.expr
+        if not isinstance(rhs_base, IdentExpr):
+            return
+        static_name = rhs_base.name
+        if not self.proc or static_name not in self.proc.statics:
+            return
+        if not stmt.rhs.indices:
+            return
+        static_index = self.try_eval_constant(stmt.rhs.indices[0])
+        if static_index is None:
+            return
+
+        static_obj = self.proc.statics.get(static_name)
+        if not static_obj:
+            return
+        element_type = self.map_static_array_type(static_obj)
+        element_size = self.c_type_size(element_type)
+        if element_size <= 0:
+            return
+        if offset_bytes % element_size != 0:
+            return
+        offset_elements = offset_bytes // element_size
+
+        # Get or create alias for this static array
+        if static_name in self.scratchpad_aliases:
+            alias = self.scratchpad_aliases[static_name]
+            # Verify it's the same register
+            if alias.register_key != register_key:
+                return  # Mixed register sources, can't alias
+            if alias.index_to_offset is None:
+                alias.index_to_offset = {}
+            alias.index_to_offset[static_index] = offset_elements
+        else:
+            alias = ScratchpadAlias(
+                static_name=static_name,
+                register_key=register_key,
+                offset_elements=None,  # Will use index_to_offset instead
+                element_type=element_type,
+                element_size=element_size,
+                index_to_offset={static_index: offset_elements},
+            )
+            self.scratchpad_aliases[static_name] = alias
+
+        # Mark the register as needing pointer type
+        info = self._ensure_register_info(register_key, stmt.lhs.indices[0])
+        info.pointer_element_types.add(element_type)
+        self._mark_register_pointer_aliases(register_key, element_type)
+
     def _extract_register_base(self, expr: Expr) -> Optional[Tuple[str, int]]:
         if isinstance(expr, IdentExpr):
             key = self.irf_aliases.get(expr.name)
@@ -692,7 +845,31 @@ class CTranspiler:
                     return key, offset - right_const
         return None
 
-    def _format_alias_index(self, alias: ScratchpadAlias, index_code: str) -> str:
+    def _format_alias_index(self, alias: ScratchpadAlias, index_code: str, static_index: Optional[int] = None) -> str:
+        # If we have a per-index mapping, use it for constant indices
+        if alias.index_to_offset is not None and static_index is not None:
+            if static_index in alias.index_to_offset:
+                return str(alias.index_to_offset[static_index])
+        # For variable indices with index_to_offset, try to compute base offset
+        # If all entries are offset = base + static_index, we can use base + index_code
+        if alias.index_to_offset is not None and len(alias.index_to_offset) > 0:
+            # Check if mapping is linear (offset = base + static_index)
+            base_offset = None
+            is_linear = True
+            for idx, offset in alias.index_to_offset.items():
+                computed_base = offset - idx
+                if base_offset is None:
+                    base_offset = computed_base
+                elif base_offset != computed_base:
+                    is_linear = False
+                    break
+            if is_linear and base_offset is not None:
+                if base_offset == 0:
+                    return index_code
+                if index_code in {"0", "0u", "0U", "0UL", "0uL"}:
+                    return str(base_offset)
+                return f"{base_offset} + {index_code}"
+        # Fall back to uniform offset
         offset = alias.offset_elements or 0
         if offset == 0:
             return index_code
@@ -1294,6 +1471,22 @@ class CTranspiler:
     def generate_assign(self, stmt: AssignStmt):
         """Generate assignment - in CADL, 'let' creates AssignStmt too"""
 
+        # Check if this is an irf alias variable that's only used for scratchpad aliasing
+        # e.g., let addr = _irf[rs1] where addr is only used in _mem or _burst accesses
+        if isinstance(stmt.lhs, IdentExpr) and isinstance(stmt.rhs, IndexExpr):
+            if isinstance(stmt.rhs.expr, IdentExpr) and stmt.rhs.expr.name == "_irf":
+                lhs_name = stmt.lhs.name
+                alias_key = self.irf_aliases.get(lhs_name)
+                if alias_key:
+                    # Check if any scratchpad alias uses this register
+                    has_scratchpad = any(
+                        alias.register_key == alias_key
+                        for alias in self.scratchpad_aliases.values()
+                    )
+                    if has_scratchpad:
+                        # This variable is only used for _mem/_burst accesses that have been optimized away
+                        return
+
         # Special case: burst operations - eliminate them
         # CADL: bitmask[0 +: ] = _burst_read[base_addr +: 4]
         # High-level: eliminated (arrays already accessible)
@@ -1301,9 +1494,7 @@ class CTranspiler:
             if isinstance(stmt.rhs.expr, IdentExpr) and stmt.rhs.expr.name == "_burst_read":
                 target_expr = stmt.lhs.expr
                 if isinstance(target_expr, IdentExpr) and target_expr.name in self.scratchpad_aliases:
-                    self.emit("// burst_read lowered via register-backed scratchpad")
                     return
-                self.emit("// burst_read eliminated (fallback)")
                 return
 
         # Check if this is burst write - eliminate it
@@ -1312,10 +1503,20 @@ class CTranspiler:
             if stmt.lhs.expr.name == "_burst_write":
                 rhs_expr = stmt.rhs.expr if isinstance(stmt.rhs, RangeSliceExpr) else None
                 if isinstance(rhs_expr, IdentExpr) and rhs_expr.name in self.scratchpad_aliases:
-                    self.emit("// burst_write lowered via register-backed scratchpad")
                     return
-                self.emit(f"// burst_write eliminated (fallback)")
                 return
+
+        # Check if LHS is static[i] = _mem[...] where static is aliased
+        # If so, skip this because the alias already provides direct access
+        if isinstance(stmt.lhs, IndexExpr) and isinstance(stmt.lhs.expr, IdentExpr):
+            lhs_static = stmt.lhs.expr.name
+            if lhs_static in self.scratchpad_aliases:
+                alias = self.scratchpad_aliases[lhs_static]
+                if alias.index_to_offset is not None:
+                    if isinstance(stmt.rhs, IndexExpr) and isinstance(stmt.rhs.expr, IdentExpr):
+                        if stmt.rhs.expr.name == "_mem":
+                            # This is static[i] = _mem[addr+off], skip it
+                            return
 
         # Check if LHS is _irf[rd] write or _mem[addr] write
         # _irf[rd] = value → eliminate (will be handled as return value in future)
@@ -1333,6 +1534,16 @@ class CTranspiler:
                 if stmt.lhs.expr.name == "_mem":
                     index_expr = stmt.lhs.indices[0] if stmt.lhs.indices else None
                     if index_expr:
+                        # Check if RHS is static[i] that is aliased - if so, skip this
+                        # because the alias already provides direct access
+                        if isinstance(stmt.rhs, IndexExpr) and isinstance(stmt.rhs.expr, IdentExpr):
+                            rhs_static = stmt.rhs.expr.name
+                            if rhs_static in self.scratchpad_aliases:
+                                alias = self.scratchpad_aliases[rhs_static]
+                                if alias.index_to_offset is not None:
+                                    # This _mem write is already captured in alias mapping
+                                    # The actual write is done by rewriting result[i] -> rs2[offset]
+                                    return
                         mem_lhs = self._generate_mem_index(index_expr, stmt.lhs)
                         if mem_lhs:
                             rhs_str = self.generate_expr(stmt.rhs)
@@ -1606,7 +1817,8 @@ class CTranspiler:
                 param = self.irf_read_params.get(alias.register_key)
                 if param:
                     index_code = self.generate_expr(expr.indices[0]) if expr.indices else "0"
-                    index_code = self._format_alias_index(alias, index_code)
+                    static_index = self.try_eval_constant(expr.indices[0]) if expr.indices else None
+                    index_code = self._format_alias_index(alias, index_code, static_index)
                     return f"{param}[{index_code}]"
             if base_name == "_mem" and expr.indices:
                 mem_access = self._generate_mem_index(expr.indices[0], expr)
