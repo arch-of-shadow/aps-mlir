@@ -45,14 +45,14 @@ Generates the complete hardware architecture for RISC-V integration:
 
 ### Prerequisites
 
-- Linux (Ubuntu 20.04+ recommended)
+- Linux (Ubuntu 22.04 recommended)
 - [Pixi](https://pixi.sh/) package manager
 
 ### Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/arch-of-shadow/aps-mlir.git --init --recursive
+git clone https://github.com/arch-of-shadow/aps-mlir.git
 cd aps-mlir
 ```
 
@@ -63,7 +63,6 @@ pixi run setup-ortools
 pixi run setup-yosys-slang
 pixi run setup-firtool
 pixi run setup-chipyard
-cd thirdparty/chipyard/sims/verilator && pixi run make
 ```
 
 3. Build CIRCT and APS passes:

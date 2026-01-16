@@ -22,7 +22,6 @@ rtype instruction_name(rs1: u5, rs2: u5, rd: u5) {
 |------|-------------|
 | `u8`, `u16`, `u32`, `u64` | Unsigned integers |
 | `i8`, `i16`, `i32`, `i64` | Signed integers |
-| `f32`, `f64` | Floating point |
 | `u1` - `u256` | Arbitrary width unsigned |
 
 ### Width-Aware Literals
