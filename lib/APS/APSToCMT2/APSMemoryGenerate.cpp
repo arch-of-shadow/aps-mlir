@@ -62,7 +62,7 @@ bool APSToCMT2GenPass::extractMemoryParameters(memref::GlobalOp globalOp,
 /// alignment
 Module *APSToCMT2GenPass::generateBankWrapperModule(
     const MemoryEntryInfo &entryInfo, Circuit &circuit, size_t bankIdx,
-    Module *memMod, Clock clk, Reset rst, bool burstEnable) {
+    ExternalModule *memMod, Clock clk, Reset rst, bool burstEnable) {
   std::string wrapperName =
       "BankWrapper_" + entryInfo.name + "_" + std::to_string(bankIdx);
   auto *wrapper = circuit.addModule(wrapperName);

@@ -159,7 +159,7 @@ LogicalResult FloatOpGenerator::handleBinaryFloatOp(
     Clock clock = bbHandler->getMainClk();
     Reset reset = bbHandler->getMainRst();
 
-    Module *floatMod = nullptr;
+    ModuleBase *floatMod = nullptr;
     if (opType == "add")
       floatMod = STLLibrary::createFloatAddModule(width, latency, circuit);
     else if (opType == "sub")
@@ -254,7 +254,7 @@ LogicalResult FloatOpGenerator::handleUnaryFloatOp(
     Clock clock = bbHandler->getMainClk();
     Reset reset = bbHandler->getMainRst();
 
-    Module *floatMod = nullptr;
+    ModuleBase *floatMod = nullptr;
     if (opType == "sqrt")
       floatMod = STLLibrary::createFloatSqrtModule(width, latency, circuit);
     else if (opType == "exp")
