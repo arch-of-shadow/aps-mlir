@@ -1019,6 +1019,37 @@ def render_step2():
     from megg.utils import get_temp_dir
     tmp_dir = get_temp_dir()
 
+    def compress_svg(svg_path):
+        """Compress SVG using scour library. Returns path to compressed SVG in /tmp."""
+        import tempfile
+        import hashlib
+        from pathlib import Path
+        from scour import scour
+
+        # Generate unique filename based on original path and mtime
+        mtime = svg_path.stat().st_mtime
+        file_hash = hashlib.md5(f"{svg_path}:{mtime}".encode()).hexdigest()[:12]
+        compressed_path = Path(tempfile.gettempdir()) / f"svg_compressed_{file_hash}.svg"
+
+        # Return cached version if exists
+        if compressed_path.exists():
+            return compressed_path
+
+        # Scour options for aggressive compression
+        options = scour.sanitizeOptions(options=None)
+        options.remove_metadata = True
+        options.remove_descriptive_elements = True
+        options.strip_comments = True
+        options.enable_viewboxing = True
+        options.indent_type = None
+        options.newlines = False
+
+        with open(svg_path, 'r') as f_in:
+            compressed = scour.scourString(f_in.read(), options)
+
+        compressed_path.write_text(compressed)
+        return compressed_path
+
     def render_svg(svg_path, expanded=True):
         """Render an SVG file with Ctrl+scroll zoom support."""
         import streamlit.components.v1 as components
@@ -1026,7 +1057,9 @@ def render_step2():
 
         if svg_path.exists():
             try:
-                svg_content = svg_path.read_text()
+                # Use compressed SVG
+                compressed_path = compress_svg(svg_path)
+                svg_content = compressed_path.read_text()
                 # Generate unique ID for this SVG container
                 svg_id = hashlib.md5(str(svg_path).encode()).hexdigest()[:8]
 

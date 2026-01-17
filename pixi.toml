@@ -16,7 +16,7 @@ LEGACY_FIRTOOL_PATH = "https://github.com/llvm/circt/releases/download/firtool-1
 LEGACY_FIRTOOL = "${PIXI_PROJECT_ROOT}/install/firtool-1.75.0/bin/firtool" # this is for chipyard compatibility
 # tutorial docker environment
 APS = "${PIXI_PROJECT_ROOT}"
-APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/thirdparty/chipyard"
+APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard"
 APS_SIM = "${APS_CHIPYARD}/sims/verilator"
 APS_VLSI = "${APS_CHIPYARD}/nextvlsi"
 
@@ -126,3 +126,4 @@ pytest-cov = ">=7.0.0, <8"
 isort = ">=6.0.1, <7"
 mypy = ">=1.18.2, <2"
 ruff = ">=0.8.0,<1"
+scour = ">=0.38.2"
