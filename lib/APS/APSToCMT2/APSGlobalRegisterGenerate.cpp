@@ -1,4 +1,5 @@
 #include "APS/APSToCMT2.h"
+#include "TOR/TORTypes.h"
 #include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "aps-memory-pool-gen"
@@ -18,13 +19,21 @@ SmallVector<std::tuple<std::string, int8_t>, 8> APSToCMT2GenPass::generateGlobal
   MLIRContext *context = moduleOp.getContext();
   OpBuilder builder(context);
   SmallVector<std::tuple<std::string, int8_t>, 8> globalRegisterList;
+
+  auto insertGlblRegister =
+      [&globalRegisterList](StringRef registerName, mlir::MemRefType memrefType) {
+    auto intType = llvm::dyn_cast<IntegerType>(memrefType.getElementType());
+    if (intType)
+      globalRegisterList.push_back(std::make_tuple(registerName.str(),static_cast<int8_t>(intType.getWidth())));
+  };
+
   if (memoryMapOp) {
     for (auto &block : memoryMapOp.getRegion()) {
       for (auto &op : block) {
         if (auto entry = dyn_cast<aps::MemEntryOp>(op)) {
-          if (entry.getNumBanks() != 1) {
-            continue; // this is not a global register
-          }
+          // if (entry.getNumBanks() != 1) {
+          //   continue; // this is not a global register
+          // }
           auto bankSymbols = entry.getBankSymbols();
           if (bankSymbols.empty()) {
             continue; // aha, no symbol?
@@ -43,17 +52,13 @@ SmallVector<std::tuple<std::string, int8_t>, 8> APSToCMT2GenPass::generateGlobal
             continue;
           }
           auto memrefType = globalOp.getType();
-          auto elementType = memrefType.getElementType();
-          if (memrefType.getRank() > 0) {
-            continue;
-          }
-          if (auto intType = llvm::dyn_cast<IntegerType>(elementType)) {
-            auto dataWidth = intType.getWidth();
-            std::string registerName = entry.getName().str();
-            globalRegisterList.push_back(
-                std::make_tuple(registerName, static_cast<int8_t>(dataWidth)));
-          } else {
-            continue; // what the type, don't know?
+          if (memrefType.getRank() == 0) {
+            insertGlblRegister(entry.getName().str(), memrefType);
+          } else if (memrefType.getRank() == 1 && memrefType.getDimSize(0) == 1) {
+            for (auto bank: bankSymbols){
+              auto bankName = llvm::dyn_cast<FlatSymbolRefAttr>(bank).getValue();
+              insertGlblRegister(bankName.str(), memrefType);
+            }
           }
         }
       }
