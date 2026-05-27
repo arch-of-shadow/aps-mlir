@@ -1,12 +1,12 @@
-//===- RuleGeneration.h - Rule Generation for TOR Functions -----*- C++ -*-===//
+//===- APSToCMT2.h - APS to CMT2 generation --------------------*- C++ -*-===//
 //
 // This file declares the rule generation functionality for TOR functions
-// that was previously in APSToCMT2GenPass.cpp
+// that was previously in APSToCMT2.cpp
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef APS_RULEGENERATION_H
-#define APS_RULEGENERATION_H
+#ifndef APS_TO_CMT2_H
+#define APS_TO_CMT2_H
 
 #include "APS/APSOps.h"
 #include "APS/Passes.h"
@@ -99,10 +99,10 @@ struct MainModuleInstances {
   Instance *hellaMemInstance;
 };
 
-struct APSToCMT2GenPass
-    : public PassWrapper<APSToCMT2GenPass, OperationPass<mlir::ModuleOp>> {
+struct APSToCMT2Pass
+    : public PassWrapper<APSToCMT2Pass, OperationPass<mlir::ModuleOp>> {
 
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(APSToCMT2GenPass)
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(APSToCMT2Pass)
 
   void getDependentDialects(DialectRegistry &registry) const override;
 
@@ -197,11 +197,11 @@ public:
                                 Clock mainClk, Reset mainRst,
                                 unsigned long opcode);
 
-  StringRef getArgument() const final { return "aps-to-cmt2-gen"; }
+  StringRef getArgument() const final { return "aps-to-cmt2"; }
   StringRef getDescription() const final {
     return "Generate CMT2 hardware from APS TOR operations";
   }
 };
 } // namespace mlir
 
-#endif // APS_RULEGENERATION_H
+#endif // APS_TO_CMT2_H

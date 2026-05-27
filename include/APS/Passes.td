@@ -3,7 +3,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def SCFForIndexCast : Pass<"scf-for-index-cast", "::mlir::func::FuncOp"> {
+def NormalizeSCFForIndices : Pass<"normalize-scf-for-indices", "::mlir::func::FuncOp"> {
   let summary = "Convert SCF for loop bounds to index type";
   let description = [{
     This pass converts scf.for loops that use integer types (i32, i64, etc.)
@@ -11,7 +11,7 @@ def SCFForIndexCast : Pass<"scf-for-index-cast", "::mlir::func::FuncOp"> {
     This is necessary for raising SCF loops to affine loops, which require
     index-typed bounds.
   }];
-  let constructor = "mlir::createSCFForIndexCastPass()";
+  let constructor = "mlir::createNormalizeSCFForIndicesPass()";
 }
 
 def APSMemToMemRef : Pass<"aps-mem-to-memref", "::mlir::func::FuncOp"> {
@@ -25,42 +25,44 @@ def APSMemToMemRef : Pass<"aps-mem-to-memref", "::mlir::func::FuncOp"> {
   let constructor = "mlir::createAPSMemToMemRefPass()";
 }
 
-def MemRefToAPSMem : Pass<"affine-mem-to-aps-mem", "::mlir::func::FuncOp"> {
+def AffineMemToAPS : Pass<"affine-mem-to-aps", "::mlir::func::FuncOp"> {
   let summary = "Convert affine.load/affine.store to APS memload/memstore";
   let description = [{
     This pass converts affine.load and affine.store operations to APS
     memload and memstore operations. Index-typed indices are automatically
     cast to i32 type as used by APS memory operations.
   }];
-  let constructor = "mlir::createAffineMemToAPSMemPass()";
+  let constructor = "mlir::createAffineMemToAPSPass()";
+  let dependentDialects = ["aps::APSDialect", "::mlir::arith::ArithDialect"];
 }
 
-def MemRefMemToAPSMem : Pass<"memref-to-aps-mem", "::mlir::func::FuncOp"> {
+def MemRefToAPS : Pass<"memref-to-aps", "::mlir::func::FuncOp"> {
   let summary = "Convert memref.load/memref.store to APS memload/memstore";
   let description = [{
     This pass converts memref.load and memref.store operations to APS
     memload and memstore operations. Index-typed indices are automatically
     cast to i32 type as used by APS memory operations.
   }];
-  let constructor = "mlir::createMemRefToAPSMemPass()";
+  let constructor = "mlir::createMemRefToAPSPass()";
+  let dependentDialects = ["aps::APSDialect", "::mlir::arith::ArithDialect"];
 }
 
-def MemoryMap : Pass<"memory-map", "::mlir::ModuleOp"> {
-  let summary = "Generate memory map for global memrefs after array partition";
+def APSMemoryMap : Pass<"aps-memory-map", "::mlir::ModuleOp"> {
+  let summary = "Generate an APS memory map from global memrefs";
   let description = [{
-    This pass generates a memory address map for all global memrefs in the module,
-    including partitioned arrays. It creates an aps.memorymap operation containing
-    aps.mem_entry operations for each memref group.
+    This pass seeds the APS memory address map from the global memrefs currently
+    present in the module. It creates an aps.memorymap operation containing
+    aps.mem_entry operations for each source memory group.
 
-    For partitioned arrays, all partition banks are grouped under a single mem_entry
-    with information about the partition mode (cyclic/block), number of banks, and
-    base address assignment.
+    At initial map construction time, each source memory normally has one bank.
+    Partition metadata such as cyclic/block mode is preserved on the entry so
+    later partitioning passes can rewrite the entry with the concrete bank list.
   }];
-  let constructor = "mlir::createMemoryMapPass()";
+  let constructor = "mlir::createAPSMemoryMapPass()";
   let dependentDialects = ["aps::APSDialect", "memref::MemRefDialect"];
 }
 
-def InferAffineMemAccess : Pass<"infer-affine-mem-access"> {
+def RaiseMemRefToAffine : Pass<"raise-memref-to-affine"> {
   let summary = "Infer affine maps for memref.load/store operations";
   let description = [{
     This pass analyzes memref.load and memref.store operations with computed
@@ -80,29 +82,11 @@ def InferAffineMemAccess : Pass<"infer-affine-mem-access"> {
     becomes:
       %val = affine.load %array[%iv * 2]
   }];
-  let constructor = "mlir::createInferAffineMemAccessPass()";
+  let constructor = "mlir::createRaiseMemRefToAffinePass()";
   let dependentDialects = ["affine::AffineDialect", "arith::ArithDialect", "memref::MemRefDialect"];
 }
 
-def InferAffineMemAccessNew : Pass<"infer-affine-mem-access-new", "::mlir::func::FuncOp"> {
-  let summary = "Infer affine maps for memref.load/store by cloning index arithmetic";
-  let description = [{
-    This pass converts memref.load/store to affine.load/store by:
-    1. Recursively cloning the index arithmetic chain in index type
-    2. Building an AffineExpr from the clean index-type computation
-    3. Creating affine.load/store with the inferred affine map
-
-    Unlike infer-affine-mem-access, this pass handles arbitrary nested
-    arithmetic including patterns like ((i*2+1)*4+j) by cloning the entire
-    computation tree in index type first, then analyzing it.
-
-    Run CSE afterward to deduplicate any redundant index computations.
-  }];
-  let constructor = "mlir::createInferAffineMemAccessNewPass()";
-  let dependentDialects = ["affine::AffineDialect", "arith::ArithDialect", "memref::MemRefDialect"];
-}
-
-def APSMemLoadDuplication : Pass<"aps-memload-duplication", "mlir::tor::FuncOp"> {
+def DuplicateMemLoads : Pass<"duplicate-memloads", "mlir::tor::FuncOp"> {
   let summary = "Duplicate memory loads to reduce FIFO usage";
   let description = [{
     This pass duplicates aps.memload operations when they are used at different
@@ -114,17 +98,17 @@ def APSMemLoadDuplication : Pass<"aps-memload-duplication", "mlir::tor::FuncOp">
     cycle 10, and there's no other access to that memory at cycle 10, the pass
     will duplicate the memload at cycle 10, saving a FIFO.
   }];
-  let constructor = "mlir::createAPSMemLoadDuplicationPass()";
+  let constructor = "mlir::createDuplicateMemLoadsPass()";
   let dependentDialects = ["mlir::tor::TORDialect", "aps::APSDialect"];
 }
 
-def APSSplitMemoryOps : Pass<"aps-split-memory-ops", "mlir::tor::DesignOp"> {
+def LowerAPSMemToReqCollect : Pass<"lower-aps-mem-to-req-collect", "mlir::tor::DesignOp"> {
   let summary = "Split APS memory operations into request-collect pairs";
-  let constructor = "mlir::createAPSSplitMemoryOpsPass()";
+  let constructor = "mlir::createLowerAPSMemToReqCollectPass()";
   let dependentDialects = ["mlir::tor::TORDialect", "aps::APSDialect"];
 }
 
-def APSMemoryPoolGen : Pass<"aps-memory-pool-gen", "::mlir::ModuleOp"> {
+def APSToCMT2 : Pass<"aps-to-cmt2", "::mlir::ModuleOp"> {
   let summary = "Generate scratchpad memory pool and CMT2 rules from aps.memorymap";
   let description = [{
     This pass reads aps.memorymap operation and generates a CMT2-based
@@ -142,77 +126,9 @@ def APSMemoryPoolGen : Pass<"aps-memory-pool-gen", "::mlir::ModuleOp"> {
     - Generates burst read/write methods for memory access
     - Provides unified interface to memory pool
 
-    This unified pass replaces the separate APSToCMT2GenPass and APSRuleGenPass.
+    This unified pass replaces the earlier split memory-pool and rule-generation passes.
   }];
-  let constructor = "mlir::createAPSToCMT2GenPass()";
-}
-
-def APSToStandard : Pass<"aps-to-standard", "::mlir::ModuleOp"> {
-  let summary = "Lower APS dialect operations to standard MLIR dialects";
-  let description = [{
-    This pass converts APS dialect operations to standard MLIR operations:
-    - aps.readrf -> function parameters
-    - aps.writerf -> function return values
-    - aps.memload/memstore -> memref.load/store
-    - aps.memburst operations -> removed
-    - memref.get_global -> function parameters
-    - Global declarations -> removed
-
-    The transformation is designed for software-level instruction matching,
-    removing hardware-specific register file and scratchpad memory semantics.
-  }];
-  let constructor = "mlir::createAPSToStandardPass()";
-  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::func::FuncDialect",
-                          "::mlir::memref::MemRefDialect", "::mlir::scf::SCFDialect"];
-}
-
-def CombExtractToArithTrunc : Pass<"comb-extract-to-arith-trunc"> {
-  let summary = "Convert comb.extract operations to arith.trunci";
-  let description = [{
-    This pass converts all comb.extract operations to equivalent arith.trunci
-    operations, optionally preceded by arith.shrui if extracting from non-zero bit.
-
-    Transformations:
-    - comb.extract %x from 0 : (iN) -> iM
-      => arith.trunci %x : iN to iM
-
-    - comb.extract %x from K : (iN) -> iM (K > 0)
-      => %shifted = arith.shrui %x, K : iN
-         %result = arith.trunci %shifted : iN to iM
-
-    This is useful for lowering to standard dialects that don't have comb dialect,
-    such as for CPU simulation or instruction matching with polygeist-generated MLIR.
-  }];
-  let constructor = "mlir::createCombExtractToArithTruncPass()";
-  let dependentDialects = ["::mlir::arith::ArithDialect"];
-}
-
-def ArithSelectToSCFIf : Pass<"arith-select-to-scf-if"> {
-  let summary = "Convert arith.select operations to scf.if";
-  let description = [{
-    This pass converts all arith.select operations to equivalent scf.if
-    operations with explicit then/else branches.
-
-    Transformation:
-    - arith.select %cond, %true_val, %false_val : T
-      =>
-      scf.if %cond -> T {
-        scf.yield %true_val : T
-      } else {
-        scf.yield %false_val : T
-      }
-
-    This is useful when:
-    - The backend prefers explicit control flow over conditional selection
-    - Pattern matching with control-flow heavy code (e.g., C code with if/else)
-    - Analyzing or optimizing control flow dependencies
-    - Matching with polygeist-generated MLIR from C code
-
-    Note: This transformation may increase code size and can make certain
-    optimizations (like vectorization) more difficult. Use with caution.
-  }];
-  let constructor = "mlir::createArithSelectToSCFIfPass()";
-  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect"];
+  let constructor = "mlir::createAPSToCMT2Pass()";
 }
 
 def ArithMulDivToShift : Pass<"arith-muldiv-to-shift"> {
@@ -251,8 +167,8 @@ def ArithMulDivToShift : Pass<"arith-muldiv-to-shift"> {
   let dependentDialects = ["::mlir::arith::ArithDialect"];
 }
 
-def APSHoistReadRF : Pass<"aps-hoist-readrf", "::mlir::func::FuncOp"> {
-  let summary = "Hoist all aps.readrf operations to function entry block";
+def PlaceReadRFAtEntry : Pass<"place-readrf-at-entry", "::mlir::func::FuncOp"> {
+  let summary = "Place all aps.readrf operations at the function entry block";
   let description = [{
     This pass moves all aps.readrf operations to the entry block of their
     containing function. This ensures they can be scheduled at cycle 0,
@@ -286,11 +202,11 @@ def APSHoistReadRF : Pass<"aps-hoist-readrf", "::mlir::func::FuncOp"> {
         // use %0
       }
   }];
-  let constructor = "mlir::createAPSHoistReadRFPass()";
+  let constructor = "mlir::createPlaceReadRFAtEntryPass()";
   let dependentDialects = ["aps::APSDialect"];
 }
 
-def APSScalarMemToGlobal : Pass<"aps-scalar-mem-to-global", "::mlir::func::FuncOp"> {
+def PromoteSingletonMemRefToGlobal : Pass<"promote-singleton-memref-to-global", "::mlir::func::FuncOp"> {
   let summary = "Convert aps.memload/memstore on memref<1xT> to aps.globalload/globalstore";
   let description = [{
     This pass converts aps.memload and aps.memstore operations that access
@@ -317,7 +233,7 @@ def APSScalarMemToGlobal : Pass<"aps-scalar-mem-to-global", "::mlir::func::FuncO
     The pass traces memref values back to memref.get_global operations to
     determine the global symbol name for the conversion.
   }];
-  let constructor = "mlir::createAPSScalarMemToGlobalPass()";
+  let constructor = "mlir::createPromoteSingletonMemRefToGlobalPass()";
   let dependentDialects = ["aps::APSDialect", "memref::MemRefDialect"];
 }
 

@@ -1,18 +1,19 @@
 add_mlir_library(APS
   aps.cpp
-  SCFForIndexCast.cpp
+  NormalizeSCFForIndices.cpp
   APSMemToMemRef.cpp
-  AffineMemToAPSMem.cpp
-  MemRefToAPSMem.cpp
-  MemoryMapPass.cpp
-  InferAffineMemAccess.cpp
-  InferAffineMemAccessNew.cpp
-  MemLoadDuplication.cpp
-  APSSplitMemoryOpsPass.cpp
-  APSHoistReadRF.cpp
-  APSScalarMemToGlobal.cpp
-  APSToCMT2/APSToCMT2GenPass.cpp
-  APSToCMT2/APSOpRuleGenerate.cpp
+  MemoryIndexUtils.cpp
+  AffineMemToAPS.cpp
+  MemRefToAPS.cpp
+  APSMemoryMap.cpp
+  RaiseMemRefToAffine.cpp
+  DuplicateMemLoads.cpp
+  LowerAPSMemToReqCollect.cpp
+  PlaceReadRFAtEntry.cpp
+  PromoteSingletonMemRefToGlobal.cpp
+  ArithMulDivToShift.cpp
+  APSToCMT2/APSToCMT2.cpp
+  APSToCMT2/OpRuleGenerator.cpp
   APSToCMT2/BlockHandler.cpp
   APSToCMT2/BBHandler.cpp
   APSToCMT2/LoopHandler.cpp
@@ -20,13 +21,9 @@ add_mlir_library(APS
   APSToCMT2/RegisterOpGenerator.cpp
   APSToCMT2/MemoryOpGenerator.cpp
   APSToCMT2/InterfaceOpGenerator.cpp
-  APSToCMT2/APSInterfaceGenerate.cpp
-  APSToCMT2/APSMemoryGenerate.cpp
-  APSToCMT2/APSGlobalRegisterGenerate.cpp
-  Transforms/APSToStandard.cpp
-  Transforms/CombExtractToArithTrunc.cpp
-  Transforms/ArithSelectToSCFIf.cpp
-  Transforms/ArithMulDivToShift.cpp
+  APSToCMT2/InterfaceGenerator.cpp
+  APSToCMT2/MemoryGenerator.cpp
+  APSToCMT2/GlobalRegisterGenerator.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/APS

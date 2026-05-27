@@ -2,7 +2,7 @@
 #include "TOR/TORTypes.h"
 #include "llvm/Support/raw_ostream.h"
 
-#define DEBUG_TYPE "aps-memory-pool-gen"
+#define DEBUG_TYPE "aps-to-cmt2"
 
 namespace mlir {
 
@@ -13,7 +13,7 @@ using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
 
 /// Generate the CMT2 memory pool module
-SmallVector<std::tuple<std::string, int8_t>, 8> APSToCMT2GenPass::generateGlobalRegisterList(Circuit &circuit,
+SmallVector<std::tuple<std::string, int8_t>, 8> APSToCMT2Pass::generateGlobalRegisterList(Circuit &circuit,
                                               ModuleOp moduleOp,
                                               aps::MemoryMapOp memoryMapOp) {
   MLIRContext *context = moduleOp.getContext();

@@ -72,15 +72,15 @@ int main(int argc, char **argv) {
     }
 
     // Add passes
-    args.push_back("--aps-hoist-readrf");
-    args.push_back("--memory-map");
-    args.push_back("--scf-for-index-cast");
+    args.push_back("--place-readrf-at-entry");
+    args.push_back("--aps-memory-map");
+    args.push_back("--normalize-scf-for-indices");
     args.push_back("--aps-mem-to-memref");
     args.push_back("--canonicalize");
     args.push_back("--raise-scf-to-affine");
     args.push_back("--canonicalize");
     args.push_back("--affine-raise-from-memref");
-    args.push_back("--infer-affine-mem-access");
+    args.push_back("--raise-memref-to-affine");
     args.push_back("--canonicalize");
     args.push_back("--hls-unroll");
     args.push_back("--cse");
@@ -89,9 +89,9 @@ int main(int argc, char **argv) {
     args.push_back("--canonicalize");
     args.push_back("--new-array-partition");
     args.push_back("--canonicalize");
-    args.push_back("--affine-mem-to-aps-mem");
-    args.push_back("--memref-to-aps-mem");
-    args.push_back("--aps-scalar-mem-to-global");
+    args.push_back("--affine-mem-to-aps");
+    args.push_back("--memref-to-aps");
+    args.push_back("--promote-singleton-memref-to-global");
     args.push_back("--arith-muldiv-to-shift");
     args.push_back("--canonicalize");
     // Lower affine to SCF
@@ -108,13 +108,13 @@ int main(int argc, char **argv) {
     args.push_back("--scf-to-tor");
     args.push_back("--canonicalize");
     args.push_back("--schedule-tor");
-    args.push_back("--aps-split-memory-ops");
+    args.push_back("--lower-aps-mem-to-req-collect");
     args.push_back("--tor-time-graph");
-    args.push_back("--aps-memload-duplication"); //
+    args.push_back("--duplicate-memloads"); //
     args.push_back("--canonicalize");
 
     // Cmt2!
-    args.push_back("--aps-to-cmt2-gen");
+    args.push_back("--aps-to-cmt2");
 
     // Convert std::vector<std::string> to char** for C-style API
     std::vector<char *> args_c;

@@ -92,7 +92,7 @@ struct CrossBlockValueFlow {
 /// Unified block handler with producer-responsible FIFO coordination
 class BlockHandler {
 public:
-  BlockHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp funcOp,
+  BlockHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
                Instance *poolInstance, Instance *roccInstance,
                Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
                Circuit &circuit, Clock mainClk, Reset mainRst,
@@ -118,7 +118,7 @@ public:
 
 protected:
   // Core components
-  APSToCMT2GenPass *pass;
+  APSToCMT2Pass *pass;
   Module *mainModule;
   tor::FuncOp funcOp;
   Instance *poolInstance;

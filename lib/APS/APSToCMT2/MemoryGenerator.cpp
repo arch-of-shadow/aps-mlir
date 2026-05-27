@@ -1,7 +1,7 @@
 #include "APS/APSToCMT2.h"
 #include "llvm/Support/raw_ostream.h"
 
-#define DEBUG_TYPE "aps-memory-pool-gen"
+#define DEBUG_TYPE "aps-to-cmt2"
 
 namespace mlir {
 
@@ -12,7 +12,7 @@ using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
 
 /// Extract data width and address width from a memref type
-bool APSToCMT2GenPass::extractMemoryParameters(memref::GlobalOp globalOp,
+bool APSToCMT2Pass::extractMemoryParameters(memref::GlobalOp globalOp,
                                                int &dataWidth, int &addrWidth,
                                                int &depth) {
   if (!globalOp) {
@@ -60,7 +60,7 @@ bool APSToCMT2GenPass::extractMemoryParameters(memref::GlobalOp globalOp,
 
 /// Generate a bank wrapper module that encapsulates bank selection and data
 /// alignment
-Module *APSToCMT2GenPass::generateBankWrapperModule(
+Module *APSToCMT2Pass::generateBankWrapperModule(
     const MemoryEntryInfo &entryInfo, Circuit &circuit, size_t bankIdx,
     ExternalModule *memMod, Clock clk, Reset rst, bool burstEnable) {
   std::string wrapperName =
@@ -438,7 +438,7 @@ Module *APSToCMT2GenPass::generateBankWrapperModule(
 // ============================================================================
 
 /// Generate memory entry submodule for a single memory entry
-Module *APSToCMT2GenPass::generateMemoryEntryModule(
+Module *APSToCMT2Pass::generateMemoryEntryModule(
     const MemoryEntryInfo &entryInfo, Circuit &circuit, Clock clk, Reset rst,
     const llvm::SmallVector<std::string, 4> &bankNames) {
   // Validate configuration to avoid bank conflicts in burst access
@@ -777,7 +777,7 @@ Module *APSToCMT2GenPass::generateMemoryEntryModule(
 // ============================================================================
 
 /// Generate burst access logic (address decoding and bank selection)
-void APSToCMT2GenPass::generateBurstAccessLogic(
+void APSToCMT2Pass::generateBurstAccessLogic(
     Module *poolModule, const llvm::SmallVector<MemoryEntryInfo> &memEntryInfos,
     Circuit &circuit, Clock clk, Reset rst) {
 
@@ -1098,7 +1098,7 @@ void APSToCMT2GenPass::generateBurstAccessLogic(
   }
 }
 
-void APSToCMT2GenPass::addRoCCAndMemoryMethodToMainModule(
+void APSToCMT2Pass::addRoCCAndMemoryMethodToMainModule(
     Module *mainModule, Instance *roccInstance, Instance *hellaMemInstance) {
   auto &builder = mainModule->getBuilder();
   auto roccCmdBundleType = getRoccCmdBundleType(builder);
@@ -1140,7 +1140,7 @@ void APSToCMT2GenPass::addRoCCAndMemoryMethodToMainModule(
 }
 
 /// Get memref.global by symbol name
-memref::GlobalOp APSToCMT2GenPass::getGlobalMemRef(mlir::Operation *scope,
+memref::GlobalOp APSToCMT2Pass::getGlobalMemRef(mlir::Operation *scope,
                                                    StringRef symbolName) {
   if (!scope) {
     llvm::dbgs() << "DEBUG getGlobalMemRef: scope is null\n";
@@ -1164,7 +1164,7 @@ memref::GlobalOp APSToCMT2GenPass::getGlobalMemRef(mlir::Operation *scope,
 
 /// Generate the CMT2 memory pool module
 MemoryPoolResult
-APSToCMT2GenPass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
+APSToCMT2Pass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
                                      aps::MemoryMapOp memoryMapOp) {
   llvm::dbgs() << "DEBUG: generateMemoryPool() started\n";
   MLIRContext *context = moduleOp.getContext();

@@ -1,7 +1,7 @@
 #include "APS/APSToCMT2.h"
 #include <string>
 
-#define DEBUG_TYPE "aps-memory-pool-gen"
+#define DEBUG_TYPE "aps-to-cmt2"
 
 namespace mlir {
 
@@ -11,7 +11,7 @@ using namespace circt::cmt2::ecmt2;
 using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
 
-void APSToCMT2GenPass::addBurstMemoryInterface(Circuit &circuit) {
+void APSToCMT2Pass::addBurstMemoryInterface(Circuit &circuit) {
   auto &context = circuit.getContext();
   auto *burstMemoryInterface = circuit.addInterface("BurstDMAController");
   auto u32Type = UIntType::get(&context, 32);
@@ -34,7 +34,7 @@ void APSToCMT2GenPass::addBurstMemoryInterface(Circuit &circuit) {
   }
 }
 
-void APSToCMT2GenPass::addRoccAndHellaMemoryInterface(Circuit &circuit) {
+void APSToCMT2Pass::addRoccAndHellaMemoryInterface(Circuit &circuit) {
   auto roccRespInterface = circuit.addInterface("roccRespItfc");
   auto &builder = circuit.getBuilder();
   auto roccRespBundleType = getRoccRespBundleType(builder);
@@ -48,7 +48,7 @@ void APSToCMT2GenPass::addRoccAndHellaMemoryInterface(Circuit &circuit) {
 }
 
 /// Add burst read/write methods to main module
-void APSToCMT2GenPass::addBurstMethodsToMainModule(Module *mainModule,
+void APSToCMT2Pass::addBurstMethodsToMainModule(Module *mainModule,
                                                    Instance *poolInstance) {
   auto &builder = mainModule->getBuilder();
   auto *context = builder.getContext();
@@ -147,7 +147,7 @@ void APSToCMT2GenPass::addBurstMethodsToMainModule(Module *mainModule,
   burstWriteMethod->finalize();
 }
 
-BundleType APSToCMT2GenPass::getHellaRespBundleType(Builder &builder) {
+BundleType APSToCMT2Pass::getHellaRespBundleType(Builder &builder) {
   auto *context = builder.getContext();
   return BundleType::get(
       context, {BundleType::BundleElement{builder.getStringAttr("data"), false,
@@ -162,7 +162,7 @@ BundleType APSToCMT2GenPass::getHellaRespBundleType(Builder &builder) {
                                           false, UIntType::get(context, 1)}});
 }
 
-BundleType APSToCMT2GenPass::getHellaUserCmdBundleType(Builder &builder) {
+BundleType APSToCMT2Pass::getHellaUserCmdBundleType(Builder &builder) {
   auto *context = builder.getContext();
   return BundleType::get(
       context, {BundleType::BundleElement{builder.getStringAttr("addr"), false,
@@ -179,7 +179,7 @@ BundleType APSToCMT2GenPass::getHellaUserCmdBundleType(Builder &builder) {
                                           UIntType::get(context, 8)}});
 }
 
-BundleType APSToCMT2GenPass::getHellaCmdBundleType(Builder &builder) {
+BundleType APSToCMT2Pass::getHellaCmdBundleType(Builder &builder) {
   auto *context = builder.getContext();
   return BundleType::get(
       context, {BundleType::BundleElement{builder.getStringAttr("addr"), false,
@@ -200,7 +200,7 @@ BundleType APSToCMT2GenPass::getHellaCmdBundleType(Builder &builder) {
                                           UIntType::get(context, 4)}});
 }
 
-BundleType APSToCMT2GenPass::getHellaUserRespBundleType(Builder &builder) {
+BundleType APSToCMT2Pass::getHellaUserRespBundleType(Builder &builder) {
   auto *context = builder.getContext();
   return BundleType::get(
       context, {BundleType::BundleElement{builder.getStringAttr("data"), false,
@@ -211,7 +211,7 @@ BundleType APSToCMT2GenPass::getHellaUserRespBundleType(Builder &builder) {
 
 /// Generate Memory Translator module that bridges HellaCache interface with
 /// User Memory Protocol
-Module *APSToCMT2GenPass::generateMemoryAdapter(Circuit &circuit) {
+Module *APSToCMT2Pass::generateMemoryAdapter(Circuit &circuit) {
   auto *translatorModule = circuit.addModule("MemoryTranslator");
   auto &builder = translatorModule->getBuilder();
   auto loc = translatorModule->getLoc();
@@ -721,7 +721,7 @@ Module *APSToCMT2GenPass::generateMemoryAdapter(Circuit &circuit) {
   return translatorModule;
 }
 
-BundleType APSToCMT2GenPass::getRoccCmdBundleType(Builder &builder) {
+BundleType APSToCMT2Pass::getRoccCmdBundleType(Builder &builder) {
   auto *context = builder.getContext();
   return BundleType::get(
       context, {BundleType::BundleElement{builder.getStringAttr("funct"), false,
@@ -746,7 +746,7 @@ BundleType APSToCMT2GenPass::getRoccCmdBundleType(Builder &builder) {
                                           false, UIntType::get(context, 32)}});
 }
 
-BundleType APSToCMT2GenPass::getRoccRespBundleType(Builder &builder) {
+BundleType APSToCMT2Pass::getRoccRespBundleType(Builder &builder) {
   auto *context = builder.getContext();
   return BundleType::get(
       builder.getContext(),
@@ -758,7 +758,7 @@ BundleType APSToCMT2GenPass::getRoccRespBundleType(Builder &builder) {
 
 /// Generate RoCC Adapter module that bridges RoCC interface with accelerator
 /// execution units
-Module *APSToCMT2GenPass::generateRoCCAdapter(
+Module *APSToCMT2Pass::generateRoCCAdapter(
     Circuit &circuit, const llvm::SmallVector<unsigned long, 4> &opcodes) {
   auto *roccAdapterModule = circuit.addModule("RoCCAdapter");
   auto &builder = roccAdapterModule->getBuilder();

@@ -7,7 +7,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
 
-#define DEBUG_TYPE "scf-for-index-cast"
+#define DEBUG_TYPE "normalize-scf-for-indices"
 
 #include "APS/Passes.h"
 #include "APS/PassDetail.h"
@@ -26,7 +26,7 @@ Value castToIndex(OpBuilder &builder, Location loc, Value val) {
 }
 
 // Pattern to convert scf.for loop bounds to index type
-struct SCFForIndexCastPattern : public OpRewritePattern<scf::ForOp> {
+struct NormalizeSCFForIndicesPattern : public OpRewritePattern<scf::ForOp> {
   using OpRewritePattern<scf::ForOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(scf::ForOp forOp,
@@ -59,26 +59,16 @@ struct SCFForIndexCastPattern : public OpRewritePattern<scf::ForOp> {
             ivToUse = builder.create<arith::IndexCastOp>(loc, oldIVType, newIV);
           }
 
-          // Clone the body operations
           IRMapping mapping;
           mapping.map(oldIV, ivToUse);
           for (auto [oldArg, newArg] : llvm::zip(forOp.getRegionIterArgs(), iterArgs)) {
             mapping.map(oldArg, newArg);
           }
 
-          for (auto &op : forOp.getBody()->without_terminator()) {
+          // Clone remaps operands through IRMapping, so uses of the old IV and
+          // old iter args are rewritten to the new loop body values.
+          for (auto &op : forOp.getBody()->getOperations()) {
             builder.clone(op, mapping);
-          }
-
-          // Handle the yield operation
-          if (auto yieldOp = dyn_cast<scf::YieldOp>(forOp.getBody()->getTerminator())) {
-            SmallVector<Value> yieldOperands;
-            for (Value operand : yieldOp.getOperands()) {
-              yieldOperands.push_back(mapping.lookup(operand));
-            }
-            builder.create<scf::YieldOp>(loc, yieldOperands);
-          } else {
-            builder.create<scf::YieldOp>(loc, ValueRange{});
           }
         });
 
@@ -93,13 +83,12 @@ struct SCFForIndexCastPattern : public OpRewritePattern<scf::ForOp> {
   }
 };
 
-struct SCFForIndexCastPass : SCFForIndexCastBase<SCFForIndexCastPass> {
+struct NormalizeSCFForIndicesPass : NormalizeSCFForIndicesBase<NormalizeSCFForIndicesPass> {
   void runOnOperation() override {
     auto op = getOperation();
     RewritePatternSet patterns(&getContext());
-    patterns.add<SCFForIndexCastPattern>(&getContext());
+    patterns.add<NormalizeSCFForIndicesPattern>(&getContext());
     GreedyRewriteConfig config;
-    // Use AnyOp to process nested loops created during rewriting
     config.setStrictness(GreedyRewriteStrictness::AnyOp);
     if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns), config))) {
       signalPassFailure();
@@ -110,7 +99,7 @@ struct SCFForIndexCastPass : SCFForIndexCastBase<SCFForIndexCastPass> {
 } // namespace
 
 namespace mlir {
-  std::unique_ptr<OperationPass<func::FuncOp>> createSCFForIndexCastPass() {
-    return std::make_unique<SCFForIndexCastPass>();
+  std::unique_ptr<OperationPass<func::FuncOp>> createNormalizeSCFForIndicesPass() {
+    return std::make_unique<NormalizeSCFForIndicesPass>();
   }
 }

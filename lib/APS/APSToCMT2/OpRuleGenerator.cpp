@@ -1,7 +1,7 @@
 //===- RuleGeneration.cpp - Rule Generation for TOR Functions -------------===//
 //
 // This file implements the rule generation functionality for TOR functions
-// that was previously in APSToCMT2GenPass.cpp
+// that was previously in APSToCMT2.cpp
 //
 // REFACTORED: Now uses BBHandler for object-oriented basic block management
 // and LoopHandler for FIFO-based loop coordination
@@ -27,7 +27,7 @@ using namespace circt::firrtl;
 
 /// Generate rules for a specific TOR function - proper implementation from
 /// rulegenpass.cpp
-void APSToCMT2GenPass::generateRulesForFunction(
+void APSToCMT2Pass::generateRulesForFunction(
     Module *mainModule, tor::FuncOp funcOp, Instance *poolInstance,
     Instance *roccInstance, Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
     Circuit &circuit, Clock mainClk, Reset mainRst, unsigned long opcode) {

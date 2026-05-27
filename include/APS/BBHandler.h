@@ -41,7 +41,7 @@ class RegisterOpGenerator;
 /// Handles all basic block related operations for rule generation
 class BBHandler {
 public:
-  BBHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp funcOp,
+  BBHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
             Instance *poolInstance, Instance *roccInstance,
             Instance *hellaMemInstance, Instance *regRdInstance,
             InterfaceDecl *dmaItfc, Circuit &circuit, Clock mainClk, Reset mainRst,
@@ -94,7 +94,7 @@ public:
 
 private:
   // Core components
-  APSToCMT2GenPass *pass;
+  APSToCMT2Pass *pass;
   Module *mainModule;
   tor::FuncOp funcOp;
   Instance *poolInstance;

@@ -9,18 +9,17 @@
 
 namespace mlir {
 
-std::unique_ptr<OperationPass<mlir::func::FuncOp>> createSCFForIndexCastPass();
+std::unique_ptr<OperationPass<mlir::func::FuncOp>> createNormalizeSCFForIndicesPass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAPSMemToMemRefPass();
-std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAffineMemToAPSMemPass();
-std::unique_ptr<OperationPass<mlir::func::FuncOp>> createMemRefToAPSMemPass();
-std::unique_ptr<OperationPass<mlir::ModuleOp>> createMemoryMapPass();
-std::unique_ptr<Pass> createInferAffineMemAccessPass();
-std::unique_ptr<OperationPass<mlir::func::FuncOp>> createInferAffineMemAccessNewPass();
-std::unique_ptr<OperationPass<mlir::tor::FuncOp>> createAPSMemLoadDuplicationPass();
-std::unique_ptr<OperationPass<mlir::tor::DesignOp>> createAPSSplitMemoryOpsPass();
-std::unique_ptr<Pass> createAPSHoistReadRFPass();
-std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAPSScalarMemToGlobalPass();
-std::unique_ptr<Pass> createAPSToCMT2GenPass();
+std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAffineMemToAPSPass();
+std::unique_ptr<OperationPass<mlir::func::FuncOp>> createMemRefToAPSPass();
+std::unique_ptr<OperationPass<mlir::ModuleOp>> createAPSMemoryMapPass();
+std::unique_ptr<Pass> createRaiseMemRefToAffinePass();
+std::unique_ptr<OperationPass<mlir::tor::FuncOp>> createDuplicateMemLoadsPass();
+std::unique_ptr<OperationPass<mlir::tor::DesignOp>> createLowerAPSMemToReqCollectPass();
+std::unique_ptr<Pass> createPlaceReadRFAtEntryPass();
+std::unique_ptr<OperationPass<mlir::func::FuncOp>> createPromoteSingletonMemRefToGlobalPass();
+std::unique_ptr<Pass> createAPSToCMT2Pass();
 std::unique_ptr<Pass> createAPSToStandardPass();
 std::unique_ptr<Pass> createCombExtractToArithTruncPass();
 std::unique_ptr<Pass> createArithSelectToSCFIfPass();

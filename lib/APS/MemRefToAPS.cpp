@@ -1,7 +1,6 @@
 #include "APS/Passes.h"
 #include "APS/PassDetail.h"
 #include "APS/APSOps.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -9,32 +8,18 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
 
-#define DEBUG_TYPE "memref-to-aps-mem"
+#define DEBUG_TYPE "memref-to-aps"
+
+namespace aps {
+mlir::SmallVector<mlir::Value>
+castMemoryIndicesToI32(mlir::OpBuilder &builder, mlir::Location loc,
+                       mlir::ValueRange indices);
+} // namespace aps
 
 namespace {
 
 using namespace mlir;
-using namespace mlir::arith;
 using namespace mlir::memref;
-
-// Helper function to cast indices from index type to i32 type
-SmallVector<Value> castIndicesToI32(OpBuilder &builder, Location loc,
-                                     ValueRange indices) {
-  SmallVector<Value> i32CastedIndices;
-  auto i32Type = builder.getI32Type();
-
-  for (Value idx : indices) {
-    // memref operations always use index type, so we cast from index to i32
-    if (idx.getType().isIndex()) {
-      auto casted = builder.create<IndexCastOp>(loc, i32Type, idx);
-      i32CastedIndices.push_back(casted);
-    } else {
-      // Should not happen for memref operations, but handle it anyway
-      i32CastedIndices.push_back(idx);
-    }
-  }
-  return i32CastedIndices;
-}
 
 // Pattern to convert memref.load to aps.memload
 struct MemRefLoadToAPSMemLoadPattern : public OpRewritePattern<LoadOp> {
@@ -50,7 +35,7 @@ struct MemRefLoadToAPSMemLoadPattern : public OpRewritePattern<LoadOp> {
 
     // Cast indices from index to i32 type
     SmallVector<Value> i32CastedIndices =
-        castIndicesToI32(rewriter, loc, indices);
+        aps::castMemoryIndicesToI32(rewriter, loc, indices);
 
     // Get the result type from the original load
     Type resultType = loadOp.getResult().getType();
@@ -81,7 +66,7 @@ struct MemRefStoreToAPSMemStorePattern : public OpRewritePattern<StoreOp> {
 
     // Cast indices from index to i32 type
     SmallVector<Value> i32CastedIndices =
-        castIndicesToI32(rewriter, loc, indices);
+        aps::castMemoryIndicesToI32(rewriter, loc, indices);
 
     // Create aps.memstore with i32-typed indices
     rewriter.create<aps::MemStore>(loc, storeOp.getValue(),
@@ -95,7 +80,7 @@ struct MemRefStoreToAPSMemStorePattern : public OpRewritePattern<StoreOp> {
   }
 };
 
-struct MemRefToAPSMemPass : MemRefMemToAPSMemBase<MemRefToAPSMemPass> {
+struct MemRefToAPSPass : MemRefToAPSBase<MemRefToAPSPass> {
   void runOnOperation() override {
     auto op = getOperation();
     RewritePatternSet patterns(&getContext());
@@ -112,7 +97,7 @@ struct MemRefToAPSMemPass : MemRefMemToAPSMemBase<MemRefToAPSMemPass> {
 } // namespace
 
 namespace mlir {
-std::unique_ptr<OperationPass<func::FuncOp>> createMemRefToAPSMemPass() {
-  return std::make_unique<MemRefToAPSMemPass>();
+std::unique_ptr<OperationPass<func::FuncOp>> createMemRefToAPSPass() {
+  return std::make_unique<MemRefToAPSPass>();
 }
 } // namespace mlir

@@ -390,6 +390,22 @@ def MemEntryOp : APSOp<"mem_entry", [HasParent<"MemoryMapOp">]> {
     UI32Attr : $num_banks,
     UI32Attr : $cyclic
   );
+  let builders = [
+    OpBuilder<(ins "::llvm::StringRef":$name,
+                   "::llvm::ArrayRef<::mlir::Attribute>":$bankSymbols,
+                   "uint32_t":$baseAddress,
+                   "uint32_t":$bankSize,
+                   "uint32_t":$numBanks,
+                   "uint32_t":$cyclic), [{
+      return build($_builder, $_state,
+                   $_builder.getStringAttr(name),
+                   $_builder.getArrayAttr(bankSymbols),
+                   $_builder.getUI32IntegerAttr(baseAddress),
+                   $_builder.getUI32IntegerAttr(bankSize),
+                   $_builder.getUI32IntegerAttr(numBanks),
+                   $_builder.getUI32IntegerAttr(cyclic));
+    }]>
+  ];
   let assemblyFormat = [{
     $name `:` `banks` `(` $bank_symbols `)` `,`
     `base` `(` $base_address `)` `,`

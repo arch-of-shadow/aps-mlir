@@ -33,7 +33,7 @@ using namespace circt::firrtl;
 // Canonical LoopHandler Implementation with Signal EDSL
 //===----------------------------------------------------------------------===//
 
-LoopHandler::LoopHandler(APSToCMT2GenPass *pass, Module *mainModule,
+LoopHandler::LoopHandler(APSToCMT2Pass *pass, Module *mainModule,
                          tor::FuncOp funcOp, Instance *poolInstance,
                          Instance *roccInstance, Instance *hellaMemInstance,
                          InterfaceDecl *dmaItfc, Circuit &circuit,

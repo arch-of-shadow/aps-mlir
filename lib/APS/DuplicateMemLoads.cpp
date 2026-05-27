@@ -10,7 +10,7 @@
 #include "mlir/IR/Dominance.h"
 #include "llvm/Support/Debug.h"
 
-#define DEBUG_TYPE "aps-memload-duplication"
+#define DEBUG_TYPE "duplicate-memloads"
 
 using namespace mlir;
 using namespace aps;
@@ -53,7 +53,7 @@ static bool hasMemoryConflict(Value memref, int64_t cycle, Block *block,
   return false;
 }
 
-struct MemLoadDuplicationPass : public APSMemLoadDuplicationBase<MemLoadDuplicationPass> {
+struct DuplicateMemLoadsPass : public DuplicateMemLoadsBase<DuplicateMemLoadsPass> {
   void runOnOperation() override {
     auto func = getOperation();
 
@@ -169,7 +169,7 @@ struct MemLoadDuplicationPass : public APSMemLoadDuplicationBase<MemLoadDuplicat
 } // namespace
 
 namespace mlir {
-std::unique_ptr<OperationPass<tor::FuncOp>> createAPSMemLoadDuplicationPass() {
-  return std::make_unique<MemLoadDuplicationPass>();
+std::unique_ptr<OperationPass<tor::FuncOp>> createDuplicateMemLoadsPass() {
+  return std::make_unique<DuplicateMemLoadsPass>();
 }
 } // namespace mlir

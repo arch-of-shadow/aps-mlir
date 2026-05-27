@@ -1218,14 +1218,9 @@ void updateMemoryMapEntry(Operation *globalOp, SmallVector<Value> &newArray,
   // Create a new mem_entry with updated banks
   rewriter.setInsertionPoint(targetEntry);
   rewriter.create<aps::MemEntryOp>(
-    targetEntry.getLoc(),
-    targetEntry.getNameAttr(),
-    rewriter.getArrayAttr(newBankSymbols),
-    targetEntry.getBaseAddressAttr(),
-    targetEntry.getBankSizeAttr(),
-    rewriter.getUI32IntegerAttr(numBanks),
-    rewriter.getUI32IntegerAttr(cyclicMode)
-  );
+      targetEntry.getLoc(), targetEntry.getName(), newBankSymbols,
+      targetEntry.getBaseAddress(), targetEntry.getBankSize(), numBanks,
+      cyclicMode);
 
   // Erase the old entry
   rewriter.eraseOp(targetEntry);

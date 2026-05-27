@@ -1,4 +1,4 @@
-//===- APSToCMT2GenPass.cpp - Generate CMT2 hardware from APS TOR --------===//
+//===- APSToCMT2.cpp - Generate CMT2 hardware from APS TOR ------------===//
 //
 // This pass generates a hierarchical CMT2-based scratchpad memory pool from
 // aps.memorymap with burst access support.
@@ -28,7 +28,7 @@
 
 #include "APS/APSToCMT2.h"
 
-#define DEBUG_TYPE "aps-memory-pool-gen"
+#define DEBUG_TYPE "aps-to-cmt2"
 
 namespace mlir {
 
@@ -38,15 +38,15 @@ using namespace circt::cmt2::ecmt2;
 using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
 
-void APSToCMT2GenPass::getDependentDialects(DialectRegistry &registry) const {
+void APSToCMT2Pass::getDependentDialects(DialectRegistry &registry) const {
   registry.insert<aps::APSDialect>();
   registry.insert<circt::cmt2::Cmt2Dialect>();
   registry.insert<FIRRTLDialect>();
 }
 
-void APSToCMT2GenPass::runOnOperation() {
+void APSToCMT2Pass::runOnOperation() {
   ModuleOp moduleOp = getOperation();
-  llvm::dbgs() << "DEBUG: APSToCMT2GenPass::runOnOperation() started\n";
+  llvm::dbgs() << "DEBUG: APSToCMT2Pass::runOnOperation() started\n";
 
   // Find the aps.memorymap operation
   aps::MemoryMapOp memoryMapOp;
@@ -150,7 +150,7 @@ void APSToCMT2GenPass::runOnOperation() {
 // ============================================================================
 
 /// Generate rule-based main module for TOR functions
-MainModuleInstances APSToCMT2GenPass::generateRuleBasedMainModule(
+MainModuleInstances APSToCMT2Pass::generateRuleBasedMainModule(
     ModuleOp moduleOp, Circuit &circuit, Module *poolModule, Module *roccModule,
     Module *hellaMemModule, SmallVector<std::tuple<std::string, int8_t>, 8> glblRegister) {
   // Create main module in the same circuit
@@ -204,6 +204,6 @@ MainModuleInstances APSToCMT2GenPass::generateRuleBasedMainModule(
 
 } // namespace mlir
 
-std::unique_ptr<mlir::Pass> mlir::createAPSToCMT2GenPass() {
-  return std::make_unique<mlir::APSToCMT2GenPass>();
+std::unique_ptr<mlir::Pass> mlir::createAPSToCMT2Pass() {
+  return std::make_unique<mlir::APSToCMT2Pass>();
 }

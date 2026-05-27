@@ -86,7 +86,7 @@ struct LoopInfo {
 /// with the unified block system and producer-responsible FIFO coordination
 class LoopHandler : public BlockHandler {
 public:
-  LoopHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp funcOp,
+  LoopHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
               Instance *poolInstance, Instance *roccInstance,
               Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
               Circuit &circuit, Clock mainClk, Reset mainRst,

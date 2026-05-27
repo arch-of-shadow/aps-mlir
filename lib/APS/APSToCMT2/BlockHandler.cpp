@@ -32,7 +32,7 @@ using namespace circt::firrtl;
 // BlockHandler Implementation
 //===----------------------------------------------------------------------===//
 
-BlockHandler::BlockHandler(APSToCMT2GenPass *pass, Module *mainModule, tor::FuncOp funcOp,
+BlockHandler::BlockHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
                           Instance *poolInstance, Instance *roccInstance,
                           Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
                           Circuit &circuit, Clock mainClk, Reset mainRst,
