@@ -44,7 +44,8 @@ public:
   BBHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
             Instance *poolInstance, Instance *roccInstance,
             Instance *hellaMemInstance, Instance *regRdInstance,
-            InterfaceDecl *dmaItfc, Circuit &circuit, Clock mainClk, Reset mainRst,
+            InterfaceDecl *dmaItfc, InterfaceDecl *csrItfc,
+            Circuit &circuit, Clock mainClk, Reset mainRst,
             unsigned long opcode);
 
   /// Main entry point - analyze and generate rules for all basic blocks
@@ -78,6 +79,7 @@ public:
   Instance *getRoccInstance() const { return roccInstance; }
   Instance *getHellaMemInstance() const { return hellaMemInstance; }
   InterfaceDecl *getDmaInterface() const { return dmaItfc; }
+  InterfaceDecl *getCSRInterface() const { return csrItfc; }
 
   /// Get memory entry map from pass
   const llvm::DenseMap<llvm::StringRef, MemoryEntryInfo> &
@@ -101,6 +103,7 @@ private:
   Instance *roccInstance;
   Instance *hellaMemInstance;
   InterfaceDecl *dmaItfc;
+  InterfaceDecl *csrItfc;
   Circuit &circuit;
   Clock mainClk;
   Reset mainRst;
@@ -449,6 +452,18 @@ private:
   generateCpuRfWrite(aps::CpuRfWrite op, mlir::OpBuilder &b, Location loc,
                      int64_t slot,
                      llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Handle CSR register read
+  LogicalResult
+  generateReadCSR(aps::ReadCSR op, mlir::OpBuilder &b, Location loc,
+                  int64_t slot,
+                  llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Handle CSR register write
+  LogicalResult
+  generateWriteCSR(aps::WriteCSR op, mlir::OpBuilder &b, Location loc,
+                   int64_t slot,
+                   llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 };
 
 } // namespace mlir

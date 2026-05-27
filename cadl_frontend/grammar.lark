@@ -42,6 +42,7 @@ KW_SEL: "sel"
 KW_TRUE: "true"
 KW_FALSE: "false"
 KW_REGFILE: "regfile"
+KW_REGISTER: "register"
 
 // Cast operators
 SIGNED_CAST: "$signed"
@@ -100,6 +101,7 @@ proc: proc_part*
 proc_part: regfile
          | flow
          | static
+         | register
 
 // Data types
 data_type: VARTYPE                                      -> single_type
@@ -152,6 +154,9 @@ flow: attribute* KW_FLOW IDENTIFIER LPAREN fn_arg_list? RPAREN body     -> defau
 
 // Regfile definition
 regfile: KW_REGFILE IDENTIFIER LPAREN NUMBER_LIT COMMA NUMBER_LIT RPAREN SEMICOLON
+
+// Register definition
+register: attribute* KW_REGISTER IDENTIFIER COLON data_type SEMICOLON
 
 // Expression hierarchy (from lowest to highest precedence, matching LALRPOP)
 ?expr: logical_or_expr

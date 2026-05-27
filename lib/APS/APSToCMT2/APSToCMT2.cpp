@@ -93,6 +93,7 @@ void APSToCMT2Pass::runOnOperation() {
 
   addBurstMemoryInterface(circuit);
   addRoccAndHellaMemoryInterface(circuit);
+  addCSRInterface(circuit, moduleOp);
   auto memoryPoolResult = generateMemoryPool(circuit, moduleOp, memoryMapOp);
   Module *poolModule = memoryPoolResult.poolModule;
   memEntryMap = std::move(memoryPoolResult.memEntryMap);
@@ -167,6 +168,7 @@ MainModuleInstances APSToCMT2Pass::generateRuleBasedMainModule(
       mainModule->defineInterfaceDecl("dma", "BurstDMAController");
   mainModule->defineInterfaceDecl("rocc_resp", "roccRespItfc");
   mainModule->defineInterfaceDecl("hella_cmd", "hellaCmdItfc");
+  auto *csrItfcDecl = mainModule->defineInterfaceDecl("csr", "csrItfc");
 
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
@@ -194,8 +196,9 @@ MainModuleInstances APSToCMT2Pass::generateRuleBasedMainModule(
     auto opcode = funcOp->getAttrOfType<IntegerAttr>("opcode").getInt();
     auto funct7 = funcOp->getAttrOfType<IntegerAttr>("funct7").getInt();
     generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance,
-                             hellaMemInstance, burstControllerItfcDecl, circuit,
-                             mainClk, mainRst, (opcode << 8) + funct7);
+                             hellaMemInstance, burstControllerItfcDecl,
+                             csrItfcDecl, circuit, mainClk, mainRst,
+                             (opcode << 8) + funct7);
                              // we now use both opcode and funct7 to identify functions
   }
 

@@ -30,10 +30,12 @@ using namespace circt::firrtl;
 BBHandler::BBHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
                     Instance *poolInstance, Instance *roccInstance,
                     Instance *hellaMemInstance, Instance *regRdInstance,
-                    InterfaceDecl *dmaItfc, Circuit &circuit, Clock mainClk, Reset mainRst,
+                    InterfaceDecl *dmaItfc, InterfaceDecl *csrItfc,
+                    Circuit &circuit, Clock mainClk, Reset mainRst,
                     unsigned long opcode)
     : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
       roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), dmaItfc(dmaItfc),
+      csrItfc(csrItfc),
       circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode), regRdInstance(regRdInstance) {
 
   // Initialize operation generators
@@ -197,7 +199,8 @@ LogicalResult BBHandler::validateOperations() {
         continue;
       if (isa<mlir::arith::CmpIOp>(op))
         continue;
-      if (isa<aps::GlobalLoad, aps::GlobalStore>(op)) {
+      if (isa<aps::GlobalLoad, aps::GlobalStore, aps::ReadCSR,
+              aps::WriteCSR>(op)) {
         continue;
       }
       if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq,

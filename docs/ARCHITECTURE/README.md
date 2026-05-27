@@ -40,20 +40,33 @@ Partitioned scratchpad memory for ISAX computation:
 
 Maps APS-Itfc to Rocket Custom Coprocessor (RoCC) interface.
 
+### 5. CSR Integration
+
+Connects Rocket RoCC custom CSRs to APS generated tops as flattened configuration/status ports.
+
+See [aps-csr.md](aps-csr.md) for details.
+
+### 6. Port Naming and Call Convention
+
+Defines generated top port names, YAML-driven CSR pin naming, and RoCC/CSR call boundaries.
+
+See [aps-port-convention.md](aps-port-convention.md) for details.
+
 ## Quick Start
 
 ### Configure Integration
 
-Edit `aps_config.json`:
+Edit `aps_config.yaml`:
 
-```json
-{
-    "backend": "rocc",
-    "arch": "rv32",
-    "vsrc": ["wrapper_dma_trig.sv", "tl_dma_2ch_v2.sv", "v3ddist_vv.sv"],
-    "maxBurstBytes": 128,
-    "nXacts": 2
-}
+```yaml
+backend: rocc
+arch: rv32
+vsrc:
+  - wrapper_dma_trig.sv
+  - tl_dma_2ch_v2.sv
+  - v3ddist_vv.sv
+maxBurstBytes: 128
+nXacts: 2
 ```
 
 ### Run RTL Simulation
@@ -129,4 +142,6 @@ Compute squared Euclidean distances between 16 point pairs:
 
 - [aps-itfc.md](aps-itfc.md) - Detailed interface specification
 - [dma-engine.md](dma-engine.md) - DMA engine and memory system
+- [aps-csr.md](aps-csr.md) - RoCC custom CSR integration
+- [aps-port-convention.md](aps-port-convention.md) - Generated top port naming and call convention
 - [deployment.md](deployment.md) - FPGA deployment guide

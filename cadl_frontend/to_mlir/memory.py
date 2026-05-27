@@ -12,6 +12,42 @@ from .types import cast_cadl_type_to_mlir
 from .. import cadl_ast
 
 
+def _create_symbol_read_op(
+    op_class_name: str,
+    op_name: str,
+    result_type: ir.Type,
+    symbol_ref: ir.FlatSymbolRefAttr,
+) -> ir.Value:
+    op_class = getattr(aps, op_class_name, None)
+    if op_class is not None:
+        return op_class(result_type, symbol_ref).result
+
+    op = ir.Operation.create(
+        op_name,
+        results=[result_type],
+        attributes={"global_name": symbol_ref},
+    )
+    return op.results[0]
+
+
+def _create_symbol_write_op(
+    op_class_name: str,
+    op_name: str,
+    value: ir.Value,
+    symbol_ref: ir.FlatSymbolRefAttr,
+) -> None:
+    op_class = getattr(aps, op_class_name, None)
+    if op_class is not None:
+        op_class(value, symbol_ref)
+        return
+
+    ir.Operation.create(
+        op_name,
+        operands=[value],
+        attributes={"global_name": symbol_ref},
+    )
+
+
 def function_uses_memory(function) -> bool:
     """Return true when a function-like AST node uses _mem."""
     if not function.body:
@@ -128,17 +164,46 @@ class GlobalEmitter:
         self, static: cadl_ast.Static, set_symbol: Callable[[str, str], None]
     ) -> None:
         """Convert a CADL static declaration to memref.global."""
-        mlir_type = cast_cadl_type_to_mlir(static.ty)
-        global_name = static.id
+        self._convert_global_decl(
+            name=static.id,
+            ty=static.ty,
+            attrs=static.attrs,
+            expr=static.expr,
+            set_symbol=set_symbol,
+        )
+
+    def convert_register(
+        self, register: cadl_ast.Register, set_symbol: Callable[[str, str], None]
+    ) -> None:
+        """Convert a CADL register declaration to a scalar memref.global."""
+        self._convert_global_decl(
+            name=register.name,
+            ty=register.ty,
+            attrs=register.attrs,
+            expr=None,
+            set_symbol=set_symbol,
+        )
+
+    def _convert_global_decl(
+        self,
+        name: str,
+        ty: cadl_ast.DataType,
+        attrs: dict[str, Optional[cadl_ast.Expr]],
+        expr: Optional[cadl_ast.Expr],
+        set_symbol: Callable[[str, str], None],
+    ) -> None:
+        """Convert a top-level storage declaration to memref.global."""
+        mlir_type = cast_cadl_type_to_mlir(ty)
+        global_name = name
 
         initial_value = None
         initial_values_list = None
-        if static.expr:
-            if isinstance(static.expr, cadl_ast.LitExpr):
-                initial_value = static.expr.literal.lit.value
-            elif isinstance(static.expr, cadl_ast.AggregateExpr):
+        if expr:
+            if isinstance(expr, cadl_ast.LitExpr):
+                initial_value = expr.literal.lit.value
+            elif isinstance(expr, cadl_ast.AggregateExpr):
                 initial_values_list = []
-                for elem_expr in static.expr.elements:
+                for elem_expr in expr.elements:
                     if isinstance(elem_expr, cadl_ast.LitExpr):
                         initial_values_list.append(elem_expr.literal.lit.value)
                     else:
@@ -184,13 +249,13 @@ class GlobalEmitter:
         global_op.attributes["var_name"] = ir.StringAttr.get(global_name)
         self.global_ops[global_name] = global_op
 
-        if static.attrs:
-            for attr_name, attr_value in static.attrs.items():
+        if attrs:
+            for attr_name, attr_value in attrs.items():
                 mlir_attr = self.convert_attribute_value(attr_value)
                 if mlir_attr is not None:
                     global_op.attributes[attr_name] = mlir_attr
 
-        set_symbol(static.id, global_name)
+        set_symbol(name, global_name)
 
     def convert_attribute_value(self, expr: Optional[cadl_ast.Expr]) -> Optional[ir.Attribute]:
         """Convert CADL static/directive attribute syntax to MLIR attributes."""
@@ -257,6 +322,20 @@ class MemoryEmitter:
                 result_type = ir.IntegerType.get_signless(32)
                 return aps.CpuRfRead(result_type, reg_index).result
 
+            if base_name == "_csr":
+                if len(expr.indices) != 1:
+                    raise ValueError("_csr access requires exactly one index")
+                csr_name = self.get_csr_name(expr.indices[0])
+                symbol_ref = ir.FlatSymbolRefAttr.get(csr_name)
+                element_type = c.global_emitter.element_type(csr_name)
+                if element_type is None:
+                    raise RuntimeError(
+                        f"Cannot infer CSR register element type for {csr_name}"
+                    )
+                return _create_symbol_read_op(
+                    "ReadCSR", "aps.readcsr", element_type, symbol_ref
+                )
+
             if base_name == "_mem":
                 if len(expr.indices) != 1:
                     raise ValueError("_mem access requires exactly one index")
@@ -313,6 +392,19 @@ class MemoryEmitter:
 
                 reg_index = c._convert_expr(lhs.indices[0])
                 aps.CpuRfWrite(reg_index, rhs_value)
+                return
+
+            if base_name == "_csr":
+                if len(lhs.indices) != 1:
+                    raise ValueError("_csr assignment requires exactly one index")
+                csr_name = self.get_csr_name(lhs.indices[0])
+                target_type = c.global_emitter.element_type(csr_name)
+                if target_type is not None:
+                    rhs_value = c.expr_emitter.cast_type(rhs_value, target_type)
+                symbol_ref = ir.FlatSymbolRefAttr.get(csr_name)
+                _create_symbol_write_op(
+                    "WriteCSR", "aps.writecsr", rhs_value, symbol_ref
+                )
                 return
 
             if base_name == "_mem":
@@ -478,6 +570,19 @@ class MemoryEmitter:
             raise ValueError(f"Cannot find static definition for global: {symbol_name}")
 
         return symbol_value
+
+    def get_csr_name(self, expr: cadl_ast.Expr) -> str:
+        """Resolve _csr[name] to a declared CSR register symbol."""
+        c = self.converter
+        if not isinstance(expr, cadl_ast.IdentExpr):
+            raise ValueError("_csr access expects a register name, e.g. _csr[cfg]")
+
+        csr_name = expr.name
+        if csr_name not in c.proc.csrs:
+            raise ValueError(f"Undefined CSR register: {csr_name}")
+        if csr_name not in c.global_ops:
+            raise RuntimeError(f"CSR register {csr_name} was not lowered as a global")
+        return csr_name
 
     def apply_pending_directives(self, op) -> None:
         """Apply and clear pending directives on a burst operation."""

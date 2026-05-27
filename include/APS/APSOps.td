@@ -286,6 +286,37 @@ def GlobalStore : APSOp<"globalstore", [MemoryEffects<[MemRead, MemWrite]>]> {
   let hasCanonicalizer = 1;
 }
 
+def ReadCSR : APSOp<"readcsr", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "read custom CSR register";
+  let description = [{
+    Reads a value from a top-level CADL register declared with
+    #[csr_address(...)].
+
+    The referenced symbol is still represented as a scalar memref.global so
+    metadata such as csr_address can stay attached to the declaration, but the
+    operation is semantically a CSR access rather than an ordinary global load.
+
+    Example:
+      %value = aps.readcsr @cfg : i32
+  }];
+  let arguments = (ins FlatSymbolRefAttr:$global_name);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$global_name attr-dict `:` type($result)";
+}
+
+def WriteCSR : APSOp<"writecsr", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "write custom CSR register";
+  let description = [{
+    Writes a value to a top-level CADL register declared with
+    #[csr_address(...)].
+
+    Example:
+      aps.writecsr %value, @cfg : i32
+  }];
+  let arguments = (ins AnyType:$value, FlatSymbolRefAttr:$global_name);
+  let assemblyFormat = "$value `,` $global_name attr-dict `:` type($value)";
+}
+
 def MemBurstLoad : APSOp<"memburstload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "burst load from CPU memory to APS scratchpad memory";
   let description = [{

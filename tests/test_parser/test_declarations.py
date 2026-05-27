@@ -178,6 +178,81 @@ class TestStaticAttributes:
         assert "partition" in buffer3.attrs
 
 
+class TestCSRRegisterDeclarations:
+    """Test custom CSR register declaration parsing"""
+
+    def test_csr_register_with_address(self):
+        """Test CSR register declaration with address attribute"""
+        source = """
+        #[csr_address(0x801)]
+        register cfg: u32;
+        """
+        ast = parse_proc(source)
+
+        assert len(ast.registers) == 1
+        assert len(ast.csrs) == 1
+        csr = ast.csrs["cfg"]
+        assert csr.name == "cfg"
+        assert csr.is_csr
+        assert isinstance(csr.ty, cadl_ast.DataType_Single)
+        assert "csr_address" in csr.attrs
+        assert csr.address == 0x801
+
+    def test_multiple_csr_registers(self):
+        """Test multiple CSR register declarations"""
+        source = """
+        #[csr_address(0x801)]
+        register cfg: u32;
+
+        #[csr_address(0x802)]
+        register status: u32;
+        """
+        ast = parse_proc(source)
+
+        assert list(ast.registers.keys()) == ["cfg", "status"]
+        assert list(ast.csrs.keys()) == ["cfg", "status"]
+        assert ast.csrs["cfg"].address == 0x801
+        assert ast.csrs["status"].address == 0x802
+
+    def test_csr_access_uses_special_csr_index(self):
+        """Test _csr[name] parses as an indexed CSR special expression"""
+        source = """
+        #[csr_address(0x801)]
+        register cfg: u32;
+
+        rtype test(rd: u5) {
+            let value: u32 = _csr[cfg];
+            _irf[rd] = value;
+        }
+        """
+        ast = parse_proc(source)
+        flow = ast.flows["test"]
+        assign = flow.body[0]
+
+        assert isinstance(assign.rhs, cadl_ast.IndexExpr)
+        assert isinstance(assign.rhs.expr, cadl_ast.IdentExpr)
+        assert assign.rhs.expr.name == "_csr"
+        assert isinstance(assign.rhs.indices[0], cadl_ast.IdentExpr)
+        assert assign.rhs.indices[0].name == "cfg"
+
+    def test_register_without_csr_is_not_implemented(self):
+        """Test non-CSR register declarations are accepted by syntax but unsupported"""
+        source = """
+        register state: u32;
+        """
+        with pytest.raises(Exception, match="Only #\\[csr_address"):
+            parse_proc(source)
+
+    def test_register_type_first_is_rejected(self):
+        """Test register: type name syntax is intentionally rejected"""
+        source = """
+        #[csr_address(0x801)]
+        register: u32 cfg;
+        """
+        with pytest.raises(Exception):
+            parse_proc(source)
+
+
 class TestDeclarationCombinations:
     """Test combinations of declarations"""
 

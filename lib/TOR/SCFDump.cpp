@@ -339,6 +339,15 @@ namespace {
                 j["op_type"] = "globalstore";
                 j["memory"] = globalStoreOp.getGlobalName();
                 j["value"] = get_value(globalStoreOp.getValue());
+            } else if (auto readCSROp = dyn_cast<aps::ReadCSR>(op)) {
+                // Handle aps.readcsr - read a custom CSR register
+                j["op_type"] = "readcsr";
+                j["memory"] = readCSROp.getGlobalName();
+            } else if (auto writeCSROp = dyn_cast<aps::WriteCSR>(op)) {
+                // Handle aps.writecsr - write a custom CSR register
+                j["op_type"] = "writecsr";
+                j["memory"] = writeCSROp.getGlobalName();
+                j["value"] = get_value(writeCSROp.getValue());
             } else if (auto memBurstStoreOp = dyn_cast<aps::MemBurstStore>(op)) {
                 // Handle aps.memburststore - burst store from APS scratchpad to CPU
                 j["op_type"] = "memburststore";

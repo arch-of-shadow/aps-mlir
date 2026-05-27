@@ -30,7 +30,8 @@ using namespace circt::firrtl;
 void APSToCMT2Pass::generateRulesForFunction(
     Module *mainModule, tor::FuncOp funcOp, Instance *poolInstance,
     Instance *roccInstance, Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
-    Circuit &circuit, Clock mainClk, Reset mainRst, unsigned long opcode) {
+    InterfaceDecl *csrItfc, Circuit &circuit, Clock mainClk, Reset mainRst,
+    unsigned long opcode) {
 
   // First, check if function contains loops - if so, use LoopHandler
   bool hasLoops = false;
@@ -62,8 +63,8 @@ void APSToCMT2Pass::generateRulesForFunction(
   // Create BlockHandler to manage all blocks with FIFO coordination
   // BlockHandler will internally delegate to specialized handlers (LoopHandler, BBHandler) as needed
   BlockHandler blockHandler(this, mainModule, funcOp, poolInstance,
-                           roccInstance, hellaMemInstance, dmaItfc, circuit,
-                           mainClk, mainRst, opcode, regRdInstance,
+                           roccInstance, hellaMemInstance, dmaItfc, csrItfc,
+                           circuit, mainClk, mainRst, opcode, regRdInstance,
                            topLevelInputTokenFIFO, topLevelOutputTokenFIFO,
                            topLevelInputFIFOs, topLevelOutputFIFOs);
 

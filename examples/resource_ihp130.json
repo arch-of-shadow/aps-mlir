@@ -15,6 +15,8 @@
   "memport": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [1, 1, 1, 1, 1, 1, 1], "II": 1, "constr": 1, "amount": 1},
   "readrf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [1, 1, 1, 1, 1, 1, 1], "II": 1, "constr": 0, "amount": -1},
   "writerf": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [1, 1, 1, 1, 1, 1, 1], "II": 1, "constr": 0, "amount": -1},
+  "readcsr": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [0, 0, 0, 0, 0, 0, 0], "II": 1, "constr": 0, "amount": -1},
+  "writecsr": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [1, 1, 1, 1, 1, 1, 1], "II": 1, "constr": 0, "amount": -1},
   "select": {"delay": [0.04, 0.09, 0.19, 0.4, 0.97, 1.67, 3.14], "latency": [0, 0, 0, 0, 0, 0, 0], "II": 1, "constr": 0, "amount": -1},
   "nop": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [0, 0, 0, 0, 0, 0, 0], "II": 1, "constr": 0, "amount": -1},
   "tl": {"delay": [0, 0, 0, 0, 0, 0, 0], "latency": [15, 15, 15, 15, 15, 15, 15], "II": 15, "constr": 1, "amount": 2}

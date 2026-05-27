@@ -36,12 +36,12 @@ extract_pass_dump() {
 LOG_FILE="${LOG_FILE:-$OUT_DIR/${NAME}.log}"
 
 PASS_SPECS=(
-  "memory-map|memory-map|$OUT_DIR/1_${NAME}_memory-map.mlir"
-  "infer-affine-mem-access|infer-affine-mem-access|$OUT_DIR/2_${NAME}_affine.mlir"
+  "aps-memory-map|aps-memory-map|$OUT_DIR/1_${NAME}_aps-memory-map.mlir"
+  "raise-memref-to-affine|raise-memref-to-affine|$OUT_DIR/2_${NAME}_affine.mlir"
   "hls-unroll|hls-unroll|$OUT_DIR/3_${NAME}_unroll.mlir"
   "array-partition|new-array-partition|$OUT_DIR/4_${NAME}_array-partition.mlir"
   "tor-timegraph|tor-time-graph|$OUT_DIR/5_${NAME}_scheduled.mlir"
-  "aps-to-cmt2-gen|aps-to-cmt2-gen|$OUT_DIR/6_${NAME}_cmt2.mlir"
+  "aps-to-cmt2|aps-to-cmt2|$OUT_DIR/6_${NAME}_cmt2.mlir"
 )
 
 for spec in "${PASS_SPECS[@]}"; do

@@ -310,6 +310,45 @@ class TestStaticMLIR:
 
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
+class TestCSRRegisterMLIR:
+    def test_csr_register_lowers_to_global_with_address_attr(self):
+        mlir = verify_mlir("""
+        #[csr_address(0x801)]
+        register cfg: u32;
+
+        rtype test(rd: u5) {
+            let value: u32 = _csr[cfg];
+            _irf[rd] = value;
+        }
+        """)
+        mlir.assert_global(
+            "cfg",
+            type_="memref<i32>",
+            attrs={"csr_address": "2049 : i32", "var_name": '"cfg"'},
+        )
+        mlir.assert_op_count("aps.readcsr", exactly=1)
+        mlir.assert_op_attr("aps.readcsr", "global_name", "@cfg")
+        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "aps.readcsr")
+
+    def test_csr_register_store_uses_writecsr(self):
+        mlir = verify_mlir("""
+        #[csr_address(0x801)]
+        register cfg: u32;
+
+        rtype test(value: u32) {
+            _csr[cfg] = value;
+        }
+        """)
+        mlir.assert_global(
+            "cfg",
+            type_="memref<i32>",
+            attrs={"csr_address": "2049 : i32", "var_name": '"cfg"'},
+        )
+        mlir.assert_op_count("aps.writecsr", exactly=1)
+        mlir.assert_op_attr("aps.writecsr", "global_name", "@cfg")
+
+
+@pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
 class TestControlFlowMLIR:
     def test_if_expression(self):
         mlir = verify_mlir("""

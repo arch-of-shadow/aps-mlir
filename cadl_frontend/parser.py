@@ -688,6 +688,25 @@ class CADLTransformer(Transformer):
         depth = int(str(items[5]))  # Skip COMMA
         return cadl_ast.Regfile(name, width, depth)
 
+    # Register definition
+    def register(self, items):
+        attrs = []
+        idx = 0
+        while idx < len(items) and isinstance(items[idx], tuple):
+            attrs.append(items[idx])
+            idx += 1
+
+        # Grammar: attribute* KW_REGISTER IDENTIFIER COLON data_type SEMICOLON
+        name = str(items[idx + 1])
+        type_info = items[idx + 3]
+        attr_dict = dict(attrs) if attrs else {}
+        register = cadl_ast.Register(name, type_info, attr_dict)
+        if not register.is_csr:
+            raise NotImplementedError(
+                "Only #[csr_address(...)] register declarations are supported for now"
+            )
+        return register
+
     # Processor parts
     def proc_part(self, items):
         part = items[0]
@@ -697,6 +716,8 @@ class CADLTransformer(Transformer):
             return cadl_ast.FlowPart(part)
         elif isinstance(part, cadl_ast.Static):
             return cadl_ast.StaticPart(part)
+        elif isinstance(part, cadl_ast.Register):
+            return cadl_ast.RegisterPart(part)
         return part
 
     # Main processor
@@ -758,14 +779,14 @@ class CADLParser:
             # Convert Lark errors to pretty CADL errors (no chaining to hide traceback)
             raise format_lark_error(e, source, filename, self.parser.parse)
         except VisitError as e:
-            if isinstance(e.orig_exc, ValueError):
+            if isinstance(e.orig_exc, (ValueError, NotImplementedError)):
                 raise CADLParseError(
                     str(e.orig_exc), 0, 0, filename, source.splitlines()
                 )
             raise CADLParseError(
                 f"Internal error: {e}", 1, 1, filename, source.splitlines()
             )
-        except ValueError as e:
+        except (ValueError, NotImplementedError) as e:
             raise CADLParseError(str(e), 1, 1, filename, source.splitlines())
         except Exception as e:
             # Handle transformer errors and other issues

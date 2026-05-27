@@ -1,0 +1,48 @@
+// Minimal CSR + partitioned-memory graphics example.
+//
+// Input layout at rs1:
+//   16 u32 pixel values
+//
+// Output layout at rs2:
+//   16 u32 pixel values after per-pixel affine adjustment
+//
+// CSR configuration:
+//   gain_cfg: Q8 multiplier, address 0x801
+//   bias_cfg: additive offset, address 0x802
+
+#[csr_address(0x801)]
+register gain_cfg: u32;
+
+#[csr_address(0x802)]
+register bias_cfg: u32;
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static in_px: [u32; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static out_px: [u32; 16];
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0011110)]
+rtype csr_partition_loop(rs1: u5, rs2: u5, rd: u5) {
+    let in_addr: u32 = _irf[rs1];
+    let out_addr: u32 = _irf[rs2];
+    let gain: u32 = _csr[gain_cfg];
+    let bias: u32 = _csr[bias_cfg];
+
+    in_px[0 +: ] = _burst_read[in_addr +: 16];
+
+    [[unroll(4)]]
+    with i: u32 = (0, i_) do {
+        let px: u32 = in_px[i];
+        out_px[i] = ((px * gain) >> 8) + bias;
+        let i_: u32 = i + 1;
+    } while (i_ < 16);
+
+    _burst_write[out_addr +: 16] = out_px[0 +: ];
+    _irf[rd] = 0;
+}

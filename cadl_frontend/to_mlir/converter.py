@@ -159,6 +159,9 @@ class CADLMLIRConverter:
                 for static in proc.statics.values():
                     self.global_emitter.convert_static(static, self.set_symbol)
 
+                for register in proc.registers.values():
+                    self.global_emitter.convert_register(register, self.set_symbol)
+
                 for flow in proc.flows.values():
                     self._convert_flow(flow)
 

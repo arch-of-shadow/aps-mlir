@@ -121,6 +121,8 @@ private:
 
   void addRoccAndHellaMemoryInterface(Circuit &circuit);
 
+  void addCSRInterface(Circuit &circuit, ModuleOp moduleOp);
+
   /// Generate a bank wrapper module that encapsulates bank selection and data
   /// alignment
   Module *generateBankWrapperModule(const MemoryEntryInfo &entryInfo,
@@ -193,7 +195,8 @@ public:
   void generateRulesForFunction(Module *mainModule, tor::FuncOp funcOp,
                                 Instance *poolInstance, Instance *roccInstance,
                                 Instance *hellaMemInstance,
-                                InterfaceDecl *dmaItfc, Circuit &circuit,
+                                InterfaceDecl *dmaItfc,
+                                InterfaceDecl *csrItfc, Circuit &circuit,
                                 Clock mainClk, Reset mainRst,
                                 unsigned long opcode);
 

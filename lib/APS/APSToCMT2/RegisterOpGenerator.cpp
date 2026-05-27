@@ -16,6 +16,10 @@ using namespace circt::cmt2::ecmt2;
 using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
 
+static std::string getCSRPortPrefix(llvm::StringRef csrName) {
+  return csrName.str();
+}
+
 LogicalResult RegisterOpGenerator::generateRule(Operation *op, mlir::OpBuilder &b,
                                               Location loc, int64_t slot,
                                               llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
@@ -23,13 +27,17 @@ LogicalResult RegisterOpGenerator::generateRule(Operation *op, mlir::OpBuilder &
     return generateCpuRfRead(readRf, b, loc, slot, localMap);
   } else if (auto writeRf = dyn_cast<aps::CpuRfWrite>(op)) {
     return generateCpuRfWrite(writeRf, b, loc, slot, localMap);
+  } else if (auto readCSR = dyn_cast<aps::ReadCSR>(op)) {
+    return generateReadCSR(readCSR, b, loc, slot, localMap);
+  } else if (auto writeCSR = dyn_cast<aps::WriteCSR>(op)) {
+    return generateWriteCSR(writeCSR, b, loc, slot, localMap);
   }
 
   return failure();
 }
 
 bool RegisterOpGenerator::canHandle(Operation *op) const {
-  return isa<aps::CpuRfRead, aps::CpuRfWrite>(op);
+  return isa<aps::CpuRfRead, aps::CpuRfWrite, aps::ReadCSR, aps::WriteCSR>(op);
 }
 
 LogicalResult RegisterOpGenerator::generateCpuRfRead(aps::CpuRfRead op, mlir::OpBuilder &b,
@@ -98,6 +106,40 @@ LogicalResult RegisterOpGenerator::generateCpuRfWrite(aps::CpuRfWrite op, mlir::
 
   bbHandler->getRoccInstance()->callMethod("resp_from_user", {bundleValue}, b);
   // writerf doesn't produce a result, just performs the write
+  return success();
+}
+
+LogicalResult RegisterOpGenerator::generateReadCSR(
+    aps::ReadCSR op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  auto *csrItfc = bbHandler->getCSRInterface();
+  if (!csrItfc)
+    return op.emitError("CSR interface not available");
+
+  auto csrPrefix = getCSRPortPrefix(op.getGlobalName());
+  auto values = csrItfc->callValue(csrPrefix + "_value", b);
+  if (values.empty())
+    return op.emitError("failed to call CSR value interface for ")
+           << op.getGlobalName();
+
+  localMap[op.getResult()] = values[0];
+  return success();
+}
+
+LogicalResult RegisterOpGenerator::generateWriteCSR(
+    aps::WriteCSR op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  auto data = getValueInRule(op.getValue(), op.getOperation(), 0, b, localMap,
+                             loc);
+  if (failed(data))
+    return failure();
+
+  auto *csrItfc = bbHandler->getCSRInterface();
+  if (!csrItfc)
+    return op.emitError("CSR interface not available");
+
+  auto csrPrefix = getCSRPortPrefix(op.getGlobalName());
+  csrItfc->callMethod(csrPrefix + "_set", {*data}, b);
   return success();
 }
 

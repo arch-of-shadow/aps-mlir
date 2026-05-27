@@ -6,15 +6,16 @@ MLIR transformation passes for the APS synthesis flow.
 
 | Pass | Purpose |
 |------|---------|
-| `memory-map` | Assign addresses to scratchpad memories |
-| `raise-to-affine` | Convert SCF loops to Affine dialect |
+| `aps-memory-map` | Assign addresses to scratchpad memories |
+| `normalize-scf-for-indices` | Normalize SCF loop bounds to index type |
+| `raise-scf-to-affine` | Convert SCF loops to Affine dialect |
 | `hls-unroll` | Apply loop unrolling directives |
-| `array-partition` | Partition arrays for parallel access |
-| `infer-affine-mem` | Infer affine memory patterns |
+| `new-array-partition` | Partition arrays for parallel access |
+| `raise-memref-to-affine` | Raise affine memref accesses to affine.load/store |
 
 ## Memory Map Pass
 
-**Location**: `lib/TOR/MemoryMapPass.cpp`
+**Location**: `lib/APS/APSMemoryMap.cpp`
 
 Creates a memory map tracking: memory name, bank assignments, base address, size, and partition info.
 
@@ -93,10 +94,6 @@ Distributes array elements across multiple memory banks for parallel access.
 ## Pass Options
 
 ```bash
-# Memory Map
---memory-map-base=0x1000     # Starting address
---memory-map-alignment=64    # Bank alignment
-
 # HLS Unroll
 --unroll-full-threshold=16   # Max trip count for full unroll
 
@@ -109,14 +106,10 @@ Distributes array elements across multiple memory banks for parallel access.
 
 ```bash
 # View intermediate IR after each pass
-pixi run mlir-opt input.mlir --memory-map -o step1.mlir
-pixi run mlir-opt step1.mlir --raise-to-affine -o step2.mlir
+pixi run mlir-opt input.mlir --aps-memory-map -o step1.mlir
+pixi run mlir-opt step1.mlir --raise-scf-to-affine -o step2.mlir
 pixi run mlir-opt step2.mlir --hls-unroll -o step3.mlir
-pixi run mlir-opt step3.mlir --array-partition -o step4.mlir
-
-# Dump analysis info
-pixi run mlir-opt input.mlir --memory-map --dump-memory-map
-pixi run mlir-opt input.mlir --array-partition --dump-partition-info
+pixi run mlir-opt step3.mlir --new-array-partition -o step4.mlir
 ```
 
 ## Common Issues

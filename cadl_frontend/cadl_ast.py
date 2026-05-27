@@ -66,6 +66,7 @@ __all__ = [
     "WithBinding",
     "FnArg",
     "Static",
+    "Register",
     "FlowKind",
     "FlowAttributes",
     "Flow",
@@ -74,6 +75,7 @@ __all__ = [
     "RegfilePart",
     "FlowPart",
     "StaticPart",
+    "RegisterPart",
     "Proc",
     "expr_is_lval",
     "expr_as_literal",
@@ -645,6 +647,42 @@ class Static:
             return f"{attrs_str}{self.id}: {self.ty}"
 
 
+@dataclass
+class Register:
+    """Top-level register declaration."""
+
+    name: str
+    ty: DataType
+    attrs: Dict[str, Optional[Expr]] = field(default_factory=dict)
+
+    @property
+    def is_csr(self) -> bool:
+        """Return true when this register uses the CSR backend."""
+        return "csr_address" in self.attrs
+
+    @property
+    def address(self) -> Optional[int]:
+        """Return the #[csr_address(...)] value when it is statically known."""
+        address_expr = self.attrs.get("csr_address")
+        if isinstance(address_expr, LitExpr):
+            lit_inner = address_expr.literal.lit
+            if isinstance(lit_inner, LiteralInner_Fixed):
+                return lit_inner.value
+        return None
+
+    def __str__(self) -> str:
+        attrs_str = ""
+        if self.attrs:
+            attr_list = []
+            for name, value in self.attrs.items():
+                if value is not None:
+                    attr_list.append(f"#[{name}({value})]")
+                else:
+                    attr_list.append(f"#[{name}]")
+            attrs_str = " ".join(attr_list) + " "
+        return f"{attrs_str}register {self.name}: {self.ty}"
+
+
 # Flow-related structures
 class FlowKind(Enum):
     DEFAULT = "default"
@@ -765,12 +803,25 @@ class StaticPart(ProcPart):
 
 
 @dataclass
+class RegisterPart(ProcPart):
+    """Register processor part"""
+
+    register: Register
+
+
+@dataclass
 class Proc:
     """Main processor structure"""
 
     regfiles: Map[str, Regfile] = field(default_factory=dict)
     flows: Map[str, Flow] = field(default_factory=dict)
     statics: Map[str, Static] = field(default_factory=dict)
+    registers: Map[str, Register] = field(default_factory=dict)
+
+    @property
+    def csrs(self) -> Map[str, Register]:
+        """Current supported register backend: registers marked with #[csr_address]."""
+        return {name: reg for name, reg in self.registers.items() if reg.is_csr}
 
     def get_flows(self) -> List[Flow]:
         """Get all flows"""
@@ -784,6 +835,8 @@ class Proc:
             self.flows[part.flow.name] = part.flow
         elif isinstance(part, StaticPart):
             self.statics[part.static.id] = part.static
+        elif isinstance(part, RegisterPart):
+            self.registers[part.register.name] = part.register
 
     def __str__(self) -> str:
         parts = []
@@ -793,6 +846,8 @@ class Proc:
             parts.append(f"{len(self.flows)} flows")
         if self.statics:
             parts.append(f"{len(self.statics)} statics")
+        if self.registers:
+            parts.append(f"{len(self.registers)} registers")
         return f"Proc({', '.join(parts)})"
 
     def pretty_print(self) -> str:
@@ -808,6 +863,11 @@ class Proc:
             lines.append("  Static Variables:")
             for static in self.statics.values():
                 lines.append(f"    {static}")
+
+        if self.registers:
+            lines.append("  Registers:")
+            for register in self.registers.values():
+                lines.append(f"    {register}")
 
         if self.flows:
             lines.append("  Flows:")

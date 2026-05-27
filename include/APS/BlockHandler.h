@@ -95,7 +95,8 @@ public:
   BlockHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
                Instance *poolInstance, Instance *roccInstance,
                Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
-               Circuit &circuit, Clock mainClk, Reset mainRst,
+               InterfaceDecl *csrItfc, Circuit &circuit, Clock mainClk,
+               Reset mainRst,
                unsigned long opcode, Instance *regRdInstance,
                Instance *inputTokenFIFO, Instance *outputTokenFIFO,
               llvm::DenseMap<Value, Instance*> &input_fifos,
@@ -126,6 +127,7 @@ protected:
   Instance *hellaMemInstance;
   Instance *regRdInstance;  // Shared reg_rd register for all blocks
   InterfaceDecl *dmaItfc;
+  InterfaceDecl *csrItfc;
   Circuit &circuit;
   Clock mainClk;
   Reset mainRst;

@@ -49,10 +49,11 @@ func.func @hello(%rs1: i5, %rs2: i5, %rd: i5)
 
 | Pass | Purpose |
 |------|---------|
-| `memory-map` | Assign addresses to scratchpad memories |
-| `raise-to-affine` | Convert SCF loops to Affine dialect |
+| `aps-memory-map` | Assign addresses to scratchpad memories |
+| `normalize-scf-for-indices` | Normalize SCF loop bounds to index type |
+| `raise-scf-to-affine` | Convert SCF loops to Affine dialect |
 | `hls-unroll` | Apply loop unrolling directives |
-| `array-partition` | Partition arrays for parallel access |
+| `new-array-partition` | Partition arrays for parallel access |
 
 ### 3. SDC Scheduling
 
@@ -99,5 +100,7 @@ static matrix: [i32; 16];
 ## Further Reading
 
 - [cadl-language.md](cadl-language.md) - CADL language reference
+- [aps-e2e-flow.md](aps-e2e-flow.md) - Current `aps-e2e` synthesis flow and refactor contract
+- [cadl-frontend-refactor.md](cadl-frontend-refactor.md) - CADL MLIR converter structure analysis and refactor checklist
 - [hls-passes.md](hls-passes.md) - HLS optimization passes
 - [scheduling.md](scheduling.md) - SDC scheduling algorithm

@@ -47,6 +47,21 @@ void APSToCMT2Pass::addRoccAndHellaMemoryInterface(Circuit &circuit) {
                                {{"cmd", hellaCmdBundleType}}, {});
 }
 
+void APSToCMT2Pass::addCSRInterface(Circuit &circuit, ModuleOp moduleOp) {
+  auto &context = circuit.getContext();
+  auto u32Type = UIntType::get(&context, 32);
+  auto *csrInterface = circuit.addInterface("csrItfc");
+
+  moduleOp.walk([&](memref::GlobalOp globalOp) {
+    if (!globalOp->hasAttr("csr_address"))
+      return;
+    auto csrPrefix = globalOp.getSymName().str();
+    csrInterface->addValue(csrPrefix + "_value", {}, {TypeAttr::get(u32Type)});
+    csrInterface->addMethod(csrPrefix + "_set",
+                            {{csrPrefix + "_sdata", u32Type}}, {});
+  });
+}
+
 /// Add burst read/write methods to main module
 void APSToCMT2Pass::addBurstMethodsToMainModule(Module *mainModule,
                                                    Instance *poolInstance) {

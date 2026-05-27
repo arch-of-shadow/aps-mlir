@@ -36,7 +36,8 @@ using namespace circt::firrtl;
 LoopHandler::LoopHandler(APSToCMT2Pass *pass, Module *mainModule,
                          tor::FuncOp funcOp, Instance *poolInstance,
                          Instance *roccInstance, Instance *hellaMemInstance,
-                         InterfaceDecl *dmaItfc, Circuit &circuit,
+                         InterfaceDecl *dmaItfc, InterfaceDecl *csrItfc,
+                         Circuit &circuit,
                          Clock mainClk, Reset mainRst, unsigned long opcode, Instance *regRdInstance,
                          Instance *input_token_fifo,
                          Instance *output_token_fifo,
@@ -44,7 +45,8 @@ LoopHandler::LoopHandler(APSToCMT2Pass *pass, Module *mainModule,
                          llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> &output_fifos,
                          const std::string &namePrefix)
     : BlockHandler(pass, mainModule, funcOp, poolInstance, roccInstance,
-                   hellaMemInstance, dmaItfc, circuit, mainClk, mainRst, opcode, regRdInstance,
+                   hellaMemInstance, dmaItfc, csrItfc, circuit, mainClk,
+                   mainRst, opcode, regRdInstance,
                    input_token_fifo, output_token_fifo, input_fifos,
                    output_fifos, namePrefix) {}
 
@@ -569,7 +571,8 @@ LogicalResult LoopHandler::processLoopBodyOperations(tor::ForOp forOp, BlockInfo
   // This will handle block segmentation, dataflow analysis, and rule generation
   BlockHandler loopBodyHandler(
       pass, mainModule, funcOp, poolInstance, roccInstance,
-      hellaMemInstance, dmaItfc, circuit, mainClk, mainRst, opcode, regRdInstance,
+      hellaMemInstance, dmaItfc, csrItfc, circuit, mainClk, mainRst, opcode,
+      regRdInstance,
       loop.token_fifos.to_body,      // Input token: signals body can start
       loop.token_fifos.body_to_next, // Output token: signals body completion
       loopBodyInputFIFOs,            // Input data FIFOs (including loop variables)
