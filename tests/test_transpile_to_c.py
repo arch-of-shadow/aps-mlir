@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from cadl_frontend.transpile_to_c import CTranspiler
+from cadl_frontend.to_c import CTranspiler
 
 
 def transpile_text(tmp_path: Path, source: str) -> str:

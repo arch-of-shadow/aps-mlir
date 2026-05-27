@@ -4,10 +4,7 @@ Tests for select expressions (sel)
 
 import pytest
 from cadl_frontend import parse_proc
-from cadl_frontend.ast import (
-    SelectExpr, BinaryExpr, LitExpr, IdentExpr, BinaryOp,
-    AssignStmt, Proc
-)
+from cadl_frontend import cadl_ast
 
 
 class TestSelectExpression:
@@ -34,9 +31,9 @@ class TestSelectExpression:
 
         # Check the assignment with select
         assign_stmt = flow.body[1]
-        assert isinstance(assign_stmt, AssignStmt)
+        assert isinstance(assign_stmt, cadl_ast.AssignStmt)
         sel_expr = assign_stmt.rhs
-        assert isinstance(sel_expr, SelectExpr)
+        assert isinstance(sel_expr, cadl_ast.SelectExpr)
 
         # Should have 1 conditional arm + 1 default
         assert len(sel_expr.arms) == 1
@@ -44,9 +41,9 @@ class TestSelectExpression:
 
         # Check first arm
         cond1, val1 = sel_expr.arms[0]
-        assert isinstance(cond1, BinaryExpr)
-        assert cond1.op == BinaryOp.EQ
-        assert isinstance(val1, LitExpr)
+        assert isinstance(cond1, cadl_ast.BinaryExpr)
+        assert cond1.op == cadl_ast.BinaryOp.EQ
+        assert isinstance(val1, cadl_ast.LitExpr)
 
     def test_select_multiple_arms(self):
         """Test select with multiple conditional arms"""
@@ -67,16 +64,16 @@ class TestSelectExpression:
 
         assign_stmt = flow.body[1]
         sel_expr = assign_stmt.rhs
-        assert isinstance(sel_expr, SelectExpr)
+        assert isinstance(sel_expr, cadl_ast.SelectExpr)
 
         # 3 conditional arms + 1 default (last one)
         assert len(sel_expr.arms) == 3
         assert sel_expr.default is not None
 
         # Verify conditions
-        assert sel_expr.arms[0][0].op == BinaryOp.EQ
-        assert sel_expr.arms[1][0].op == BinaryOp.LT
-        assert sel_expr.arms[2][0].op == BinaryOp.LT
+        assert sel_expr.arms[0][0].op == cadl_ast.BinaryOp.EQ
+        assert sel_expr.arms[1][0].op == cadl_ast.BinaryOp.LT
+        assert sel_expr.arms[2][0].op == cadl_ast.BinaryOp.LT
 
     def test_select_single_arm(self):
         """Test select with only one arm (becomes default)"""
@@ -93,7 +90,7 @@ class TestSelectExpression:
 
         assign_stmt = flow.body[0]
         sel_expr = assign_stmt.rhs
-        assert isinstance(sel_expr, SelectExpr)
+        assert isinstance(sel_expr, cadl_ast.SelectExpr)
 
         # Single arm becomes default, no conditional arms
         assert len(sel_expr.arms) == 0
@@ -119,16 +116,16 @@ class TestSelectExpression:
 
         assign_stmt = flow.body[2]
         sel_expr = assign_stmt.rhs
-        assert isinstance(sel_expr, SelectExpr)
+        assert isinstance(sel_expr, cadl_ast.SelectExpr)
 
         # 3 conditional arms + default
         assert len(sel_expr.arms) == 3
 
         # Check that conditions are logical operations
         # (Need parentheses due to current grammar precedence)
-        assert sel_expr.arms[0][0].op == BinaryOp.AND
-        assert sel_expr.arms[1][0].op == BinaryOp.AND
-        assert sel_expr.arms[2][0].op == BinaryOp.OR
+        assert sel_expr.arms[0][0].op == cadl_ast.BinaryOp.AND
+        assert sel_expr.arms[1][0].op == cadl_ast.BinaryOp.AND
+        assert sel_expr.arms[2][0].op == cadl_ast.BinaryOp.OR
 
     def test_select_with_complex_values(self):
         """Test select with complex value expressions"""
@@ -149,13 +146,13 @@ class TestSelectExpression:
 
         assign_stmt = flow.body[1]
         sel_expr = assign_stmt.rhs
-        assert isinstance(sel_expr, SelectExpr)
+        assert isinstance(sel_expr, cadl_ast.SelectExpr)
 
         # Check that values are expressions
-        assert isinstance(sel_expr.arms[0][1], BinaryExpr)
-        assert sel_expr.arms[0][1].op == BinaryOp.ADD
-        assert sel_expr.arms[1][1].op == BinaryOp.MUL
-        assert sel_expr.arms[2][1].op == BinaryOp.LSHIFT
+        assert isinstance(sel_expr.arms[0][1], cadl_ast.BinaryExpr)
+        assert sel_expr.arms[0][1].op == cadl_ast.BinaryOp.ADD
+        assert sel_expr.arms[1][1].op == cadl_ast.BinaryOp.MUL
+        assert sel_expr.arms[2][1].op == cadl_ast.BinaryOp.LSHIFT
 
     def test_select_nested(self):
         """Test nested select expressions"""
@@ -177,11 +174,11 @@ class TestSelectExpression:
 
         assign_stmt = flow.body[1]
         sel_expr = assign_stmt.rhs
-        assert isinstance(sel_expr, SelectExpr)
+        assert isinstance(sel_expr, cadl_ast.SelectExpr)
 
         # First arm's value should be another SelectExpr
         inner_sel = sel_expr.arms[0][1]
-        assert isinstance(inner_sel, SelectExpr)
+        assert isinstance(inner_sel, cadl_ast.SelectExpr)
         assert len(inner_sel.arms) == 1
 
     def test_select_in_assignment(self):
@@ -198,12 +195,12 @@ class TestSelectExpression:
         flow = ast.flows['test']
 
         # First select in direct assignment
-        assert isinstance(flow.body[1].rhs, SelectExpr)
+        assert isinstance(flow.body[1].rhs, cadl_ast.SelectExpr)
 
         # Second select in binary expression
         binary_expr = flow.body[2].rhs
-        assert isinstance(binary_expr, BinaryExpr)
-        assert isinstance(binary_expr.right, SelectExpr)
+        assert isinstance(binary_expr, cadl_ast.BinaryExpr)
+        assert isinstance(binary_expr.right, cadl_ast.SelectExpr)
 
     def test_select_with_bit_slicing(self):
         """Test select with bit slicing in conditions and values"""
@@ -223,7 +220,7 @@ class TestSelectExpression:
 
         assign_stmt = flow.body[1]
         sel_expr = assign_stmt.rhs
-        assert isinstance(sel_expr, SelectExpr)
+        assert isinstance(sel_expr, cadl_ast.SelectExpr)
         assert len(sel_expr.arms) == 2
 
     def test_select_string_representation(self):
@@ -273,7 +270,7 @@ class TestSelectExpression:
 
         # All arms should have LT comparison
         for i in range(3):
-            assert sel_expr.arms[i][0].op == BinaryOp.LT
+            assert sel_expr.arms[i][0].op == cadl_ast.BinaryOp.LT
             # Values should be 1, 2, 3
             assert sel_expr.arms[i][1].literal.lit.value == i + 1
 
@@ -302,7 +299,7 @@ class TestSelectEdgeCases:
         sel_expr = assign_stmt.rhs
 
         # Check that values are identifiers
-        assert isinstance(sel_expr.arms[0][1], IdentExpr)
+        assert isinstance(sel_expr.arms[0][1], cadl_ast.IdentExpr)
         assert sel_expr.arms[0][1].name == "a"
 
     def test_select_with_memory_access(self):

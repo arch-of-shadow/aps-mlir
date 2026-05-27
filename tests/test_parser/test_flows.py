@@ -6,7 +6,7 @@ Tests flow definitions, rtype flows, attributes, and parameters.
 
 import pytest
 from cadl_frontend import parse_proc
-from cadl_frontend.ast import *
+from cadl_frontend import cadl_ast
 
 
 class TestBasicFlows:
@@ -23,7 +23,7 @@ class TestBasicFlows:
         assert len(ast.flows) == 1
         flow = list(ast.flows.values())[0]
         assert flow.name == "multiply"
-        assert flow.kind == FlowKind.RTYPE
+        assert flow.kind == cadl_ast.FlowKind.RTYPE
 
 
 class TestRTypeFlows:
@@ -39,7 +39,7 @@ class TestRTypeFlows:
         """
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
-        assert flow.kind == FlowKind.RTYPE
+        assert flow.kind == cadl_ast.FlowKind.RTYPE
         assert flow.attrs is not None
 
     def test_rtype_with_no_inputs(self):
@@ -66,8 +66,8 @@ class TestRTypeFlows:
 
         # Verify type parsing
         types = [dtype for _, dtype in flow.inputs]
-        assert isinstance(types[0], DataType_Single)
-        assert isinstance(types[1], DataType_Single)
+        assert isinstance(types[0], cadl_ast.DataType_Single)
+        assert isinstance(types[1], cadl_ast.DataType_Single)
 
 
 class TestFlowWithExpressions:
@@ -101,11 +101,11 @@ class TestFlowWithExpressions:
         body = flow.body
 
         # Check shift operations
-        assert isinstance(body[0].rhs, BinaryExpr)
-        assert body[0].rhs.op == BinaryOp.LSHIFT
+        assert isinstance(body[0].rhs, cadl_ast.BinaryExpr)
+        assert body[0].rhs.op == cadl_ast.BinaryOp.LSHIFT
 
-        assert isinstance(body[1].rhs, BinaryExpr)
-        assert body[1].rhs.op == BinaryOp.RSHIFT
+        assert isinstance(body[1].rhs, cadl_ast.BinaryExpr)
+        assert body[1].rhs.op == cadl_ast.BinaryOp.RSHIFT
 
     def test_rtype_with_bitwise_operations_correct_precedence(self):
         """Test rtype with bitwise operations and precedence"""
@@ -124,7 +124,7 @@ class TestFlowWithExpressions:
         # Verify first expression: a & b | c
         # Should parse as (a & b) | c due to precedence
         result1_expr = flow.body[0].rhs
-        assert isinstance(result1_expr, BinaryExpr)
+        assert isinstance(result1_expr, cadl_ast.BinaryExpr)
 
     def test_rtype_with_comparison_operations(self):
         """Test rtype with comparison operations"""
@@ -160,7 +160,7 @@ class TestFlowParameters:
 
         param_name, param_type = flow.inputs[0]
         assert param_name == "data"
-        assert isinstance(param_type, DataType_Array)
+        assert isinstance(param_type, cadl_ast.DataType_Array)
 
     def test_flow_with_mixed_parameters(self):
         """Test flow with mixed scalar and array parameters"""

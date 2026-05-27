@@ -1,8 +1,8 @@
 """
-Loop Transformation Module
+MLIR loop emission helpers.
 
-This module handles the analysis and transformation of CADL do-while loops
-to MLIR scf.while and scf.for operations.
+This module analyzes CADL do-while loops and emits MLIR scf.while/scf.for
+operations.
 """
 
 from __future__ import annotations
@@ -12,20 +12,19 @@ from dataclasses import dataclass
 import circt.ir as ir
 from circt.dialects import arith, scf
 
-from .ast import (
-    DoWhileStmt, BinaryExpr, BinaryOp, IdentExpr,
-    LitExpr, AssignStmt, Expr
-)
-from .debug import dbg_print, dbg_debug, dbg_info, dbg_warning, DebugLevel
+from .. import cadl_ast
+from ..debug import dbg_print, dbg_debug, dbg_info, dbg_warning, DebugLevel
+
 
 @dataclass
 class ForLoopPattern:
     """Pattern information for raising do-while to scf.for"""
+
     induction_var: Any  # WithBinding for the induction variable
     induction_step: int  # Step value (positive or negative)
     lower_bound: int  # Initial value
     upper_bound: int  # Adjusted upper bound (exclusive for scf.for)
-    comparison_op: Any  # BinaryOp for the condition
+    comparison_op: Any  # cadl_ast.BinaryOp for the condition
     other_bindings: List[Any]  # Other loop-carried variables
 
 
@@ -48,31 +47,33 @@ class LoopTransformer:
         self.converter = converter
         self.constant_vars = converter.constant_vars
 
-    def validate_loop_body_assignments(self, stmt: DoWhileStmt) -> None:
+    def validate_loop_body_assignments(self, stmt: cadl_ast.DoWhileStmt) -> None:
         """
         Validate that only loop-carried variables (in 'with' bindings) and local variables
         (declared with 'let' inside the loop) are assigned in the loop body.
 
         Raises RuntimeError if an external variable is modified.
         """
-        dbg_debug("Validating loop body assignments", module="loop_transform")
+        dbg_debug("Validating loop body assignments", module="mlir_loop")
 
         # Collect loop-carried variable names (from bindings)
         loop_carried_vars = set()
         for binding in stmt.bindings:
             loop_carried_vars.add(binding.id)
             # Also allow assignment to the "next" variable if it's an identifier
-            if isinstance(binding.next, IdentExpr):
+            if isinstance(binding.next, cadl_ast.IdentExpr):
                 loop_carried_vars.add(binding.next.name)
 
-        dbg_debug(f"Loop-carried variables: {loop_carried_vars}", module="loop_transform")
+        dbg_debug(
+            f"Loop-carried variables: {loop_carried_vars}", module="mlir_loop"
+        )
 
         # Collect local variables declared in the loop body (let statements)
         local_vars = set()
         for body_stmt in stmt.body:
-            if isinstance(body_stmt, AssignStmt):
+            if isinstance(body_stmt, cadl_ast.AssignStmt):
                 # Check if this is a 'let' statement (has type annotation in AST)
-                if isinstance(body_stmt.lhs, IdentExpr):
+                if isinstance(body_stmt.lhs, cadl_ast.IdentExpr):
                     lhs_name = body_stmt.lhs.name
                     # If it's a new variable declaration, add to local_vars
                     # In CADL, 'let x = ...' creates a new binding
@@ -83,8 +84,8 @@ class LoopTransformer:
 
         # Now check all assignments in body
         for body_stmt in stmt.body:
-            if isinstance(body_stmt, AssignStmt):
-                if isinstance(body_stmt.lhs, IdentExpr):
+            if isinstance(body_stmt, cadl_ast.AssignStmt):
+                if isinstance(body_stmt.lhs, cadl_ast.IdentExpr):
                     var_name = body_stmt.lhs.name
 
                     # Allow if it's a loop-carried variable or local variable
@@ -96,7 +97,7 @@ class LoopTransformer:
                     if self.converter.get_symbol(var_name) is not None:
                         dbg_warning(
                             f"Invalid assignment to '{var_name}' in loop body",
-                            module="loop_transform"
+                            module="mlir_loop",
                         )
                         raise RuntimeError(
                             f"CADL semantic error: Variable '{var_name}' cannot be reassigned inside "
@@ -105,13 +106,17 @@ class LoopTransformer:
                             f"Hint: If '{var_name}' should change across iterations, add it to the 'with' clause."
                         )
 
-    def analyze_and_detect_for_pattern(self, stmt: DoWhileStmt) -> Optional[ForLoopPattern]:
+    def analyze_and_detect_for_pattern(
+        self, stmt: cadl_ast.DoWhileStmt
+    ) -> Optional[ForLoopPattern]:
         """
         Analyze do-while loop to detect for-loop patterns.
         Returns ForLoopPattern if detectable, None otherwise.
         Prints minimal analysis results.
         """
-        dbg_debug("Analyzing loop for scf.for pattern detection", module="loop_transform")
+        dbg_debug(
+            "Analyzing loop for scf.for pattern detection", module="mlir_loop"
+        )
 
         can_be_for = True
         reasons = []
@@ -119,7 +124,10 @@ class LoopTransformer:
         induction_step = None
 
         # Find the induction variable (one with affine increment)
-        dbg_debug(f"Checking {len(stmt.bindings)} bindings for induction variable", module="loop_transform")
+        dbg_debug(
+            f"Checking {len(stmt.bindings)} bindings for induction variable",
+            module="mlir_loop",
+        )
         for binding in stmt.bindings:
             step = self._try_extract_step(binding, stmt.body)
             if step is not None:
@@ -132,27 +140,42 @@ class LoopTransformer:
         if induction_var is None:
             can_be_for = False
             reasons.append("No affine induction variable found")
-            dbg_debug("No induction variable found with constant step", module="loop_transform")
+            dbg_debug(
+                "No induction variable found with constant step",
+                module="mlir_loop",
+            )
         else:
-            dbg_debug(f"Found induction variable: {induction_var.id} (step={induction_step})", module="loop_transform")
+            dbg_debug(
+                f"Found induction variable: {induction_var.id} (step={induction_step})",
+                module="mlir_loop",
+            )
             # Note: Other bindings (iter_args) can have non-constant inits.
             # scf.for accepts any SSA value as initial value for loop-carried variables.
 
             # Check simple bound - must reference the induction variable
-            if isinstance(stmt.condition, BinaryExpr):
+            if isinstance(stmt.condition, cadl_ast.BinaryExpr):
                 # Reject == operator as it's not valid for counted loops
-                if stmt.condition.op == BinaryOp.EQ:
+                if stmt.condition.op == cadl_ast.BinaryOp.EQ:
                     can_be_for = False
-                    reasons.append("Invalid comparison operator: == (not valid for counted loops)")
-                elif stmt.condition.op in [BinaryOp.LT, BinaryOp.LE, BinaryOp.GT, BinaryOp.GE, BinaryOp.NE]:
+                    reasons.append(
+                        "Invalid comparison operator: == (not valid for counted loops)"
+                    )
+                elif stmt.condition.op in [
+                    cadl_ast.BinaryOp.LT,
+                    cadl_ast.BinaryOp.LE,
+                    cadl_ast.BinaryOp.GT,
+                    cadl_ast.BinaryOp.GE,
+                    cadl_ast.BinaryOp.NE,
+                ]:
                     # Check if condition involves the induction variable
                     condition_involves_iv = False
-                    if isinstance(stmt.condition.left, IdentExpr):
-                        if stmt.condition.left.name == induction_var.id or \
-                           (isinstance(induction_var.next, IdentExpr) and
-                            stmt.condition.left.name == induction_var.next.name):
+                    if isinstance(stmt.condition.left, cadl_ast.IdentExpr):
+                        if stmt.condition.left.name == induction_var.id or (
+                            isinstance(induction_var.next, cadl_ast.IdentExpr)
+                            and stmt.condition.left.name == induction_var.next.name
+                        ):
                             condition_involves_iv = True
-                    elif isinstance(stmt.condition.left, BinaryExpr):
+                    elif isinstance(stmt.condition.left, cadl_ast.BinaryExpr):
                         # Handle cases like (i + 1) < N
                         condition_involves_iv = True
 
@@ -161,11 +184,13 @@ class LoopTransformer:
                         reasons.append("Condition doesn't reference induction variable")
                     elif self._is_constant_expr(stmt.condition.right):
                         # Check if bound variable is modified in loop body
-                        if isinstance(stmt.condition.right, IdentExpr):
+                        if isinstance(stmt.condition.right, cadl_ast.IdentExpr):
                             bound_var = stmt.condition.right.name
                             if self._is_variable_modified_in_body(stmt.body, bound_var):
                                 can_be_for = False
-                                reasons.append(f"Bound variable '{bound_var}' modified in loop body")
+                                reasons.append(
+                                    f"Bound variable '{bound_var}' modified in loop body"
+                                )
                     else:
                         can_be_for = False
                         reasons.append("Non-constant bound")
@@ -184,17 +209,21 @@ class LoopTransformer:
             adjusted_bound = bound_val
 
             # Adjust bound for scf.for based on comparison operator
-            if comparison_op == BinaryOp.LE:
+            if comparison_op == cadl_ast.BinaryOp.LE:
                 adjusted_bound = bound_val + 1
-            elif comparison_op == BinaryOp.GE:
+            elif comparison_op == cadl_ast.BinaryOp.GE:
                 adjusted_bound = bound_val - 1
 
             other_vars = [b for b in stmt.bindings if b.id != induction_var.id]
-            iter_args_str = f", iter_args=[{', '.join(b.id for b in other_vars)}]" if other_vars else ""
+            iter_args_str = (
+                f", iter_args=[{', '.join(b.id for b in other_vars)}]"
+                if other_vars
+                else ""
+            )
 
             dbg_info(
                 f"Loop -> scf.for: {induction_var.id}={init_val}..{adjusted_bound} step {induction_step}{iter_args_str}",
-                module="loop_transform"
+                module="mlir_loop",
             )
 
             # Return the pattern
@@ -204,28 +233,27 @@ class LoopTransformer:
                 lower_bound=init_val,
                 upper_bound=adjusted_bound,
                 comparison_op=comparison_op,
-                other_bindings=other_vars
+                other_bindings=other_vars,
             )
         else:
             dbg_info(
-                f"Loop -> scf.while: {', '.join(reasons)}",
-                module="loop_transform"
+                f"Loop -> scf.while: {', '.join(reasons)}", module="mlir_loop"
             )
             return None
 
     # Helper methods
 
-    def _is_constant_expr(self, expr: Optional[Expr]) -> bool:
+    def _is_constant_expr(self, expr: Optional[cadl_ast.Expr]) -> bool:
         """Check if expression is a constant literal or references a constant variable"""
         if expr is None:
             return False
 
         # Direct literal
-        if isinstance(expr, LitExpr):
+        if isinstance(expr, cadl_ast.LitExpr):
             return True
 
         # Variable that may hold a constant value
-        if isinstance(expr, IdentExpr):
+        if isinstance(expr, cadl_ast.IdentExpr):
             # Check if this identifier refers to a constant variable
             try:
                 # Check if we can trace it back to a constant
@@ -239,12 +267,12 @@ class LoopTransformer:
         """Check if a variable was initialized with a constant value"""
         return var_name in self.constant_vars
 
-    def _extract_constant_value(self, expr: Expr) -> Optional[int]:
+    def _extract_constant_value(self, expr: cadl_ast.Expr) -> Optional[int]:
         """Extract constant value from literal expression or constant variable"""
-        if isinstance(expr, LitExpr):
-            if hasattr(expr.literal.lit, 'value'):
+        if isinstance(expr, cadl_ast.LitExpr):
+            if isinstance(expr.literal.lit, (cadl_ast.LiteralInner_Fixed, cadl_ast.LiteralInner_Float)):
                 return expr.literal.lit.value
-        elif isinstance(expr, IdentExpr):
+        elif isinstance(expr, cadl_ast.IdentExpr):
             # Check if this variable holds a constant value
             if expr.name in self.constant_vars:
                 return self.constant_vars[expr.name]
@@ -256,19 +284,25 @@ class LoopTransformer:
         next_expr = binding.next
 
         # Pattern 1: next = i + 1 or i - 1
-        if isinstance(next_expr, BinaryExpr):
-            if next_expr.op == BinaryOp.ADD:
-                if isinstance(next_expr.left, IdentExpr) and next_expr.left.name == binding.id:
+        if isinstance(next_expr, cadl_ast.BinaryExpr):
+            if next_expr.op == cadl_ast.BinaryOp.ADD:
+                if (
+                    isinstance(next_expr.left, cadl_ast.IdentExpr)
+                    and next_expr.left.name == binding.id
+                ):
                     if self._is_constant_expr(next_expr.right):
                         return self._extract_constant_value(next_expr.right)
-            elif next_expr.op == BinaryOp.SUB:
-                if isinstance(next_expr.left, IdentExpr) and next_expr.left.name == binding.id:
+            elif next_expr.op == cadl_ast.BinaryOp.SUB:
+                if (
+                    isinstance(next_expr.left, cadl_ast.IdentExpr)
+                    and next_expr.left.name == binding.id
+                ):
                     if self._is_constant_expr(next_expr.right):
                         # Negative step for decrement
                         return -self._extract_constant_value(next_expr.right)
 
         # Pattern 2: next = i_ (need to analyze body)
-        if isinstance(next_expr, IdentExpr):
+        if isinstance(next_expr, cadl_ast.IdentExpr):
             next_var = next_expr.name
             # Look for assignment: i_ = i +/- constant in body
             step = self._find_step_in_body(body, binding.id, next_var)
@@ -279,31 +313,36 @@ class LoopTransformer:
     def _is_variable_modified_in_body(self, stmts: List, var_name: str) -> bool:
         """Check if a variable is modified (assigned to) in the statement list"""
         for stmt in stmts:
-            if isinstance(stmt, AssignStmt):
-                if isinstance(stmt.lhs, IdentExpr) and stmt.lhs.name == var_name:
+            if isinstance(stmt, cadl_ast.AssignStmt):
+                if isinstance(stmt.lhs, cadl_ast.IdentExpr) and stmt.lhs.name == var_name:
                     return True
         return False
 
-    def _find_step_in_body(self, stmts: List, iv_name: str, next_var: str) -> Optional[int]:
+    def _find_step_in_body(
+        self, stmts: List, iv_name: str, next_var: str
+    ) -> Optional[int]:
         """Find assignment of form: next_var = iv +/- constant in statement list.
         Returns positive for increment, negative for decrement."""
         for stmt in stmts:
             # Check for assignment: i_ = i + 1 or i_ = i - 1
-            if isinstance(stmt, AssignStmt):
-                if isinstance(stmt.lhs, IdentExpr) and stmt.lhs.name == next_var:
+            if isinstance(stmt, cadl_ast.AssignStmt):
+                if isinstance(stmt.lhs, cadl_ast.IdentExpr) and stmt.lhs.name == next_var:
                     # Check if rhs is i + constant
-                    if isinstance(stmt.rhs, BinaryExpr):
-                        if isinstance(stmt.rhs.left, IdentExpr) and stmt.rhs.left.name == iv_name:
+                    if isinstance(stmt.rhs, cadl_ast.BinaryExpr):
+                        if (
+                            isinstance(stmt.rhs.left, cadl_ast.IdentExpr)
+                            and stmt.rhs.left.name == iv_name
+                        ):
                             if self._is_constant_expr(stmt.rhs.right):
                                 const_val = self._extract_constant_value(stmt.rhs.right)
-                                if stmt.rhs.op == BinaryOp.ADD:
+                                if stmt.rhs.op == cadl_ast.BinaryOp.ADD:
                                     return const_val
-                                elif stmt.rhs.op == BinaryOp.SUB:
+                                elif stmt.rhs.op == cadl_ast.BinaryOp.SUB:
                                     return -const_val
 
         return None
 
-    def emit_scf_for(self, stmt: DoWhileStmt, pattern: ForLoopPattern) -> None:
+    def emit_scf_for(self, stmt: cadl_ast.DoWhileStmt, pattern: ForLoopPattern) -> None:
         """
         Emit scf.for operation for loops matching the for-loop pattern.
 
@@ -312,8 +351,6 @@ class LoopTransformer:
         - Loop-carried variables (iter_args for state like crc)
         - Positive and negative step values
         """
-        from circt.dialects import arith, scf
-        from circt import ir
 
         # Extract pattern information
         iv_binding = pattern.induction_var
@@ -323,7 +360,7 @@ class LoopTransformer:
 
         dbg_debug(
             f"Emitting scf.for: {iv_binding.id}=[{lower_bound}..{upper_bound}] step {step}",
-            module="loop_transform"
+            module="mlir_loop",
         )
 
         # Determine if this is a forward or backward loop
@@ -351,15 +388,17 @@ class LoopTransformer:
 
         # Apply directives as attributes (generalized)
         if self.converter.pending_directives:
-            from .ast import LitExpr
+            
             for directive in self.converter.pending_directives:
                 attr_name = directive.name
                 if directive.expr:
                     # Convert expression to attribute value
-                    if isinstance(directive.expr, LitExpr):
+                    if isinstance(directive.expr, cadl_ast.LitExpr):
                         value = directive.expr.literal.lit.value
                         # Set as integer attribute on the operation
-                        attr = ir.IntegerAttr.get(ir.IntegerType.get_signless(32), value)
+                        attr = ir.IntegerAttr.get(
+                            ir.IntegerType.get_signless(32), value
+                        )
                         for_op.operation.attributes[attr_name] = attr
                 else:
                     # Boolean flag directive (no argument)
@@ -402,7 +441,7 @@ class LoopTransformer:
             # Collect next values for iter_args
             next_values = []
             for binding in pattern.other_bindings:
-                if isinstance(binding.next, IdentExpr):
+                if isinstance(binding.next, cadl_ast.IdentExpr):
                     # Get the updated value from body (e.g., crc_ for crc)
                     next_val = self.converter.get_symbol(binding.next.name)
                 else:
@@ -428,19 +467,17 @@ class LoopTransformer:
         else:
             self.converter.set_symbol(iv_binding.id, lower_const)
 
-    def emit_scf_while(self, stmt: DoWhileStmt) -> None:
+    def emit_scf_while(self, stmt: cadl_ast.DoWhileStmt) -> None:
         """
         Emit scf.while operation for general do-while loops.
 
         CADL do-while semantics: body executes at least once, condition checked after.
         Uses scf.while with a first_iteration flag to ensure at least one execution.
         """
-        from circt.dialects import arith, scf
-        from circt import ir
 
         dbg_debug(
             f"Emitting scf.while with {len(stmt.bindings)} loop-carried variables",
-            module="loop_transform"
+            module="mlir_loop",
         )
 
         # Handle with bindings (loop variables with init/next values)
@@ -471,13 +508,15 @@ class LoopTransformer:
 
         # Apply directives as attributes (same as emit_scf_for)
         if self.converter.pending_directives:
-            from .ast import LitExpr
+            
             for directive in self.converter.pending_directives:
                 attr_name = directive.name
                 if directive.expr:
-                    if isinstance(directive.expr, LitExpr):
+                    if isinstance(directive.expr, cadl_ast.LitExpr):
                         value = directive.expr.literal.lit.value
-                        attr = ir.IntegerAttr.get(ir.IntegerType.get_signless(32), value)
+                        attr = ir.IntegerAttr.get(
+                            ir.IntegerType.get_signless(32), value
+                        )
                         while_op.operation.attributes[attr_name] = attr
                 else:
                     while_op.operation.attributes[attr_name] = ir.BoolAttr.get(True)
@@ -519,7 +558,7 @@ class LoopTransformer:
             for binding in stmt.bindings:
                 if binding.next:
                     # The next expression references variables defined in the body
-                    if isinstance(binding.next, IdentExpr):
+                    if isinstance(binding.next, cadl_ast.IdentExpr):
                         next_val = self.converter.get_symbol(binding.next.name)
                     else:
                         next_val = self.converter._convert_expr(binding.next)

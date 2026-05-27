@@ -6,7 +6,10 @@ originally implemented in Rust with LALRPOP.
 """
 
 from .parser import parse_proc
-from .ast import *
+from . import cadl_ast as _cadl_ast
+from .cadl_ast import *
 
 __version__ = "0.1.0"
-__all__ = ["parse_proc"]
+__all__ = ["parse_proc", *_cadl_ast.__all__]
+
+del _cadl_ast

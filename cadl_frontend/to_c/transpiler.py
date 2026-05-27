@@ -10,42 +10,35 @@ Key transformations:
 3. CADL control flow → C control flow
 
 Usage:
-    python -m cadl_frontend.transpile_to_c <input.cadl> -o <output.c>
+    python -m cadl_frontend.to_c.transpiler <input.cadl> -o <output.c>
 """
 
 import argparse
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 # Import CADL frontend
-from .parser import parse_proc
-from .ast import (
-    Proc, Flow, Stmt, Expr,
-    AssignStmt, ExprStmt, DoWhileStmt, ReturnStmt, DirectiveStmt,
-    LitExpr, IdentExpr, BinaryExpr, BinaryOp, UnaryExpr, UnaryOp, SliceExpr, RangeSliceExpr,
-    IndexExpr, IfExpr, CallExpr, SelectExpr, TupleExpr,
-    DataType, DataType_Single, DataType_Array,
-    BasicType, BasicType_ApFixed, BasicType_ApUFixed, BasicType_Float32, BasicType_Float64,
-    Literal, LiteralInner_Fixed, LiteralInner_Float,
-)
+from ..parser import parse_proc
+from .. import cadl_ast
 
 
 def _sanitize_identifier(name: str) -> str:
     """Return a C-safe identifier fragment."""
-    sanitized = ''.join(ch if ch.isalnum() or ch == '_' else '_' for ch in name)
+    sanitized = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in name)
     if not sanitized:
-        sanitized = 'value'
+        sanitized = "value"
     if sanitized[0].isdigit():
-        sanitized = f'v_{sanitized}'
+        sanitized = f"v_{sanitized}"
     return sanitized
 
 
 @dataclass
 class RegisterReadInfo:
     key: str
-    index_expr: Optional[Expr]
+    index_expr: Optional[cadl_ast.Expr]
     name_hint: str
     type_hints: Set[str] = field(default_factory=set)
     pointer_element_types: Set[str] = field(default_factory=set)
@@ -57,7 +50,7 @@ class RegisterReadInfo:
 @dataclass
 class RegisterWriteInfo:
     key: str
-    index_expr: Expr
+    index_expr: cadl_ast.Expr
     type_hints: Set[str] = field(default_factory=set)
 
 
@@ -108,8 +101,8 @@ class CTranspiler:
         self.output_lines: List[str] = []
         self.declared_vars: Set[str] = set()
         self.declared_var_stack: List[Set[str]] = []
-        self.proc: Optional[Proc] = None
-        self.current_flow: Optional[Flow] = None
+        self.proc: Optional[cadl_ast.Proc] = None
+        self.current_flow: Optional[cadl_ast.Flow] = None
         self.static_scalar_names: Set[str] = set()
         self.static_array_names: Set[str] = set()
         self.flow_inputs: "OrderedDict[str, DataType]" = OrderedDict()
@@ -168,7 +161,7 @@ class CTranspiler:
     def transpile(self, cadl_file: Path) -> str:
         """Main entry point: CADL file → C code"""
         # Read CADL source
-        with open(cadl_file, 'r') as f:
+        with open(cadl_file, "r") as f:
             source = f.read()
 
         # Parse CADL
@@ -178,7 +171,7 @@ class CTranspiler:
         self.static_array_names = set()
         for name, static in proc.statics.items():
             ty = getattr(static, "ty", None)
-            if isinstance(ty, DataType_Single):
+            if isinstance(ty, cadl_ast.DataType_Single):
                 self.static_scalar_names.add(name)
             else:
                 self.static_array_names.add(name)
@@ -215,7 +208,7 @@ class CTranspiler:
     # Analysis helpers
     # ------------------------------------------------------------------
 
-    def analyze_flow(self, flow: Flow, proc: Proc):
+    def analyze_flow(self, flow: cadl_ast.Flow, proc: cadl_ast.Proc):
         """Collect register accesses, types, and auxiliary metadata."""
         self.current_flow = flow
         self.irf_read_infos = {}
@@ -260,30 +253,41 @@ class CTranspiler:
 
         analysis = FlowAnalysisData(
             flow_inputs=OrderedDict(self.flow_inputs),
-            irf_read_infos={k: RegisterReadInfo(
-                key=info.key,
-                index_expr=info.index_expr,
-                name_hint=info.name_hint,
-                type_hints=set(info.type_hints),
-                pointer_element_types=set(info.pointer_element_types),
-                used_outside_index=info.used_outside_index,
-                parameter_name=None,
-                is_pointer_param=info.is_pointer_param,
-            ) for k, info in self.irf_read_infos.items()},
-            irf_write_infos={k: RegisterWriteInfo(
-                key=info.key,
-                index_expr=info.index_expr,
-                type_hints=set(info.type_hints),
-            ) for k, info in self.irf_write_infos.items()},
+            irf_read_infos={
+                k: RegisterReadInfo(
+                    key=info.key,
+                    index_expr=info.index_expr,
+                    name_hint=info.name_hint,
+                    type_hints=set(info.type_hints),
+                    pointer_element_types=set(info.pointer_element_types),
+                    used_outside_index=info.used_outside_index,
+                    parameter_name=None,
+                    is_pointer_param=info.is_pointer_param,
+                )
+                for k, info in self.irf_read_infos.items()
+            },
+            irf_write_infos={
+                k: RegisterWriteInfo(
+                    key=info.key,
+                    index_expr=info.index_expr,
+                    type_hints=set(info.type_hints),
+                )
+                for k, info in self.irf_write_infos.items()
+            },
             used_statics=set(self.used_statics),
-            scratchpad_aliases={name: ScratchpadAlias(
-                static_name=alias.static_name,
-                register_key=alias.register_key,
-                offset_elements=alias.offset_elements,
-                element_type=alias.element_type,
-                element_size=alias.element_size,
-                index_to_offset=dict(alias.index_to_offset) if alias.index_to_offset else None,
-            ) for name, alias in self.scratchpad_aliases.items()},
+            scratchpad_aliases={
+                name: ScratchpadAlias(
+                    static_name=alias.static_name,
+                    register_key=alias.register_key,
+                    offset_elements=alias.offset_elements,
+                    element_type=alias.element_type,
+                    element_size=alias.element_size,
+                    index_to_offset=(
+                        dict(alias.index_to_offset) if alias.index_to_offset else None
+                    ),
+                )
+                for name, alias in self.scratchpad_aliases.items()
+            },
             needs_mem_pointer=self.needs_mem_pointer,
             explicit_return_types=[list(types) for types in self.explicit_return_types],
             return_spec=ReturnSpec(
@@ -297,15 +301,19 @@ class CTranspiler:
 
         return analysis
 
-    def collect_stmt(self, stmt: Stmt):
-        if isinstance(stmt, AssignStmt):
+    def collect_stmt(self, stmt: cadl_ast.Stmt):
+        if isinstance(stmt, cadl_ast.AssignStmt):
             expected_type = None
             lhs_name = None
-            pending_mem_assignment: Optional[Tuple[Expr, Optional[str]]] = None
+            pending_mem_assignment: Optional[Tuple[cadl_ast.Expr, Optional[str]]] = None
 
-            if isinstance(stmt.lhs, IdentExpr):
+            if isinstance(stmt.lhs, cadl_ast.IdentExpr):
                 lhs_name = stmt.lhs.name
-                if not stmt.is_let and self.proc and lhs_name in self.static_scalar_names:
+                if (
+                    not stmt.is_let
+                    and self.proc
+                    and lhs_name in self.static_scalar_names
+                ):
                     static_obj = self.proc.statics.get(lhs_name)
                     if static_obj:
                         inferred = self.map_static_array_type(static_obj)
@@ -321,16 +329,16 @@ class CTranspiler:
                     expected_type = inferred
                 else:
                     expected_type = self.var_types.get(lhs_name)
-            elif isinstance(stmt.lhs, IndexExpr):
+            elif isinstance(stmt.lhs, cadl_ast.IndexExpr):
                 base = stmt.lhs.expr
-                if isinstance(base, IdentExpr):
+                if isinstance(base, cadl_ast.IdentExpr):
                     if base.name == "_mem" and stmt.lhs.indices:
                         pending_mem_assignment = (stmt.lhs.indices[0], expected_type)
                     elif self.proc and base.name in self.proc.statics:
                         self.used_statics.add(base.name)
-            elif isinstance(stmt.lhs, (SliceExpr, RangeSliceExpr)):
+            elif isinstance(stmt.lhs, (cadl_ast.SliceExpr, cadl_ast.RangeSliceExpr)):
                 base = stmt.lhs.expr
-                if isinstance(base, IdentExpr):
+                if isinstance(base, cadl_ast.IdentExpr):
                     self.used_statics.add(base.name)
 
             self.collect_expr(stmt.rhs, expected_type=expected_type)
@@ -364,9 +372,13 @@ class CTranspiler:
             if lhs_name:
                 if lhs_name not in self.var_types:
                     self.var_types[lhs_name] = rhs_type
-            elif isinstance(stmt.lhs, IndexExpr):
+            elif isinstance(stmt.lhs, cadl_ast.IndexExpr):
                 base = stmt.lhs.expr
-                if isinstance(base, IdentExpr) and base.name == "_irf" and stmt.lhs.indices:
+                if (
+                    isinstance(base, cadl_ast.IdentExpr)
+                    and base.name == "_irf"
+                    and stmt.lhs.indices
+                ):
                     key, _ = self.register_key(stmt.lhs.indices[0])
                     info = self.irf_write_infos.setdefault(
                         key,
@@ -376,14 +388,18 @@ class CTranspiler:
                         info.type_hints.add(expected_type)
                     if rhs_type:
                         info.type_hints.add(rhs_type)
-                elif isinstance(base, IdentExpr) and base.name == "_mem" and not pending_mem_assignment:
+                elif (
+                    isinstance(base, cadl_ast.IdentExpr)
+                    and base.name == "_mem"
+                    and not pending_mem_assignment
+                ):
                     self.needs_mem_pointer = True
             return
 
-        elif isinstance(stmt, ExprStmt):
+        elif isinstance(stmt, cadl_ast.ExprStmt):
             self.collect_expr(stmt.expr)
 
-        elif isinstance(stmt, DoWhileStmt):
+        elif isinstance(stmt, cadl_ast.DoWhileStmt):
             for binding in stmt.bindings:
                 if binding.init is not None:
                     self.collect_expr(binding.init)
@@ -393,7 +409,7 @@ class CTranspiler:
                 self.collect_stmt(inner)
             self.collect_expr(stmt.condition)
 
-        elif isinstance(stmt, ReturnStmt):
+        elif isinstance(stmt, cadl_ast.ReturnStmt):
             types = []
             for expr in stmt.exprs:
                 inferred = self.infer_c_type_from_expr(expr)
@@ -401,27 +417,29 @@ class CTranspiler:
                 self.collect_expr(expr, expected_type=inferred)
             self.explicit_return_types.append(types)
 
-        elif isinstance(stmt, DirectiveStmt):
+        elif isinstance(stmt, cadl_ast.DirectiveStmt):
             return
 
         else:
-            for field in getattr(stmt, '__dict__', {}).values():
-                if isinstance(field, Stmt):
+            for field in getattr(stmt, "__dict__", {}).values():
+                if isinstance(field, cadl_ast.Stmt):
                     self.collect_stmt(field)
-                elif isinstance(field, Expr):
+                elif isinstance(field, cadl_ast.Expr):
                     self.collect_expr(field)
                 elif isinstance(field, list):
                     for element in field:
-                        if isinstance(element, Stmt):
+                        if isinstance(element, cadl_ast.Stmt):
                             self.collect_stmt(element)
-                        elif isinstance(element, Expr):
+                        elif isinstance(element, cadl_ast.Expr):
                             self.collect_expr(element)
 
-    def collect_expr(self, expr: Expr, *, expected_type: Optional[str] = None, context: str = "value"):
-        if isinstance(expr, LitExpr):
+    def collect_expr(
+        self, expr: cadl_ast.Expr, *, expected_type: Optional[str] = None, context: str = "value"
+    ):
+        if isinstance(expr, cadl_ast.LitExpr):
             return
 
-        if isinstance(expr, IdentExpr):
+        if isinstance(expr, cadl_ast.IdentExpr):
             name = expr.name
             if name in self.proc.statics:
                 self.used_statics.add(name)
@@ -449,16 +467,16 @@ class CTranspiler:
                 return
             return
 
-        if isinstance(expr, UnaryExpr):
+        if isinstance(expr, cadl_ast.UnaryExpr):
             self.collect_expr(expr.operand, expected_type=expected_type)
             return
 
-        if isinstance(expr, BinaryExpr):
+        if isinstance(expr, cadl_ast.BinaryExpr):
             self.collect_expr(expr.left)
             self.collect_expr(expr.right)
             return
 
-        if isinstance(expr, SliceExpr):
+        if isinstance(expr, cadl_ast.SliceExpr):
             self.collect_expr(expr.expr)
             if expr.start:
                 self.collect_expr(expr.start)
@@ -466,7 +484,7 @@ class CTranspiler:
                 self.collect_expr(expr.end)
             return
 
-        if isinstance(expr, RangeSliceExpr):
+        if isinstance(expr, cadl_ast.RangeSliceExpr):
             self.collect_expr(expr.expr)
             if expr.start:
                 self.collect_expr(expr.start)
@@ -474,14 +492,16 @@ class CTranspiler:
                 self.collect_expr(expr.length)
             return
 
-        if isinstance(expr, IndexExpr):
+        if isinstance(expr, cadl_ast.IndexExpr):
             base = expr.expr
-            if isinstance(base, IdentExpr):
+            if isinstance(base, cadl_ast.IdentExpr):
                 if base.name == "_irf" and expr.indices:
                     key, hint = self.register_key(expr.indices[0])
                     info = self.irf_read_infos.setdefault(
                         key,
-                        RegisterReadInfo(key=key, index_expr=expr.indices[0], name_hint=hint),
+                        RegisterReadInfo(
+                            key=key, index_expr=expr.indices[0], name_hint=hint
+                        ),
                     )
                     if expected_type:
                         info.type_hints.add(expected_type)
@@ -489,13 +509,19 @@ class CTranspiler:
                     return
                 if base.name == "_mem":
                     pointer_info = self._extract_register_base(expr.indices[0])
-                    inferred_type_raw = expected_type or self.infer_c_type_from_expr(expr)
-                    inferred_type = self._normalize_pointer_element_type(inferred_type_raw)
+                    inferred_type_raw = expected_type or self.infer_c_type_from_expr(
+                        expr
+                    )
+                    inferred_type = self._normalize_pointer_element_type(
+                        inferred_type_raw
+                    )
                     if pointer_info and inferred_type:
                         register_key, offset_bytes = pointer_info
                         element_size = self.c_type_size(inferred_type)
                         if element_size > 0 and offset_bytes % element_size == 0:
-                            info = self._ensure_register_info(register_key, expr.indices[0])
+                            info = self._ensure_register_info(
+                                register_key, expr.indices[0]
+                            )
                             info.pointer_element_types.add(inferred_type)
                             return
                     self.needs_mem_pointer = True
@@ -505,7 +531,7 @@ class CTranspiler:
                 self.collect_expr(index_expr)
             return
 
-        if isinstance(expr, CallExpr):
+        if isinstance(expr, cadl_ast.CallExpr):
             builtin_headers = {
                 "abs": "stdlib.h",
                 "labs": "stdlib.h",
@@ -524,33 +550,33 @@ class CTranspiler:
                 self.collect_expr(arg)
             return
 
-        if isinstance(expr, SelectExpr):
+        if isinstance(expr, cadl_ast.SelectExpr):
             for condition, value in expr.arms:
                 self.collect_expr(condition)
                 self.collect_expr(value, expected_type=expected_type)
             self.collect_expr(expr.default, expected_type=expected_type)
             return
 
-        if isinstance(expr, IfExpr):
+        if isinstance(expr, cadl_ast.IfExpr):
             self.collect_expr(expr.condition)
             self.collect_expr(expr.then_branch, expected_type=expected_type)
             self.collect_expr(expr.else_branch, expected_type=expected_type)
             return
 
-        if isinstance(expr, TupleExpr):
+        if isinstance(expr, cadl_ast.TupleExpr):
             for element in expr.elements:
                 self.collect_expr(element)
             return
 
-        for field in getattr(expr, '__dict__', {}).values():
-            if isinstance(field, Expr):
+        for field in getattr(expr, "__dict__", {}).values():
+            if isinstance(field, cadl_ast.Expr):
                 self.collect_expr(field)
             elif isinstance(field, list):
                 for element in field:
-                    if isinstance(element, Expr):
+                    if isinstance(element, cadl_ast.Expr):
                         self.collect_expr(element)
 
-    def _register_irf_alias(self, lhs_name: Optional[str], rhs: Expr):
+    def _register_irf_alias(self, lhs_name: Optional[str], rhs: cadl_ast.Expr):
         if not lhs_name:
             return
         key = self._extract_irf_read_key(rhs)
@@ -559,7 +585,9 @@ class CTranspiler:
         else:
             self.irf_aliases.pop(lhs_name, None)
 
-    def _ensure_register_info(self, key: str, index_expr: Optional[Expr] = None) -> RegisterReadInfo:
+    def _ensure_register_info(
+        self, key: str, index_expr: Optional[cadl_ast.Expr] = None
+    ) -> RegisterReadInfo:
         info = self.irf_read_infos.get(key)
         if info:
             return info
@@ -573,26 +601,26 @@ class CTranspiler:
         self.irf_read_infos[key] = info
         return info
 
-    def _extract_irf_read_key(self, expr: Expr) -> Optional[str]:
-        if isinstance(expr, IndexExpr) and isinstance(expr.expr, IdentExpr):
+    def _extract_irf_read_key(self, expr: cadl_ast.Expr) -> Optional[str]:
+        if isinstance(expr, cadl_ast.IndexExpr) and isinstance(expr.expr, cadl_ast.IdentExpr):
             if expr.expr.name == "_irf" and expr.indices:
                 key, _ = self.register_key(expr.indices[0])
                 return key
         return None
 
-    def _maybe_record_burst_alias(self, stmt: AssignStmt):
-        if not isinstance(stmt.lhs, RangeSliceExpr):
+    def _maybe_record_burst_alias(self, stmt: cadl_ast.AssignStmt):
+        if not isinstance(stmt.lhs, cadl_ast.RangeSliceExpr):
             return
         lhs_expr = stmt.lhs.expr
-        if not isinstance(lhs_expr, IdentExpr):
+        if not isinstance(lhs_expr, cadl_ast.IdentExpr):
             return
         static_name = lhs_expr.name
         if not self.proc or static_name not in self.proc.statics:
             return
         rhs = stmt.rhs
-        if not isinstance(rhs, RangeSliceExpr):
+        if not isinstance(rhs, cadl_ast.RangeSliceExpr):
             return
-        if not isinstance(rhs.expr, IdentExpr) or rhs.expr.name != "_burst_read":
+        if not isinstance(rhs.expr, cadl_ast.IdentExpr) or rhs.expr.name != "_burst_read":
             return
         pointer_info = self._extract_register_base(rhs.start)
         if not pointer_info:
@@ -622,17 +650,17 @@ class CTranspiler:
             self._mark_register_pointer_aliases(register_key, element_type)
             self._mark_register_pointer_aliases(register_key, element_type)
 
-    def _maybe_record_burst_write_alias(self, stmt: AssignStmt):
-        if not isinstance(stmt.lhs, RangeSliceExpr):
+    def _maybe_record_burst_write_alias(self, stmt: cadl_ast.AssignStmt):
+        if not isinstance(stmt.lhs, cadl_ast.RangeSliceExpr):
             return
         lhs_expr = stmt.lhs.expr
-        if not isinstance(lhs_expr, IdentExpr) or lhs_expr.name != "_burst_write":
+        if not isinstance(lhs_expr, cadl_ast.IdentExpr) or lhs_expr.name != "_burst_write":
             return
         rhs = stmt.rhs
-        if not isinstance(rhs, RangeSliceExpr):
+        if not isinstance(rhs, cadl_ast.RangeSliceExpr):
             return
         rhs_expr = rhs.expr
-        if not isinstance(rhs_expr, IdentExpr):
+        if not isinstance(rhs_expr, cadl_ast.IdentExpr):
             return
         static_name = rhs_expr.name
         if not self.proc or static_name not in self.proc.statics:
@@ -663,7 +691,7 @@ class CTranspiler:
         if info:
             info.pointer_element_types.add(element_type)
 
-    def _maybe_record_mem_read_alias(self, stmt: AssignStmt):
+    def _maybe_record_mem_read_alias(self, stmt: cadl_ast.AssignStmt):
         """Detect pattern: static[i] = _mem[addr + offset] and build alias mapping.
 
         Example:
@@ -673,10 +701,10 @@ class CTranspiler:
         This builds a mapping from vec to the register backing addr.
         """
         # LHS must be IndexExpr into a static array
-        if not isinstance(stmt.lhs, IndexExpr):
+        if not isinstance(stmt.lhs, cadl_ast.IndexExpr):
             return
         lhs_base = stmt.lhs.expr
-        if not isinstance(lhs_base, IdentExpr):
+        if not isinstance(lhs_base, cadl_ast.IdentExpr):
             return
         static_name = lhs_base.name
         if not self.proc or static_name not in self.proc.statics:
@@ -688,10 +716,10 @@ class CTranspiler:
             return
 
         # RHS must be _mem[addr + offset]
-        if not isinstance(stmt.rhs, IndexExpr):
+        if not isinstance(stmt.rhs, cadl_ast.IndexExpr):
             return
         rhs_base = stmt.rhs.expr
-        if not isinstance(rhs_base, IdentExpr) or rhs_base.name != "_mem":
+        if not isinstance(rhs_base, cadl_ast.IdentExpr) or rhs_base.name != "_mem":
             return
         if not stmt.rhs.indices:
             return
@@ -737,7 +765,7 @@ class CTranspiler:
         info.pointer_element_types.add(element_type)
         self._mark_register_pointer_aliases(register_key, element_type)
 
-    def _maybe_record_mem_write_alias(self, stmt: AssignStmt):
+    def _maybe_record_mem_write_alias(self, stmt: cadl_ast.AssignStmt):
         """Detect pattern: _mem[addr + offset] = static[i] and build alias mapping.
 
         Example:
@@ -747,10 +775,10 @@ class CTranspiler:
         This builds a mapping from result to the register backing out_addr.
         """
         # LHS must be _mem[addr + offset]
-        if not isinstance(stmt.lhs, IndexExpr):
+        if not isinstance(stmt.lhs, cadl_ast.IndexExpr):
             return
         lhs_base = stmt.lhs.expr
-        if not isinstance(lhs_base, IdentExpr) or lhs_base.name != "_mem":
+        if not isinstance(lhs_base, cadl_ast.IdentExpr) or lhs_base.name != "_mem":
             return
         if not stmt.lhs.indices:
             return
@@ -761,10 +789,10 @@ class CTranspiler:
         register_key, offset_bytes = pointer_info
 
         # RHS must be IndexExpr into a static array
-        if not isinstance(stmt.rhs, IndexExpr):
+        if not isinstance(stmt.rhs, cadl_ast.IndexExpr):
             return
         rhs_base = stmt.rhs.expr
-        if not isinstance(rhs_base, IdentExpr):
+        if not isinstance(rhs_base, cadl_ast.IdentExpr):
             return
         static_name = rhs_base.name
         if not self.proc or static_name not in self.proc.statics:
@@ -811,22 +839,22 @@ class CTranspiler:
         info.pointer_element_types.add(element_type)
         self._mark_register_pointer_aliases(register_key, element_type)
 
-    def _extract_register_base(self, expr: Expr) -> Optional[Tuple[str, int]]:
-        if isinstance(expr, IdentExpr):
+    def _extract_register_base(self, expr: cadl_ast.Expr) -> Optional[Tuple[str, int]]:
+        if isinstance(expr, cadl_ast.IdentExpr):
             key = self.irf_aliases.get(expr.name)
             if key:
                 return key, 0
-        if isinstance(expr, IndexExpr) and isinstance(expr.expr, IdentExpr):
+        if isinstance(expr, cadl_ast.IndexExpr) and isinstance(expr.expr, cadl_ast.IdentExpr):
             if expr.expr.name == "_irf" and expr.indices:
                 key, _ = self.register_key(expr.indices[0])
                 return key, 0
-        if isinstance(expr, UnaryExpr):
+        if isinstance(expr, cadl_ast.UnaryExpr):
             value = self._extract_register_base(expr.operand)
-            if value and expr.op == UnaryOp.NEG:
+            if value and expr.op == cadl_ast.UnaryOp.NEG:
                 key, offset = value
                 return key, -offset
-        if isinstance(expr, BinaryExpr):
-            if expr.op == BinaryOp.ADD:
+        if isinstance(expr, cadl_ast.BinaryExpr):
+            if expr.op == cadl_ast.BinaryOp.ADD:
                 left = self._extract_register_base(expr.left)
                 right_const = self.try_eval_constant(expr.right)
                 if left and right_const is not None:
@@ -837,7 +865,7 @@ class CTranspiler:
                 if right and left_const is not None:
                     key, offset = right
                     return key, offset + left_const
-            elif expr.op == BinaryOp.SUB:
+            elif expr.op == cadl_ast.BinaryOp.SUB:
                 left = self._extract_register_base(expr.left)
                 right_const = self.try_eval_constant(expr.right)
                 if left and right_const is not None:
@@ -845,7 +873,12 @@ class CTranspiler:
                     return key, offset - right_const
         return None
 
-    def _format_alias_index(self, alias: ScratchpadAlias, index_code: str, static_index: Optional[int] = None) -> str:
+    def _format_alias_index(
+        self,
+        alias: ScratchpadAlias,
+        index_code: str,
+        static_index: Optional[int] = None,
+    ) -> str:
         # If we have a per-index mapping, use it for constant indices
         if alias.index_to_offset is not None and static_index is not None:
             if static_index in alias.index_to_offset:
@@ -877,7 +910,9 @@ class CTranspiler:
             return str(offset)
         return f"{offset} + {index_code}"
 
-    def _generate_mem_index(self, index_expr: Expr, full_expr: IndexExpr) -> Optional[str]:
+    def _generate_mem_index(
+        self, index_expr: cadl_ast.Expr, full_expr: cadl_ast.IndexExpr
+    ) -> Optional[str]:
         pointer_info = self._extract_register_base(index_expr)
         if not pointer_info:
             return None
@@ -893,7 +928,11 @@ class CTranspiler:
             inferred = self.infer_c_type_from_expr(full_expr)
             if inferred:
                 element_type_candidates.add(inferred)
-        elem_type = self.choose_type_hint(element_type_candidates) if element_type_candidates else "uint32_t"
+        elem_type = (
+            self.choose_type_hint(element_type_candidates)
+            if element_type_candidates
+            else "uint32_t"
+        )
         element_size = self.c_type_size(elem_type)
         if element_size <= 0 or offset_bytes % element_size != 0:
             return None
@@ -903,17 +942,19 @@ class CTranspiler:
         self._mark_register_pointer_aliases(register_key, elem_type)
         return f"{param_name}[{index_code}]"
 
-    def register_key(self, index_expr: Expr) -> Tuple[str, str]:
-        if isinstance(index_expr, IdentExpr):
+    def register_key(self, index_expr: cadl_ast.Expr) -> Tuple[str, str]:
+        if isinstance(index_expr, cadl_ast.IdentExpr):
             name = index_expr.name
             return f"ident:{name}", name
-        if isinstance(index_expr, LitExpr):
+        if isinstance(index_expr, cadl_ast.LitExpr):
             literal = index_expr.literal.lit
-            if isinstance(literal, LiteralInner_Fixed):
+            if isinstance(literal, cadl_ast.LiteralInner_Fixed):
                 return f"literal:{literal.value}", f"irf_{literal.value}"
-            if isinstance(literal, LiteralInner_Float):
+            if isinstance(literal, cadl_ast.LiteralInner_Float):
                 return f"literal:{literal.value}", f"irf_{literal.value}"
-        return f"expr:{_sanitize_identifier(str(index_expr))}", _sanitize_identifier(str(index_expr))
+        return f"expr:{_sanitize_identifier(str(index_expr))}", _sanitize_identifier(
+            str(index_expr)
+        )
 
     def _merge_numeric_types(self, left: Optional[str], right: Optional[str]) -> str:
         if not left:
@@ -983,13 +1024,13 @@ class CTranspiler:
         return f"result_{_sanitize_identifier(key)}"
 
     def _type_width(self, type_name: str) -> int:
-        digits = ''.join(ch for ch in type_name if ch.isdigit())
+        digits = "".join(ch for ch in type_name if ch.isdigit())
         return int(digits) if digits else 32
 
     def _normalize_pointer_element_type(self, type_name: Optional[str]) -> str:
         base = (type_name or "uint32_t").strip()
         if base.startswith("const "):
-            base = base[len("const "):].strip()
+            base = base[len("const ") :].strip()
         if base.endswith("*"):
             base = base.rstrip("*").strip()
         if base == "bool":
@@ -1013,7 +1054,7 @@ class CTranspiler:
     def c_type_size(self, type_name: str) -> int:
         base = type_name.strip()
         if base.startswith("const "):
-            base = base[len("const "):]
+            base = base[len("const ") :]
         if base.endswith("*"):
             base = base[:-1].strip()
         mapping = {
@@ -1031,21 +1072,21 @@ class CTranspiler:
         }
         return mapping.get(base, 4)
 
-    def try_emit_for_loop(self, stmt: DoWhileStmt) -> bool:
+    def try_emit_for_loop(self, stmt: cadl_ast.DoWhileStmt) -> bool:
         if not stmt.bindings or stmt.condition is None:
             return False
 
         init_parts: List[str] = []
         update_parts: List[str] = []
         declarations: List[Tuple[str, str]] = []
-        step_hints: Dict[str, Tuple[BinaryOp, int]] = {}
+        step_hints: Dict[str, Tuple[cadl_ast.BinaryOp, int]] = {}
 
         for binding in stmt.bindings:
             if binding.init is None or binding.next is None:
                 return False
             var_name = binding.id
             if var_name not in self.declared_vars:
-                decl_type = self.map_type(DataType_Single(binding.ty))
+                decl_type = self.map_type(cadl_ast.DataType_Single(binding.ty))
                 declarations.append((decl_type, var_name))
             init_expr = self.generate_expr(binding.init)
             init_parts.append(f"{var_name} = {init_expr}")
@@ -1055,7 +1096,9 @@ class CTranspiler:
                 return False
             update_parts.append(update_expr)
 
-        condition = self.rewrite_loop_condition(stmt.condition, stmt.bindings, stmt.body, step_hints)
+        condition = self.rewrite_loop_condition(
+            stmt.condition, stmt.bindings, stmt.body, step_hints
+        )
 
         for decl_type, var_name in declarations:
             self.emit(f"{decl_type} {var_name};")
@@ -1073,76 +1116,100 @@ class CTranspiler:
         self.emit("}")
         return True
 
-    def format_loop_update(self, binding, body_stmts: List[Stmt], step_hints: Dict[str, Tuple[BinaryOp, int]]) -> Optional[str]:
+    def format_loop_update(
+        self,
+        binding,
+        body_stmts: List[cadl_ast.Stmt],
+        step_hints: Dict[str, Tuple[cadl_ast.BinaryOp, int]],
+    ) -> Optional[str]:
         var_name = binding.id
         next_expr = binding.next
-        if isinstance(next_expr, BinaryExpr):
-            if isinstance(next_expr.left, IdentExpr) and next_expr.left.name == var_name:
+        if isinstance(next_expr, cadl_ast.BinaryExpr):
+            if (
+                isinstance(next_expr.left, cadl_ast.IdentExpr)
+                and next_expr.left.name == var_name
+            ):
                 step_str = self.generate_expr(next_expr.right)
-                if next_expr.op == BinaryOp.ADD:
+                if next_expr.op == cadl_ast.BinaryOp.ADD:
                     step_val = self.try_eval_constant(next_expr.right)
                     if step_val is not None:
-                        step_hints[var_name] = (BinaryOp.ADD, step_val)
+                        step_hints[var_name] = (cadl_ast.BinaryOp.ADD, step_val)
                     if self._expr_is_literal_one(next_expr.right):
                         return f"++{var_name}"
                     return f"{var_name} += {step_str}"
-                if next_expr.op == BinaryOp.SUB:
+                if next_expr.op == cadl_ast.BinaryOp.SUB:
                     step_val = self.try_eval_constant(next_expr.right)
                     if step_val is not None:
-                        step_hints[var_name] = (BinaryOp.SUB, step_val)
+                        step_hints[var_name] = (cadl_ast.BinaryOp.SUB, step_val)
                     if self._expr_is_literal_one(next_expr.right):
                         return f"--{var_name}"
                     return f"{var_name} -= {step_str}"
-        if isinstance(next_expr, IdentExpr):
+        if isinstance(next_expr, cadl_ast.IdentExpr):
             step_info = self._find_step_in_body(body_stmts, var_name, next_expr.name)
             if step_info is not None:
                 op, step_val = step_info
                 step_hints[var_name] = step_info
-                if op == BinaryOp.ADD:
+                if op == cadl_ast.BinaryOp.ADD:
                     if step_val == 1:
                         return f"++{var_name}"
                     return f"{var_name} += {step_val}"
-                if op == BinaryOp.SUB:
+                if op == cadl_ast.BinaryOp.SUB:
                     if step_val == 1:
                         return f"--{var_name}"
                     return f"{var_name} -= {step_val}"
         return None
 
-    def _expr_is_literal_one(self, expr: Expr) -> bool:
-        if isinstance(expr, LitExpr):
+    def _expr_is_literal_one(self, expr: cadl_ast.Expr) -> bool:
+        if isinstance(expr, cadl_ast.LitExpr):
             inner = expr.literal.lit
-            if isinstance(inner, LiteralInner_Fixed):
+            if isinstance(inner, cadl_ast.LiteralInner_Fixed):
                 return inner.value == 1
         return False
 
-    def _find_step_in_body(self, body_stmts: List[Stmt], var_name: str, temp_name: str) -> Optional[Tuple[BinaryOp, int]]:
+    def _find_step_in_body(
+        self, body_stmts: List[cadl_ast.Stmt], var_name: str, temp_name: str
+    ) -> Optional[Tuple[cadl_ast.BinaryOp, int]]:
         for stmt in body_stmts:
-            if isinstance(stmt, AssignStmt):
-                if isinstance(stmt.lhs, IdentExpr) and stmt.lhs.name == temp_name:
+            if isinstance(stmt, cadl_ast.AssignStmt):
+                if isinstance(stmt.lhs, cadl_ast.IdentExpr) and stmt.lhs.name == temp_name:
                     rhs = stmt.rhs
-                    if isinstance(rhs, BinaryExpr):
-                        if isinstance(rhs.left, IdentExpr) and rhs.left.name == var_name:
+                    if isinstance(rhs, cadl_ast.BinaryExpr):
+                        if (
+                            isinstance(rhs.left, cadl_ast.IdentExpr)
+                            and rhs.left.name == var_name
+                        ):
                             step_val = self.try_eval_constant(rhs.right)
                             if step_val is not None:
                                 return rhs.op, step_val
         return None
 
-    def rewrite_loop_condition(self, condition: Expr, bindings: List, body_stmts: List[Stmt], step_hints: Dict[str, Tuple[BinaryOp, int]]) -> str:
+    def rewrite_loop_condition(
+        self,
+        condition: cadl_ast.Expr,
+        bindings: List,
+        body_stmts: List[cadl_ast.Stmt],
+        step_hints: Dict[str, Tuple[cadl_ast.BinaryOp, int]],
+    ) -> str:
         if not bindings:
             return self.generate_expr(condition)
         primary = bindings[0]
         next_name = None
-        if isinstance(primary.next, IdentExpr):
+        if isinstance(primary.next, cadl_ast.IdentExpr):
             next_name = primary.next.name
-        if isinstance(condition, BinaryExpr) and next_name:
-            if isinstance(condition.left, IdentExpr) and condition.left.name == next_name:
-                if condition.op == BinaryOp.LT:
+        if isinstance(condition, cadl_ast.BinaryExpr) and next_name:
+            if (
+                isinstance(condition.left, cadl_ast.IdentExpr)
+                and condition.left.name == next_name
+            ):
+                if condition.op == cadl_ast.BinaryOp.LT:
                     right = self.generate_expr(condition.right)
                     return f"{primary.id} < {right}"
-                if condition.op == BinaryOp.LE:
+                if condition.op == cadl_ast.BinaryOp.LE:
                     right_val = self.try_eval_constant(condition.right)
                     if right_val is not None:
-                        step_info = step_hints.get(primary.id) or self._find_step_in_body(body_stmts, primary.id, next_name)
+                        step_info = step_hints.get(
+                            primary.id
+                        ) or self._find_step_in_body(body_stmts, primary.id, next_name)
                         if step_info:
                             _, step_val = step_info
                             adjusted = right_val - step_val
@@ -1153,27 +1220,33 @@ class CTranspiler:
         # In CADL do-while semantics, body runs first then condition is checked
         # So "while (i + 1 < 16)" means loop while next value < 16
         # For C for-loop (checks condition before body), we need "i < 16"
-        if isinstance(condition, BinaryExpr) and isinstance(primary.next, BinaryExpr):
+        if isinstance(condition, cadl_ast.BinaryExpr) and isinstance(primary.next, cadl_ast.BinaryExpr):
             next_expr = primary.next
             cond_left = condition.left
             # Check if condition.left matches the next expression pattern
-            if isinstance(cond_left, BinaryExpr):
+            if isinstance(cond_left, cadl_ast.BinaryExpr):
                 # Check if both are "var op const" patterns with same var and op
-                if (isinstance(next_expr.left, IdentExpr) and
-                    isinstance(cond_left.left, IdentExpr) and
-                    next_expr.left.name == primary.id and
-                    cond_left.left.name == primary.id and
-                    next_expr.op == cond_left.op):
+                if (
+                    isinstance(next_expr.left, cadl_ast.IdentExpr)
+                    and isinstance(cond_left.left, cadl_ast.IdentExpr)
+                    and next_expr.left.name == primary.id
+                    and cond_left.left.name == primary.id
+                    and next_expr.op == cond_left.op
+                ):
                     # Check if the step values match
                     next_step = self.try_eval_constant(next_expr.right)
                     cond_step = self.try_eval_constant(cond_left.right)
-                    if next_step is not None and cond_step is not None and next_step == cond_step:
+                    if (
+                        next_step is not None
+                        and cond_step is not None
+                        and next_step == cond_step
+                    ):
                         # Rewrite (i + step) < bound to i < bound for LT
                         # Rewrite (i + step) <= bound to i <= (bound - step) for LE
-                        if condition.op == BinaryOp.LT:
+                        if condition.op == cadl_ast.BinaryOp.LT:
                             right = self.generate_expr(condition.right)
                             return f"{primary.id} < {right}"
-                        if condition.op == BinaryOp.LE:
+                        if condition.op == cadl_ast.BinaryOp.LE:
                             right_val = self.try_eval_constant(condition.right)
                             if right_val is not None:
                                 adjusted = right_val - next_step
@@ -1181,7 +1254,7 @@ class CTranspiler:
 
         return self.generate_expr(condition)
 
-    def generate_flow(self, flow: Flow, proc: Proc, analysis: FlowAnalysisData):
+    def generate_flow(self, flow: cadl_ast.Flow, proc: cadl_ast.Proc, analysis: FlowAnalysisData):
         """Generate C function from CADL flow
 
         High-level mode only:
@@ -1218,7 +1291,9 @@ class CTranspiler:
             static_obj = proc.statics.get(static_name)
             if not static_obj:
                 continue
-            decl_line, type_hint = self.make_static_local_declaration(static_name, static_obj)
+            decl_line, type_hint = self.make_static_local_declaration(
+                static_name, static_obj
+            )
             if decl_line:
                 local_static_decls.append(decl_line)
                 self.register_declaration(static_name)
@@ -1317,32 +1392,34 @@ class CTranspiler:
     def map_static_array_type(self, static_obj) -> str:
         """Map CADL static array to C element type"""
         # Get the array element type from the static object
-        if isinstance(static_obj.ty, DataType_Array):
+        if isinstance(static_obj.ty, cadl_ast.DataType_Array):
             result = self.map_basic_type(static_obj.ty.element_type)
             self._note_type(result)
             return result
-        elif isinstance(static_obj.ty, DataType_Single):
+        elif isinstance(static_obj.ty, cadl_ast.DataType_Single):
             result = self.map_basic_type(static_obj.ty.basic_type)
             self._note_type(result)
             return result
         self._note_type("uint8_t")
         return "uint8_t"  # Fallback
 
-    def make_static_local_declaration(self, name: str, static_obj) -> Tuple[Optional[str], Optional[str]]:
+    def make_static_local_declaration(
+        self, name: str, static_obj
+    ) -> Tuple[Optional[str], Optional[str]]:
         ty = getattr(static_obj, "ty", None)
-        if isinstance(ty, DataType_Array):
+        if isinstance(ty, cadl_ast.DataType_Array):
             elem_type = self.map_basic_type(ty.element_type)
             dims = ty.dimensions if ty.dimensions else [1]
-            dims_str = ''.join(f"[{dim}]" for dim in dims)
+            dims_str = "".join(f"[{dim}]" for dim in dims)
             return f"{elem_type} {name}{dims_str};", None
-        if isinstance(ty, DataType_Single):
+        if isinstance(ty, cadl_ast.DataType_Single):
             base_type = self.map_basic_type(ty.basic_type)
             return f"{base_type} {name} = 0;", base_type
         return None, None
 
-    def map_basic_type(self, basic_type: BasicType) -> str:
+    def map_basic_type(self, basic_type: cadl_ast.BasicType) -> str:
         """Map BasicType to C type (for array elements)"""
-        if isinstance(basic_type, BasicType_ApUFixed):
+        if isinstance(basic_type, cadl_ast.BasicType_ApUFixed):
             width = basic_type.width
             if width <= 8:
                 return "uint8_t"
@@ -1352,7 +1429,7 @@ class CTranspiler:
                 return "uint32_t"
             else:
                 return "uint64_t"
-        elif isinstance(basic_type, BasicType_ApFixed):
+        elif isinstance(basic_type, cadl_ast.BasicType_ApFixed):
             width = basic_type.width
             if width <= 8:
                 return "int8_t"
@@ -1362,19 +1439,19 @@ class CTranspiler:
                 return "int32_t"
             else:
                 return "int64_t"
-        elif isinstance(basic_type, BasicType_Float32):
+        elif isinstance(basic_type, cadl_ast.BasicType_Float32):
             return "float"
-        elif isinstance(basic_type, BasicType_Float64):
+        elif isinstance(basic_type, cadl_ast.BasicType_Float64):
             return "double"
         self._note_type("uint8_t")
         return "uint8_t"  # Fallback
 
     def infer_c_type_from_expr(self, expr) -> str:
-        if isinstance(expr, LitExpr):
+        if isinstance(expr, cadl_ast.LitExpr):
             lit = expr.literal.lit
-            if isinstance(lit, LiteralInner_Float):
+            if isinstance(lit, cadl_ast.LiteralInner_Float):
                 return "double"
-            if isinstance(lit, LiteralInner_Fixed):
+            if isinstance(lit, cadl_ast.LiteralInner_Fixed):
                 value = lit.value
                 if value < 0:
                     return "int32_t"
@@ -1386,7 +1463,7 @@ class CTranspiler:
                     return "uint32_t"
                 return "uint64_t"
 
-        if isinstance(expr, IdentExpr):
+        if isinstance(expr, cadl_ast.IdentExpr):
             name = expr.name
             alias_key = self.register_alias_key(name)
             if alias_key:
@@ -1395,8 +1472,12 @@ class CTranspiler:
                     return self.choose_type_hint(info.type_hints)
             return self.var_types.get(name, "uint32_t")
 
-        if isinstance(expr, IndexExpr):
-            if isinstance(expr.expr, IdentExpr) and expr.expr.name == "_irf" and expr.indices:
+        if isinstance(expr, cadl_ast.IndexExpr):
+            if (
+                isinstance(expr.expr, cadl_ast.IdentExpr)
+                and expr.expr.name == "_irf"
+                and expr.indices
+            ):
                 key, _ = self.register_key(expr.indices[0])
                 info = self.irf_read_infos.get(key)
                 if info and info.type_hints:
@@ -1405,29 +1486,29 @@ class CTranspiler:
                 if write_info and write_info.type_hints:
                     return self.choose_type_hint(write_info.type_hints)
                 return "uint32_t"
-            if isinstance(expr.expr, IdentExpr):
+            if isinstance(expr.expr, cadl_ast.IdentExpr):
                 array_name = expr.expr.name
                 if self.proc and array_name in self.proc.statics:
                     static_obj = self.proc.statics[array_name]
                     return self.map_static_array_type(static_obj)
             return "uint32_t"
 
-        if isinstance(expr, BinaryExpr):
+        if isinstance(expr, cadl_ast.BinaryExpr):
             left = self.infer_c_type_from_expr(expr.left)
             right = self.infer_c_type_from_expr(expr.right)
             return self._merge_numeric_types(left, right)
 
-        if isinstance(expr, UnaryExpr):
+        if isinstance(expr, cadl_ast.UnaryExpr):
             return self.infer_c_type_from_expr(expr.operand)
 
-        if isinstance(expr, SliceExpr):
+        if isinstance(expr, cadl_ast.SliceExpr):
             inner_type = self.infer_c_type_from_expr(expr.expr)
             return inner_type
 
-        if isinstance(expr, IfExpr):
+        if isinstance(expr, cadl_ast.IfExpr):
             return self.infer_c_type_from_expr(expr.then_branch)
 
-        if isinstance(expr, SelectExpr):
+        if isinstance(expr, cadl_ast.SelectExpr):
             result_type: Optional[str] = None
             for _, value in expr.arms:
                 result_type = self._merge_numeric_types(
@@ -1438,43 +1519,43 @@ class CTranspiler:
             )
             return result_type or "uint32_t"
 
-        if isinstance(expr, CallExpr):
+        if isinstance(expr, cadl_ast.CallExpr):
             if expr.name in {"sqrt", "exp", "log", "pow", "ceil", "floor"}:
                 return "double"
             if expr.name in {"abs", "labs", "llabs"}:
                 return "int32_t"
             return "uint32_t"
 
-        if isinstance(expr, TupleExpr) and expr.elements:
+        if isinstance(expr, cadl_ast.TupleExpr) and expr.elements:
             return self.infer_c_type_from_expr(expr.elements[0])
 
         return "uint32_t"
 
-    def generate_stmt(self, stmt: Stmt):
+    def generate_stmt(self, stmt: cadl_ast.Stmt):
         """Generate statement"""
-        if isinstance(stmt, AssignStmt):
+        if isinstance(stmt, cadl_ast.AssignStmt):
             self.generate_assign(stmt)
-        elif isinstance(stmt, ExprStmt):
+        elif isinstance(stmt, cadl_ast.ExprStmt):
             # Expression statements (function calls, etc.)
             expr_str = self.generate_expr(stmt.expr)
             self.emit(f"{expr_str};")
-        elif isinstance(stmt, DoWhileStmt):
+        elif isinstance(stmt, cadl_ast.DoWhileStmt):
             self.generate_dowhile(stmt)
-        elif isinstance(stmt, ReturnStmt):
+        elif isinstance(stmt, cadl_ast.ReturnStmt):
             self.generate_return(stmt)
-        elif isinstance(stmt, DirectiveStmt):
+        elif isinstance(stmt, cadl_ast.DirectiveStmt):
             # Skip directives - they're MLIR/HLS annotations
             pass
         else:
             self.emit(f"// TODO: {type(stmt).__name__}")
 
-    def generate_assign(self, stmt: AssignStmt):
+    def generate_assign(self, stmt: cadl_ast.AssignStmt):
         """Generate assignment - in CADL, 'let' creates AssignStmt too"""
 
         # Check if this is an irf alias variable that's only used for scratchpad aliasing
         # e.g., let addr = _irf[rs1] where addr is only used in _mem or _burst accesses
-        if isinstance(stmt.lhs, IdentExpr) and isinstance(stmt.rhs, IndexExpr):
-            if isinstance(stmt.rhs.expr, IdentExpr) and stmt.rhs.expr.name == "_irf":
+        if isinstance(stmt.lhs, cadl_ast.IdentExpr) and isinstance(stmt.rhs, cadl_ast.IndexExpr):
+            if isinstance(stmt.rhs.expr, cadl_ast.IdentExpr) and stmt.rhs.expr.name == "_irf":
                 lhs_name = stmt.lhs.name
                 alias_key = self.irf_aliases.get(lhs_name)
                 if alias_key:
@@ -1490,30 +1571,47 @@ class CTranspiler:
         # Special case: burst operations - eliminate them
         # CADL: bitmask[0 +: ] = _burst_read[base_addr +: 4]
         # High-level: eliminated (arrays already accessible)
-        if isinstance(stmt.lhs, RangeSliceExpr) and isinstance(stmt.rhs, RangeSliceExpr):
-            if isinstance(stmt.rhs.expr, IdentExpr) and stmt.rhs.expr.name == "_burst_read":
+        if isinstance(stmt.lhs, cadl_ast.RangeSliceExpr) and isinstance(
+            stmt.rhs, cadl_ast.RangeSliceExpr
+        ):
+            if (
+                isinstance(stmt.rhs.expr, cadl_ast.IdentExpr)
+                and stmt.rhs.expr.name == "_burst_read"
+            ):
                 target_expr = stmt.lhs.expr
-                if isinstance(target_expr, IdentExpr) and target_expr.name in self.scratchpad_aliases:
+                if (
+                    isinstance(target_expr, cadl_ast.IdentExpr)
+                    and target_expr.name in self.scratchpad_aliases
+                ):
                     return
                 return
 
         # Check if this is burst write - eliminate it
         # CADL: _burst_write[addr +: size] = array[0 +: ]
-        if isinstance(stmt.lhs, RangeSliceExpr) and isinstance(stmt.lhs.expr, IdentExpr):
+        if isinstance(stmt.lhs, cadl_ast.RangeSliceExpr) and isinstance(
+            stmt.lhs.expr, cadl_ast.IdentExpr
+        ):
             if stmt.lhs.expr.name == "_burst_write":
-                rhs_expr = stmt.rhs.expr if isinstance(stmt.rhs, RangeSliceExpr) else None
-                if isinstance(rhs_expr, IdentExpr) and rhs_expr.name in self.scratchpad_aliases:
+                rhs_expr = (
+                    stmt.rhs.expr if isinstance(stmt.rhs, cadl_ast.RangeSliceExpr) else None
+                )
+                if (
+                    isinstance(rhs_expr, cadl_ast.IdentExpr)
+                    and rhs_expr.name in self.scratchpad_aliases
+                ):
                     return
                 return
 
         # Check if LHS is static[i] = _mem[...] where static is aliased
         # If so, skip this because the alias already provides direct access
-        if isinstance(stmt.lhs, IndexExpr) and isinstance(stmt.lhs.expr, IdentExpr):
+        if isinstance(stmt.lhs, cadl_ast.IndexExpr) and isinstance(stmt.lhs.expr, cadl_ast.IdentExpr):
             lhs_static = stmt.lhs.expr.name
             if lhs_static in self.scratchpad_aliases:
                 alias = self.scratchpad_aliases[lhs_static]
                 if alias.index_to_offset is not None:
-                    if isinstance(stmt.rhs, IndexExpr) and isinstance(stmt.rhs.expr, IdentExpr):
+                    if isinstance(stmt.rhs, cadl_ast.IndexExpr) and isinstance(
+                        stmt.rhs.expr, cadl_ast.IdentExpr
+                    ):
                         if stmt.rhs.expr.name == "_mem":
                             # This is static[i] = _mem[addr+off], skip it
                             return
@@ -1521,22 +1619,26 @@ class CTranspiler:
         # Check if LHS is _irf[rd] write or _mem[addr] write
         # _irf[rd] = value → eliminate (will be handled as return value in future)
         # _mem[addr] = value → eliminate (memory writes handled externally in high-level mode)
-        if isinstance(stmt.lhs, IndexExpr):
-            if isinstance(stmt.lhs.expr, IdentExpr):
+        if isinstance(stmt.lhs, cadl_ast.IndexExpr):
+            if isinstance(stmt.lhs.expr, cadl_ast.IdentExpr):
                 if stmt.lhs.expr.name == "_irf" and stmt.lhs.indices:
                     key, _ = self.register_key(stmt.lhs.indices[0])
                     rhs_str = self.generate_expr(stmt.rhs)
                     if key in self.result_locals:
                         self.emit(f"{self.result_locals[key]} = {rhs_str};")
                     else:
-                        self.emit(f"// _irf write ignored in explicit return mode: {rhs_str}")
+                        self.emit(
+                            f"// _irf write ignored in explicit return mode: {rhs_str}"
+                        )
                     return
                 if stmt.lhs.expr.name == "_mem":
                     index_expr = stmt.lhs.indices[0] if stmt.lhs.indices else None
                     if index_expr:
                         # Check if RHS is static[i] that is aliased - if so, skip this
                         # because the alias already provides direct access
-                        if isinstance(stmt.rhs, IndexExpr) and isinstance(stmt.rhs.expr, IdentExpr):
+                        if isinstance(stmt.rhs, cadl_ast.IndexExpr) and isinstance(
+                            stmt.rhs.expr, cadl_ast.IdentExpr
+                        ):
                             rhs_static = stmt.rhs.expr.name
                             if rhs_static in self.scratchpad_aliases:
                                 alias = self.scratchpad_aliases[rhs_static]
@@ -1549,9 +1651,15 @@ class CTranspiler:
                             rhs_str = self.generate_expr(stmt.rhs)
                             self.emit(f"{mem_lhs} = {rhs_str};")
                             return
-                    addr_str = self.generate_expr(stmt.lhs.indices[0]) if stmt.lhs.indices else "0"
+                    addr_str = (
+                        self.generate_expr(stmt.lhs.indices[0])
+                        if stmt.lhs.indices
+                        else "0"
+                    )
                     rhs_str = self.generate_expr(stmt.rhs)
-                    self.emit(f"// _mem[{addr_str}] = {rhs_str};  // eliminated in high-level mode")
+                    self.emit(
+                        f"// _mem[{addr_str}] = {rhs_str};  // eliminated in high-level mode"
+                    )
                     return
 
         # Regular expression generation
@@ -1560,28 +1668,34 @@ class CTranspiler:
 
         # Check if this is a variable declaration (lhs is simple identifier)
         # In CADL, 'let x = ...' becomes AssignStmt(IdentExpr('x'), ...)
-        if isinstance(stmt.lhs, IdentExpr) and stmt.lhs.name not in self.declared_vars:
+        if isinstance(stmt.lhs, cadl_ast.IdentExpr) and stmt.lhs.name not in self.declared_vars:
             # First assignment to this variable - declare it
             self.register_declaration(stmt.lhs.name)
 
             # Use explicit type annotation if available, otherwise infer from RHS
             if stmt.type_annotation:
                 inferred_type = self.map_type(stmt.type_annotation)
-                alias_key = self.irf_aliases.get(stmt.lhs.name) if stmt.lhs.name in self.irf_aliases else None
+                alias_key = (
+                    self.irf_aliases.get(stmt.lhs.name)
+                    if stmt.lhs.name in self.irf_aliases
+                    else None
+                )
                 if alias_key:
                     info = self.irf_read_infos.get(alias_key)
                     if info and info.pointer_element_types:
                         elem_type = self.choose_type_hint(info.pointer_element_types)
                         inferred_type = f"{elem_type} *"
             else:
-                inferred_type = self.var_types.get(stmt.lhs.name) or self.infer_c_type_from_expr(stmt.rhs)
+                inferred_type = self.var_types.get(
+                    stmt.lhs.name
+                ) or self.infer_c_type_from_expr(stmt.rhs)
             self.var_types[stmt.lhs.name] = inferred_type
             self.emit(f"{inferred_type} {lhs} = {rhs};")
         else:
             # Regular assignment
             self.emit(f"{lhs} = {rhs};")
 
-    def generate_return(self, stmt: ReturnStmt):
+    def generate_return(self, stmt: cadl_ast.ReturnStmt):
         """Generate return statement"""
         exprs = [self.generate_expr(expr) for expr in stmt.exprs]
 
@@ -1608,14 +1722,14 @@ class CTranspiler:
         # Fallback for unexpected cases
         self.emit(f"return {exprs[0]};")
 
-    def generate_dowhile(self, stmt: DoWhileStmt):
+    def generate_dowhile(self, stmt: cadl_ast.DoWhileStmt):
         if self.try_emit_for_loop(stmt):
             return
 
         for binding in stmt.bindings:
             var_name = binding.id
             init_val = self.generate_expr(binding.init) if binding.init else "0"
-            c_type = self.map_type(DataType_Single(binding.ty))
+            c_type = self.map_type(cadl_ast.DataType_Single(binding.ty))
             if var_name in self.declared_vars:
                 self.emit(f"{var_name} = {init_val};")
             else:
@@ -1637,11 +1751,11 @@ class CTranspiler:
         self.indent_level -= 1
         self.emit("}")
 
-    def generate_expr(self, expr: Expr) -> str:
+    def generate_expr(self, expr: cadl_ast.Expr) -> str:
         """Generate expression"""
-        if isinstance(expr, LitExpr):
+        if isinstance(expr, cadl_ast.LitExpr):
             return self.generate_literal(expr)
-        elif isinstance(expr, IdentExpr):
+        elif isinstance(expr, cadl_ast.IdentExpr):
             name = expr.name
             if name in self.declared_vars:
                 return name
@@ -1651,23 +1765,23 @@ class CTranspiler:
             if alias_key and alias_key in self.irf_read_params:
                 return self.irf_read_params[alias_key]
             return name
-        elif isinstance(expr, BinaryExpr):
+        elif isinstance(expr, cadl_ast.BinaryExpr):
             return self.generate_binop(expr)
-        elif isinstance(expr, UnaryExpr):
+        elif isinstance(expr, cadl_ast.UnaryExpr):
             return self.generate_unop(expr)
-        elif isinstance(expr, SliceExpr):
+        elif isinstance(expr, cadl_ast.SliceExpr):
             return self.generate_slice(expr)
-        elif isinstance(expr, RangeSliceExpr):
+        elif isinstance(expr, cadl_ast.RangeSliceExpr):
             return self.generate_range_slice(expr)
-        elif isinstance(expr, IndexExpr):
+        elif isinstance(expr, cadl_ast.IndexExpr):
             return self.generate_index(expr)
-        elif isinstance(expr, IfExpr):
+        elif isinstance(expr, cadl_ast.IfExpr):
             return self.generate_if_expr(expr)
-        elif isinstance(expr, CallExpr):
+        elif isinstance(expr, cadl_ast.CallExpr):
             return self.generate_call(expr)
-        elif isinstance(expr, SelectExpr):
+        elif isinstance(expr, cadl_ast.SelectExpr):
             return self.generate_select(expr)
-        elif isinstance(expr, TupleExpr):
+        elif isinstance(expr, cadl_ast.TupleExpr):
             return self.generate_tuple(expr)
         else:
             return f"/* TODO: {type(expr).__name__} */"
@@ -1675,9 +1789,9 @@ class CTranspiler:
     def generate_literal(self, expr) -> str:
         """Generate literal"""
         lit = expr.literal
-        if isinstance(lit.lit, LiteralInner_Fixed):
+        if isinstance(lit.lit, cadl_ast.LiteralInner_Fixed):
             return str(lit.lit.value)
-        elif isinstance(lit.lit, LiteralInner_Float):
+        elif isinstance(lit.lit, cadl_ast.LiteralInner_Float):
             return str(lit.lit.value)
         elif isinstance(lit.lit, LiteralInner_Bool):
             return "true" if lit.lit.value else "false"
@@ -1690,9 +1804,7 @@ class CTranspiler:
         right = self.generate_expr(expr.right)
         op_enum = expr.op
 
-        # Map CADL operators to C
-        # The op is a BinaryOp enum, get its value
-        op_str = op_enum.value if hasattr(op_enum, 'value') else str(op_enum)
+        op_str = op_enum.value if isinstance(op_enum, Enum) else str(op_enum)
 
         return f"({left} {op_str} {right})"
 
@@ -1701,8 +1813,7 @@ class CTranspiler:
         operand = self.generate_expr(expr.operand)
         op_enum = expr.op
 
-        # The op is a UnaryOp enum, get its value
-        op_str = op_enum.value if hasattr(op_enum, 'value') else str(op_enum)
+        op_str = op_enum.value if isinstance(op_enum, Enum) else str(op_enum)
 
         return f"({op_str}{operand})"
 
@@ -1742,31 +1853,31 @@ class CTranspiler:
 
     def try_eval_constant(self, expr) -> Optional[int]:
         """Try to evaluate expression as a constant integer"""
-        if isinstance(expr, LitExpr):
-            if isinstance(expr.literal.lit, LiteralInner_Fixed):
+        if isinstance(expr, cadl_ast.LitExpr):
+            if isinstance(expr.literal.lit, cadl_ast.LiteralInner_Fixed):
                 return expr.literal.lit.value
-        if isinstance(expr, UnaryExpr):
-            if expr.op == UnaryOp.NEG:
+        if isinstance(expr, cadl_ast.UnaryExpr):
+            if expr.op == cadl_ast.UnaryOp.NEG:
                 inner = self.try_eval_constant(expr.operand)
                 if inner is not None:
                     return -inner
             return None
-        if isinstance(expr, BinaryExpr):
+        if isinstance(expr, cadl_ast.BinaryExpr):
             left = self.try_eval_constant(expr.left)
             right = self.try_eval_constant(expr.right)
             if left is None or right is None:
                 return None
-            if expr.op == BinaryOp.ADD:
+            if expr.op == cadl_ast.BinaryOp.ADD:
                 return left + right
-            if expr.op == BinaryOp.SUB:
+            if expr.op == cadl_ast.BinaryOp.SUB:
                 return left - right
-            if expr.op == BinaryOp.MUL:
+            if expr.op == cadl_ast.BinaryOp.MUL:
                 return left * right
-            if expr.op == BinaryOp.DIV and right != 0:
+            if expr.op == cadl_ast.BinaryOp.DIV and right != 0:
                 return left // right
-            if expr.op == BinaryOp.LSHIFT:
+            if expr.op == cadl_ast.BinaryOp.LSHIFT:
                 return left << right
-            if expr.op == BinaryOp.RSHIFT:
+            if expr.op == cadl_ast.BinaryOp.RSHIFT:
                 return left >> right
         return None
 
@@ -1779,7 +1890,7 @@ class CTranspiler:
         In C, we'll generate a pointer: &arr[start]
         The length is used in the assignment context (memcpy)
         """
-        if isinstance(expr.expr, IdentExpr):
+        if isinstance(expr.expr, cadl_ast.IdentExpr):
             base_name = expr.expr.name
             if base_name in self.scratchpad_aliases:
                 alias = self.scratchpad_aliases[base_name]
@@ -1803,22 +1914,34 @@ class CTranspiler:
         Special handling:
         - _irf[rs1] → rs1_value (convert to direct parameter)
         """
-        if isinstance(expr.expr, IdentExpr) and expr.expr.name == "_irf" and expr.indices:
+        if (
+            isinstance(expr.expr, cadl_ast.IdentExpr)
+            and expr.expr.name == "_irf"
+            and expr.indices
+        ):
             key, _ = self.register_key(expr.indices[0])
             param = self.irf_read_params.get(key)
             if param:
                 return param
             return f"/* irf_{key} */"
 
-        if isinstance(expr.expr, IdentExpr):
+        if isinstance(expr.expr, cadl_ast.IdentExpr):
             base_name = expr.expr.name
             if base_name in self.scratchpad_aliases and expr.indices:
                 alias = self.scratchpad_aliases[base_name]
                 param = self.irf_read_params.get(alias.register_key)
                 if param:
-                    index_code = self.generate_expr(expr.indices[0]) if expr.indices else "0"
-                    static_index = self.try_eval_constant(expr.indices[0]) if expr.indices else None
-                    index_code = self._format_alias_index(alias, index_code, static_index)
+                    index_code = (
+                        self.generate_expr(expr.indices[0]) if expr.indices else "0"
+                    )
+                    static_index = (
+                        self.try_eval_constant(expr.indices[0])
+                        if expr.indices
+                        else None
+                    )
+                    index_code = self._format_alias_index(
+                        alias, index_code, static_index
+                    )
                     return f"{param}[{index_code}]"
             if base_name == "_mem" and expr.indices:
                 mem_access = self._generate_mem_index(expr.indices[0], expr)
@@ -1842,7 +1965,7 @@ class CTranspiler:
         else_val = self.generate_expr(expr.else_branch)
         return f"({cond} ? {then_val} : {else_val})"
 
-    def generate_call(self, expr: CallExpr) -> str:
+    def generate_call(self, expr: cadl_ast.CallExpr) -> str:
         """Generate function call
 
         CADL function calls map to C function calls.
@@ -1867,7 +1990,7 @@ class CTranspiler:
         c_func = builtin_map.get(func_name, func_name)
         return f"{c_func}({args_str})"
 
-    def generate_select(self, expr: SelectExpr) -> str:
+    def generate_select(self, expr: cadl_ast.SelectExpr) -> str:
         """Generate chained ternary expression for CADL select."""
         result = self.generate_expr(expr.default)
         for condition, value in reversed(expr.arms):
@@ -1876,7 +1999,7 @@ class CTranspiler:
             result = f"({cond_str} ? {value_str} : {result})"
         return result
 
-    def generate_tuple(self, expr: TupleExpr) -> str:
+    def generate_tuple(self, expr: cadl_ast.TupleExpr) -> str:
         """Generate tuple expression
 
         When multiple elements are present, fall back to a comma-expression that
@@ -1890,11 +2013,11 @@ class CTranspiler:
         combined = ", ".join(elements)
         return f"/* tuple */({combined})"
 
-    def map_type(self, dtype: DataType) -> str:
+    def map_type(self, dtype: cadl_ast.DataType) -> str:
         """Map CADL type to C type (byte-aligned)"""
-        if isinstance(dtype, DataType_Single):
+        if isinstance(dtype, cadl_ast.DataType_Single):
             basic = dtype.basic_type
-            if isinstance(basic, BasicType_ApUFixed):
+            if isinstance(basic, cadl_ast.BasicType_ApUFixed):
                 width = basic.width
                 if width <= 8:
                     self._note_type("uint8_t")
@@ -1908,7 +2031,7 @@ class CTranspiler:
                 else:
                     self._note_type("uint64_t")
                     return "uint64_t"
-            elif isinstance(basic, BasicType_ApFixed):
+            elif isinstance(basic, cadl_ast.BasicType_ApFixed):
                 width = basic.width
                 if width <= 8:
                     self._note_type("int8_t")
@@ -1922,10 +2045,10 @@ class CTranspiler:
                 else:
                     self._note_type("int64_t")
                     return "int64_t"
-            elif isinstance(basic, BasicType_Float32):
+            elif isinstance(basic, cadl_ast.BasicType_Float32):
                 self._note_type("float")
                 return "float"
-            elif isinstance(basic, BasicType_Float64):
+            elif isinstance(basic, cadl_ast.BasicType_Float64):
                 self._note_type("double")
                 return "double"
 
@@ -1937,7 +2060,7 @@ class CTranspiler:
 def main():
     """CLI entry point"""
     parser = argparse.ArgumentParser(
-        description='Transpile CADL to high-level C code for Polygeist',
+        description="Transpile CADL to high-level C code for Polygeist",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 High-level C code generation:
@@ -1948,17 +2071,17 @@ High-level C code generation:
 
 Examples:
   # Generate C code from CADL
-  python -m cadl_frontend.transpile_to_c input.cadl -o output.c
+  python -m cadl_frontend.to_c.transpiler input.cadl -o output.c
 
   # Compile generated C code
   gcc -c -std=c11 -Wall output.c -o output.o
 
   # Use with Polygeist for MLIR generation
   polygeist-opt output.c -o output.mlir
-        """
+        """,
     )
-    parser.add_argument('input', type=Path, help='Input CADL file')
-    parser.add_argument('-o', '--output', type=Path, help='Output C file')
+    parser.add_argument("input", type=Path, help="Input CADL file")
+    parser.add_argument("-o", "--output", type=Path, help="Output C file")
 
     args = parser.parse_args()
 
@@ -1974,5 +2097,5 @@ Examples:
         print(c_code)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Optional
 from cadl_frontend import parse_proc
 from cadl_frontend.parser import CADLParseError
-from cadl_frontend.mlir_converter import convert_cadl_to_mlir
-from cadl_frontend.transpile_to_c import CTranspiler
+from cadl_frontend.to_mlir import convert_cadl_to_mlir
+from cadl_frontend.to_c import CTranspiler
 from cadl_frontend.debug import (
     set_debug_level, set_module_debug_level, DebugLevel,
     dbg_debug, dbg_info, dbg_warning, dbg_error, dbg_critical
@@ -166,7 +166,7 @@ def convert_to_c(input_file: str, output_file: Optional[str] = None) -> None:
 def extract_encoding(input_file: str, output_file: Optional[str] = None) -> None:
     """Extract instruction encoding (opcode, funct3, funct7) from CADL file to JSON."""
     import json
-    from cadl_frontend.ast import LitExpr, LiteralInner_Fixed
+    from cadl_frontend import cadl_ast
 
     try:
         with open(input_file, 'r') as f:
@@ -185,10 +185,10 @@ def extract_encoding(input_file: str, output_file: Optional[str] = None) -> None
             for attr_name in ['opcode', 'funct3', 'funct7']:
                 attr_value = flow.attrs.get(attr_name)
                 if attr_value is not None:
-                    # attr_value should be a LitExpr with a Fixed literal
-                    if isinstance(attr_value, LitExpr):
+                    # attr_value should be a cadl_ast.LitExpr with a Fixed literal
+                    if isinstance(attr_value, cadl_ast.LitExpr):
                         lit_inner = attr_value.literal.lit
-                        if isinstance(lit_inner, LiteralInner_Fixed):
+                        if isinstance(lit_inner, cadl_ast.LiteralInner_Fixed):
                             # Convert to hex string
                             flow_encoding[attr_name] = f"0x{lit_inner.value:X}"
 

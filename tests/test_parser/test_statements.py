@@ -6,7 +6,7 @@ Tests assignment, return, loops, guards, directives, spawn statements.
 
 import pytest
 from cadl_frontend import parse_proc
-from cadl_frontend.ast import *
+from cadl_frontend import cadl_ast
 
 
 class TestAssignmentStatements:
@@ -23,9 +23,9 @@ class TestAssignmentStatements:
         flow = list(ast.flows.values())[0]
         assert len(flow.body) == 1
         assign = flow.body[0]
-        assert isinstance(assign, AssignStmt)
+        assert isinstance(assign, cadl_ast.AssignStmt)
         assert assign.is_let
-        assert isinstance(assign.lhs, IdentExpr)
+        assert isinstance(assign.lhs, cadl_ast.IdentExpr)
         assert assign.lhs.name == "x"
 
     def test_let_assignment_with_type(self):
@@ -72,7 +72,7 @@ class TestAssignmentStatements:
         flow = list(ast.flows.values())[0]
         assert len(flow.body) == 3
         for stmt in flow.body:
-            assert isinstance(stmt, AssignStmt)
+            assert isinstance(stmt, cadl_ast.AssignStmt)
 
     def test_assignment_with_literals(self):
         """Test assignments with various literal types"""
@@ -90,8 +90,8 @@ class TestAssignmentStatements:
 
         assert len(assignments) == 4
         for assign in assignments:
-            assert isinstance(assign, AssignStmt)
-            assert isinstance(assign.rhs, LitExpr)
+            assert isinstance(assign, cadl_ast.AssignStmt)
+            assert isinstance(assign.rhs, cadl_ast.LitExpr)
 
     def test_assignment_with_complex_expressions(self):
         """Test assignments with complex arithmetic expressions"""
@@ -120,7 +120,7 @@ class TestAssignmentStatements:
         assert len(flow.body) == 2
 
         for assign in flow.body:
-            assert isinstance(assign.rhs, UnaryExpr)
+            assert isinstance(assign.rhs, cadl_ast.UnaryExpr)
 
 
 class TestReturnStatements:
@@ -137,7 +137,7 @@ class TestReturnStatements:
         flow = list(ast.flows.values())[0]
         assert len(flow.body) == 1
         ret = flow.body[0]
-        assert isinstance(ret, ReturnStmt)
+        assert isinstance(ret, cadl_ast.ReturnStmt)
 
     def test_return_tuple(self):
         """Test return with tuple"""
@@ -149,10 +149,10 @@ class TestReturnStatements:
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
         ret = flow.body[0]
-        assert isinstance(ret, ReturnStmt)
+        assert isinstance(ret, cadl_ast.ReturnStmt)
         # The tuple is wrapped as a single expression
         assert len(ret.exprs) == 1
-        assert isinstance(ret.exprs[0], TupleExpr)
+        assert isinstance(ret.exprs[0], cadl_ast.TupleExpr)
 
 
 class TestLoopStatements:
@@ -172,7 +172,7 @@ class TestLoopStatements:
         assert len(flow.body) == 1
 
         do_while = flow.body[0]
-        assert isinstance(do_while, DoWhileStmt)
+        assert isinstance(do_while, cadl_ast.DoWhileStmt)
         assert len(do_while.bindings) == 1
         assert len(do_while.body) == 1
 
@@ -202,7 +202,7 @@ class TestLoopStatements:
 
         # Check do-while loop
         do_while_stmt = flow.body[0]
-        assert isinstance(do_while_stmt, DoWhileStmt)
+        assert isinstance(do_while_stmt, cadl_ast.DoWhileStmt)
 
         # Check that we have shift, XOR, AND operations in the loop body
         # 5 statements: let bit, let xor_val, let crc_, crc_ reassignment, let i_

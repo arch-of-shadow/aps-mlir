@@ -8,7 +8,7 @@ combining multiple language features.
 
 import pytest
 from cadl_frontend import parse_proc
-from cadl_frontend.ast import *
+from cadl_frontend import cadl_ast
 
 
 class TestIntegration:
@@ -32,7 +32,7 @@ class TestIntegration:
         
         flow = list(ast.flows.values())[0]
         assert flow.name == "add"
-        assert flow.kind == FlowKind.RTYPE
+        assert flow.kind == cadl_ast.FlowKind.RTYPE
         assert len(flow.inputs) == 3
         
         # Check attributes in detail
@@ -41,20 +41,20 @@ class TestIntegration:
 
         # Validate opcode attribute value: 7'b0001011 (binary 11)
         opcode_lit = flow.attrs.get("opcode")
-        assert isinstance(opcode_lit, LitExpr)
+        assert isinstance(opcode_lit, cadl_ast.LitExpr)
         assert opcode_lit.literal.ty.width == 7  # 7-bit binary
         assert opcode_lit.literal.lit.value == int('0001011', 2)  # Binary to decimal: 11
 
         # Validate funct7 attribute value: 7'b0000000 (binary 0)
         funct7_lit = flow.attrs.get("funct7")
-        assert isinstance(funct7_lit, LitExpr)
+        assert isinstance(funct7_lit, cadl_ast.LitExpr)
         assert funct7_lit.literal.ty.width == 7
         assert funct7_lit.literal.lit.value == 0  # All zeros
         
         # Verify input parameter types and names
-        assert flow.inputs[0] == ("rs1", DataType_Single(BasicType_ApUFixed(5)))
-        assert flow.inputs[1] == ("rs2", DataType_Single(BasicType_ApUFixed(5)))  
-        assert flow.inputs[2] == ("rd", DataType_Single(BasicType_ApUFixed(5)))
+        assert flow.inputs[0] == ("rs1", cadl_ast.DataType_Single(cadl_ast.BasicType_ApUFixed(5)))
+        assert flow.inputs[1] == ("rs2", cadl_ast.DataType_Single(cadl_ast.BasicType_ApUFixed(5)))  
+        assert flow.inputs[2] == ("rd", cadl_ast.DataType_Single(cadl_ast.BasicType_ApUFixed(5)))
         
         # Check body structure: 2 let assignments + 1 irf write
         assert len(flow.body) == 3
@@ -65,35 +65,35 @@ class TestIntegration:
         write = flow.body[2]  # _irf[rd] = r1 + r2;
         
         # Validate first read statement structure
-        assert isinstance(read1, AssignStmt) and read1.is_let
+        assert isinstance(read1, cadl_ast.AssignStmt) and read1.is_let
         assert read1.lhs.name == "r1"
-        assert read1.type_annotation == DataType_Single(BasicType_ApUFixed(32))
-        assert isinstance(read1.rhs, IndexExpr)
+        assert read1.type_annotation == cadl_ast.DataType_Single(cadl_ast.BasicType_ApUFixed(32))
+        assert isinstance(read1.rhs, cadl_ast.IndexExpr)
         assert read1.rhs.expr.name == "_irf"
         assert len(read1.rhs.indices) == 1
-        assert isinstance(read1.rhs.indices[0], IdentExpr)
+        assert isinstance(read1.rhs.indices[0], cadl_ast.IdentExpr)
         assert read1.rhs.indices[0].name == "rs1"
         
         # Validate second read statement structure  
-        assert isinstance(read2, AssignStmt) and read2.is_let
+        assert isinstance(read2, cadl_ast.AssignStmt) and read2.is_let
         assert read2.lhs.name == "r2"
-        assert read2.type_annotation == DataType_Single(BasicType_ApUFixed(32))
-        assert isinstance(read2.rhs, IndexExpr)
+        assert read2.type_annotation == cadl_ast.DataType_Single(cadl_ast.BasicType_ApUFixed(32))
+        assert isinstance(read2.rhs, cadl_ast.IndexExpr)
         assert read2.rhs.expr.name == "_irf"
         assert read2.rhs.indices[0].name == "rs2"
         
         # Validate write statement structure
-        assert isinstance(write, AssignStmt) and not write.is_let
-        assert isinstance(write.lhs, IndexExpr)
+        assert isinstance(write, cadl_ast.AssignStmt) and not write.is_let
+        assert isinstance(write.lhs, cadl_ast.IndexExpr)
         assert write.lhs.expr.name == "_irf"
         assert write.lhs.indices[0].name == "rd"
         
         # Validate addition operation: r1 + r2
-        assert isinstance(write.rhs, BinaryExpr)
-        assert write.rhs.op == BinaryOp.ADD
-        assert isinstance(write.rhs.left, IdentExpr)
+        assert isinstance(write.rhs, cadl_ast.BinaryExpr)
+        assert write.rhs.op == cadl_ast.BinaryOp.ADD
+        assert isinstance(write.rhs.left, cadl_ast.IdentExpr)
         assert write.rhs.left.name == "r1"
-        assert isinstance(write.rhs.right, IdentExpr) 
+        assert isinstance(write.rhs.right, cadl_ast.IdentExpr) 
         assert write.rhs.right.name == "r2"
 
     def test_if_expression_with_literals(self):
@@ -112,15 +112,15 @@ class TestIntegration:
         
         flow = list(ast.flows.values())[0]
         assert flow.name == "if_test"
-        assert flow.kind == FlowKind.RTYPE
+        assert flow.kind == cadl_ast.FlowKind.RTYPE
         
         # Validate input parameters
         assert len(flow.inputs) == 3
         for i, (name, ty) in enumerate(flow.inputs):
             expected_names = ["rs1", "rs2", "rd"]
             assert name == expected_names[i]
-            assert isinstance(ty, DataType_Single)
-            assert isinstance(ty.basic_type, BasicType_ApUFixed)
+            assert isinstance(ty, cadl_ast.DataType_Single)
+            assert isinstance(ty.basic_type, cadl_ast.BasicType_ApUFixed)
             assert ty.basic_type.width == 5
         
         # Should have 2 reads + 1 write with if expression
@@ -128,43 +128,43 @@ class TestIntegration:
         
         # Validate first two statements are _irf reads
         read1, read2 = flow.body[0], flow.body[1]
-        assert isinstance(read1, AssignStmt) and read1.is_let
-        assert isinstance(read2, AssignStmt) and read2.is_let
+        assert isinstance(read1, cadl_ast.AssignStmt) and read1.is_let
+        assert isinstance(read2, cadl_ast.AssignStmt) and read2.is_let
         assert read1.lhs.name == "r1" and read2.lhs.name == "r2"
         
         # Validate the if expression assignment
         write_stmt = flow.body[2]
-        assert isinstance(write_stmt, AssignStmt) and not write_stmt.is_let
-        assert isinstance(write_stmt.lhs, IndexExpr)
+        assert isinstance(write_stmt, cadl_ast.AssignStmt) and not write_stmt.is_let
+        assert isinstance(write_stmt.lhs, cadl_ast.IndexExpr)
         assert write_stmt.lhs.expr.name == "_irf"
         assert write_stmt.lhs.indices[0].name == "rd"
         
         # Deep validation of if expression structure
         if_expr = write_stmt.rhs
-        assert isinstance(if_expr, IfExpr)
+        assert isinstance(if_expr, cadl_ast.IfExpr)
         
         # Check condition: r1 > 32'd6
         condition = if_expr.condition
-        assert isinstance(condition, BinaryExpr)
-        assert condition.op == BinaryOp.GT
+        assert isinstance(condition, cadl_ast.BinaryExpr)
+        assert condition.op == cadl_ast.BinaryOp.GT
         
         # Left side should be identifier "r1"
-        assert isinstance(condition.left, IdentExpr)
+        assert isinstance(condition.left, cadl_ast.IdentExpr)
         assert condition.left.name == "r1"
         
         # Right operand should be width-specified literal 32'd6
-        assert isinstance(condition.right, LitExpr)
+        assert isinstance(condition.right, cadl_ast.LitExpr)
         literal = condition.right.literal
         assert literal.lit.value == 6
         assert literal.ty.width == 32  # 32'd6 should have 32-bit width
-        assert isinstance(literal.ty, BasicType_ApUFixed)
+        assert isinstance(literal.ty, cadl_ast.BasicType_ApUFixed)
         
         # Check then branch: should be "r1"
-        assert isinstance(if_expr.then_branch, IdentExpr)
+        assert isinstance(if_expr.then_branch, cadl_ast.IdentExpr)
         assert if_expr.then_branch.name == "r1"
         
         # Check else branch: should be "r2"
-        assert isinstance(if_expr.else_branch, IdentExpr)
+        assert isinstance(if_expr.else_branch, cadl_ast.IdentExpr)
         assert if_expr.else_branch.name == "r2"
 
     def test_memory_operations(self):
@@ -189,23 +189,23 @@ class TestIntegration:
         irf_write = flow.body[4]
         
         # Check memory write: _mem[r1] = a
-        assert isinstance(mem_write, AssignStmt)
+        assert isinstance(mem_write, cadl_ast.AssignStmt)
         assert not mem_write.is_let
-        assert isinstance(mem_write.lhs, IndexExpr)
+        assert isinstance(mem_write.lhs, cadl_ast.IndexExpr)
         assert mem_write.lhs.expr.name == "_mem"
         
         # Check final irf write has addition: a + r2
-        assert isinstance(irf_write.rhs, BinaryExpr)
-        assert irf_write.rhs.op == BinaryOp.ADD
-        assert isinstance(irf_write.rhs.left, IdentExpr)
+        assert isinstance(irf_write.rhs, cadl_ast.BinaryExpr)
+        assert irf_write.rhs.op == cadl_ast.BinaryOp.ADD
+        assert isinstance(irf_write.rhs.left, cadl_ast.IdentExpr)
         assert irf_write.rhs.left.name == "a"
-        assert isinstance(irf_write.rhs.right, IdentExpr)
+        assert isinstance(irf_write.rhs.right, cadl_ast.IdentExpr)
         assert irf_write.rhs.right.name == "r2"
         
         # Validate all variable types are consistent
         for stmt in flow.body[:3]:  # First 3 are let statements
             assert stmt.is_let
-            assert stmt.type_annotation == DataType_Single(BasicType_ApUFixed(32))
+            assert stmt.type_annotation == cadl_ast.DataType_Single(cadl_ast.BasicType_ApUFixed(32))
 
     def test_accumulator_multiple_memory_reads(self):
         """Test multiple sequential memory accesses with address calculation"""
@@ -233,23 +233,23 @@ class TestIntegration:
         offsets = [0, 4, 8, 12]  # Expected offsets
         
         for i, mem_read in enumerate(mem_reads):
-            assert isinstance(mem_read.rhs, IndexExpr)
+            assert isinstance(mem_read.rhs, cadl_ast.IndexExpr)
             assert mem_read.rhs.expr.name == "_mem"
             
             if i == 0:  # First read is just r1
-                assert isinstance(mem_read.rhs.indices[0], IdentExpr)
+                assert isinstance(mem_read.rhs.indices[0], cadl_ast.IdentExpr)
             else:  # Others are r1 + offset
                 index_expr = mem_read.rhs.indices[0]
-                assert isinstance(index_expr, BinaryExpr)
-                assert index_expr.op == BinaryOp.ADD
-                assert isinstance(index_expr.right, LitExpr)
+                assert isinstance(index_expr, cadl_ast.BinaryExpr)
+                assert index_expr.op == cadl_ast.BinaryOp.ADD
+                assert isinstance(index_expr.right, cadl_ast.LitExpr)
                 assert index_expr.right.literal.lit.value == offsets[i]
         
         # Check final sum: a + b + c + d
         sum_calc = flow.body[5]
-        assert isinstance(sum_calc.rhs, BinaryExpr)
+        assert isinstance(sum_calc.rhs, cadl_ast.BinaryExpr)
         # Should be nested additions: ((a + b) + c) + d
-        assert sum_calc.rhs.op == BinaryOp.ADD
+        assert sum_calc.rhs.op == cadl_ast.BinaryOp.ADD
 
     def test_static_variable_declarations(self):
         """Test static variable declarations"""
@@ -274,8 +274,8 @@ class TestIntegration:
         st_static = ast.statics["st"]
         
         assert addr_static.id == "addr"
-        assert isinstance(addr_static.ty, DataType_Single)
-        assert isinstance(addr_static.expr, LitExpr)
+        assert isinstance(addr_static.ty, cadl_ast.DataType_Single)
+        assert isinstance(addr_static.expr, cadl_ast.LitExpr)
         assert addr_static.expr.literal.lit.value == 0
         
         # Check static assignments in flow
@@ -283,10 +283,10 @@ class TestIntegration:
         addr_assign = flow.body[1]  # addr = addr + 4
         st_assign = flow.body[2]    # st = st + 1
         
-        assert isinstance(addr_assign, AssignStmt)
+        assert isinstance(addr_assign, cadl_ast.AssignStmt)
         assert not addr_assign.is_let  # Not a let statement
         assert addr_assign.lhs.name == "addr"
-        assert isinstance(addr_assign.rhs, BinaryExpr)
+        assert isinstance(addr_assign.rhs, cadl_ast.BinaryExpr)
 
     def test_array_static_with_aggregate(self):
         """Test static array with aggregate initializer"""
@@ -306,25 +306,25 @@ class TestIntegration:
         # Check array static
         thetas_static = ast.statics["thetas"]
         assert thetas_static.id == "thetas"
-        assert isinstance(thetas_static.ty, DataType_Array)
+        assert isinstance(thetas_static.ty, cadl_ast.DataType_Array)
         assert thetas_static.ty.dimensions == [8]
         
         # Check aggregate initializer
-        assert isinstance(thetas_static.expr, AggregateExpr)
+        assert isinstance(thetas_static.expr, cadl_ast.AggregateExpr)
         assert len(thetas_static.expr.elements) == 8
         
         # Verify first and last values
         first_val = thetas_static.expr.elements[0]
         last_val = thetas_static.expr.elements[7]
-        assert isinstance(first_val, LitExpr)
+        assert isinstance(first_val, cadl_ast.LitExpr)
         assert first_val.literal.lit.value == 1474560
-        assert isinstance(last_val, LitExpr)
+        assert isinstance(last_val, cadl_ast.LitExpr)
         assert last_val.literal.lit.value == 14667
         
         # Check array access in flow
         flow = list(ast.flows.values())[0]
         array_access = flow.body[1]
-        assert isinstance(array_access.rhs, IndexExpr)
+        assert isinstance(array_access.rhs, cadl_ast.IndexExpr)
         assert array_access.rhs.expr.name == "thetas"
 
     def test_complex_bitwise_operations(self):
@@ -352,34 +352,34 @@ class TestIntegration:
         
         # Check bit slicing: r1[31:16]
         ar_assign = flow.body[2]
-        assert isinstance(ar_assign.rhs, SliceExpr)
+        assert isinstance(ar_assign.rhs, cadl_ast.SliceExpr)
         slice_expr = ar_assign.rhs
         assert slice_expr.expr.name == "r1"
-        assert isinstance(slice_expr.start, LitExpr)
-        assert isinstance(slice_expr.end, LitExpr)
+        assert isinstance(slice_expr.start, cadl_ast.LitExpr)
+        assert isinstance(slice_expr.end, cadl_ast.LitExpr)
         assert slice_expr.start.literal.lit.value == 31
         assert slice_expr.end.literal.lit.value == 16
         
         # Check complex arithmetic: ar * br - ai * bi
         zr_assign = flow.body[6]
-        assert isinstance(zr_assign.rhs, BinaryExpr)
-        assert zr_assign.rhs.op == BinaryOp.SUB
+        assert isinstance(zr_assign.rhs, cadl_ast.BinaryExpr)
+        assert zr_assign.rhs.op == cadl_ast.BinaryOp.SUB
         
         # Left side should be multiplication
         left_mult = zr_assign.rhs.left
-        assert isinstance(left_mult, BinaryExpr)
-        assert left_mult.op == BinaryOp.MUL
+        assert isinstance(left_mult, cadl_ast.BinaryExpr)
+        assert left_mult.op == cadl_ast.BinaryOp.MUL
         
         # Check aggregate assignment with bit slicing
         final_assign = flow.body[8]  # Last statement is now index 8
-        assert isinstance(final_assign.rhs, AggregateExpr)
+        assert isinstance(final_assign.rhs, cadl_ast.AggregateExpr)
         assert len(final_assign.rhs.elements) == 2
         
         # Both elements should be bit slices
         elem1 = final_assign.rhs.elements[0]
         elem2 = final_assign.rhs.elements[1]
-        assert isinstance(elem1, SliceExpr)
-        assert isinstance(elem2, SliceExpr)
+        assert isinstance(elem1, cadl_ast.SliceExpr)
+        assert isinstance(elem2, cadl_ast.SliceExpr)
 
     def test_shift_operations(self):
         """Test left and right shift operations"""
@@ -397,16 +397,16 @@ class TestIntegration:
         
         # Check left shift
         left_shift = flow.body[1]
-        assert isinstance(left_shift.rhs, BinaryExpr)
-        assert left_shift.rhs.op == BinaryOp.LSHIFT
-        assert isinstance(left_shift.rhs.right, LitExpr)
+        assert isinstance(left_shift.rhs, cadl_ast.BinaryExpr)
+        assert left_shift.rhs.op == cadl_ast.BinaryOp.LSHIFT
+        assert isinstance(left_shift.rhs.right, cadl_ast.LitExpr)
         assert left_shift.rhs.right.literal.lit.value == 1
         
         # Check right shift  
         right_shift = flow.body[2]
-        assert isinstance(right_shift.rhs, BinaryExpr)
-        assert right_shift.rhs.op == BinaryOp.RSHIFT
-        assert isinstance(right_shift.rhs.right, LitExpr)
+        assert isinstance(right_shift.rhs, cadl_ast.BinaryExpr)
+        assert right_shift.rhs.op == cadl_ast.BinaryOp.RSHIFT
+        assert isinstance(right_shift.rhs.right, cadl_ast.LitExpr)
         assert right_shift.rhs.right.literal.lit.value == 2
 
     def test_hex_literals(self):
@@ -424,21 +424,21 @@ class TestIntegration:
         
         # Check 0x format hex literal  
         mask_assign = flow.body[0]  # First assignment: let mask: u32 = 0xEDB88320;
-        assert isinstance(mask_assign.rhs, LitExpr)
+        assert isinstance(mask_assign.rhs, cadl_ast.LitExpr)
         # 0xEDB88320 = 3988292384 in decimal
         assert mask_assign.rhs.literal.lit.value == 3988292384
         
         # Check 32'h format hex literal
         val_assign = flow.body[1]   # Second assignment: let val: u32 = 32'hDEADBEEF;
-        assert isinstance(val_assign.rhs, LitExpr)
+        assert isinstance(val_assign.rhs, cadl_ast.LitExpr)
         # 32'hDEADBEEF = 3735928559 in decimal
         assert val_assign.rhs.literal.lit.value == 3735928559
         assert val_assign.rhs.literal.ty.width == 32
         
         # Check XOR operation
         xor_assign = flow.body[2]  # Third assignment: _irf[rd] = mask ^ val;
-        assert isinstance(xor_assign.rhs, BinaryExpr)
-        assert xor_assign.rhs.op == BinaryOp.BIT_XOR
+        assert isinstance(xor_assign.rhs, cadl_ast.BinaryExpr)
+        assert xor_assign.rhs.op == cadl_ast.BinaryOp.BIT_XOR
 
     def test_multiple_register_reads(self):
         """Test multiple reads from same register"""
@@ -473,8 +473,8 @@ class TestIntegration:
         
         # Final sum should be nested additions
         sum_expr = flow.body[4].rhs
-        assert isinstance(sum_expr, BinaryExpr)
-        assert sum_expr.op == BinaryOp.ADD
+        assert isinstance(sum_expr, cadl_ast.BinaryExpr)
+        assert sum_expr.op == cadl_ast.BinaryOp.ADD
 
     def test_comprehensive_expression_precedence(self):
         """Test complex expression with multiple operator precedence levels"""
@@ -499,31 +499,31 @@ class TestIntegration:
         complex_expr = complex_assign.rhs
         
         # Should parse as: ((a + (b * 2)) << 1) & 32'hFF
-        assert isinstance(complex_expr, BinaryExpr)
-        assert complex_expr.op == BinaryOp.BIT_AND  # Lowest precedence
+        assert isinstance(complex_expr, cadl_ast.BinaryExpr)
+        assert complex_expr.op == cadl_ast.BinaryOp.BIT_AND  # Lowest precedence
         
         # Left side: (a + (b * 2)) << 1
         left_shift = complex_expr.left
-        assert isinstance(left_shift, BinaryExpr)
-        assert left_shift.op == BinaryOp.LSHIFT
+        assert isinstance(left_shift, cadl_ast.BinaryExpr)
+        assert left_shift.op == cadl_ast.BinaryOp.LSHIFT
         
         # Left of shift: a + (b * 2) 
         addition = left_shift.left
-        assert isinstance(addition, BinaryExpr)
-        assert addition.op == BinaryOp.ADD
+        assert isinstance(addition, cadl_ast.BinaryExpr)
+        assert addition.op == cadl_ast.BinaryOp.ADD
         
         # Right of addition: b * 2 (multiplication has higher precedence)
         multiplication = addition.right
-        assert isinstance(multiplication, BinaryExpr)
-        assert multiplication.op == BinaryOp.MUL
-        assert isinstance(multiplication.left, IdentExpr)
+        assert isinstance(multiplication, cadl_ast.BinaryExpr)
+        assert multiplication.op == cadl_ast.BinaryOp.MUL
+        assert isinstance(multiplication.left, cadl_ast.IdentExpr)
         assert multiplication.left.name == "b"
-        assert isinstance(multiplication.right, LitExpr)
+        assert isinstance(multiplication.right, cadl_ast.LitExpr)
         assert multiplication.right.literal.lit.value == 2
         
         # Right side of AND: 32'hFF
         mask_literal = complex_expr.right
-        assert isinstance(mask_literal, LitExpr)
+        assert isinstance(mask_literal, cadl_ast.LitExpr)
         assert mask_literal.literal.lit.value == 0xFF
         assert mask_literal.literal.ty.width == 32
 
@@ -546,14 +546,14 @@ class TestIntegration:
         ast2 = parse_proc(source2)
         flow2 = list(ast2.flows.values())[0]
         max_literal = flow2.body[0].rhs
-        assert isinstance(max_literal, LitExpr)
+        assert isinstance(max_literal, cadl_ast.LitExpr)
         assert max_literal.literal.ty.width == 64
         assert max_literal.literal.lit.value == 0xFFFFFFFFFFFFFFFF
         
         # Validate cast operation
         cast_stmt = flow2.body[1]
-        assert isinstance(cast_stmt.rhs, UnaryExpr)
-        assert cast_stmt.rhs.op == UnaryOp.UNSIGNED_CAST
+        assert isinstance(cast_stmt.rhs, cadl_ast.UnaryExpr)
+        assert cast_stmt.rhs.op == cadl_ast.UnaryOp.UNSIGNED_CAST
 
     def test_nested_function_calls_and_complex_indexing(self):
         """Test complex indexing and function calls (without fn definitions)"""
@@ -579,21 +579,21 @@ class TestIntegration:
 
         # Validate function call in address calculation
         addr_calc = flow.body[2].rhs  # base + helper(offset)
-        assert isinstance(addr_calc, BinaryExpr)
-        assert addr_calc.op == BinaryOp.ADD
-        assert isinstance(addr_calc.right, CallExpr)
+        assert isinstance(addr_calc, cadl_ast.BinaryExpr)
+        assert addr_calc.op == cadl_ast.BinaryOp.ADD
+        assert isinstance(addr_calc.right, cadl_ast.CallExpr)
         assert addr_calc.right.name == "helper"
         assert len(addr_calc.right.args) == 1
-        assert isinstance(addr_calc.right.args[0], IdentExpr)
+        assert isinstance(addr_calc.right.args[0], cadl_ast.IdentExpr)
         assert addr_calc.right.args[0].name == "offset"
         
         # Validate nested function call: helper(data + base)
         result_calc = flow.body[4].rhs
-        assert isinstance(result_calc, CallExpr)
+        assert isinstance(result_calc, cadl_ast.CallExpr)
         assert result_calc.name == "helper"
         nested_expr = result_calc.args[0]
-        assert isinstance(nested_expr, BinaryExpr)
-        assert nested_expr.op == BinaryOp.ADD
+        assert isinstance(nested_expr, cadl_ast.BinaryExpr)
+        assert nested_expr.op == cadl_ast.BinaryOp.ADD
         assert nested_expr.left.name == "data"
         assert nested_expr.right.name == "base"
 
@@ -639,18 +639,18 @@ class TestIntegration:
         
         # Test all arithmetic operators
         operators = [
-            (BinaryOp.ADD, 2), (BinaryOp.SUB, 3), (BinaryOp.MUL, 4), 
-            (BinaryOp.DIV, 5), (BinaryOp.REM, 6),
-            (BinaryOp.EQ, 7), (BinaryOp.NE, 8), (BinaryOp.LT, 9),
-            (BinaryOp.LE, 10), (BinaryOp.GT, 11), (BinaryOp.GE, 12),
-            (BinaryOp.AND, 13), (BinaryOp.OR, 14),
-            (BinaryOp.BIT_AND, 15), (BinaryOp.BIT_OR, 16), (BinaryOp.BIT_XOR, 17),
-            (BinaryOp.LSHIFT, 18), (BinaryOp.RSHIFT, 19)
+            (cadl_ast.BinaryOp.ADD, 2), (cadl_ast.BinaryOp.SUB, 3), (cadl_ast.BinaryOp.MUL, 4), 
+            (cadl_ast.BinaryOp.DIV, 5), (cadl_ast.BinaryOp.REM, 6),
+            (cadl_ast.BinaryOp.EQ, 7), (cadl_ast.BinaryOp.NE, 8), (cadl_ast.BinaryOp.LT, 9),
+            (cadl_ast.BinaryOp.LE, 10), (cadl_ast.BinaryOp.GT, 11), (cadl_ast.BinaryOp.GE, 12),
+            (cadl_ast.BinaryOp.AND, 13), (cadl_ast.BinaryOp.OR, 14),
+            (cadl_ast.BinaryOp.BIT_AND, 15), (cadl_ast.BinaryOp.BIT_OR, 16), (cadl_ast.BinaryOp.BIT_XOR, 17),
+            (cadl_ast.BinaryOp.LSHIFT, 18), (cadl_ast.BinaryOp.RSHIFT, 19)
         ]
         
         for expected_op, stmt_idx in operators:
             stmt = flow.body[stmt_idx]
-            assert isinstance(stmt.rhs, BinaryExpr)
+            assert isinstance(stmt.rhs, cadl_ast.BinaryExpr)
             assert stmt.rhs.op == expected_op, f"Statement {stmt_idx} should have operator {expected_op}, got {stmt.rhs.op}"
 
     def test_all_unary_operators(self):
@@ -681,25 +681,25 @@ class TestIntegration:
         
         # Test unary operations
         unary_ops = [
-            (UnaryOp.NEG, 1),
-            (UnaryOp.BIT_NOT, 2),
-            (UnaryOp.NOT, 3)
+            (cadl_ast.UnaryOp.NEG, 1),
+            (cadl_ast.UnaryOp.BIT_NOT, 2),
+            (cadl_ast.UnaryOp.NOT, 3)
         ]
         
         for expected_op, stmt_idx in unary_ops:
             stmt = flow.body[stmt_idx]
-            assert isinstance(stmt.rhs, UnaryExpr)
+            assert isinstance(stmt.rhs, cadl_ast.UnaryExpr)
             assert stmt.rhs.op == expected_op
         
         # Test type cast operations
         cast_ops = [
-            (UnaryOp.SIGNED_CAST, 0),    # Initial cast in first statement
-            (UnaryOp.UNSIGNED_CAST, 4),  # as_unsigned
-            (UnaryOp.SIGNED_CAST, 5),    # as_signed  
-            (UnaryOp.F32_CAST, 6),       # as_float
-            (UnaryOp.F64_CAST, 7),       # as_double
-            (UnaryOp.INT_CAST, 8),       # as_int
-            (UnaryOp.UINT_CAST, 9)       # as_uint
+            (cadl_ast.UnaryOp.SIGNED_CAST, 0),    # Initial cast in first statement
+            (cadl_ast.UnaryOp.UNSIGNED_CAST, 4),  # as_unsigned
+            (cadl_ast.UnaryOp.SIGNED_CAST, 5),    # as_signed  
+            (cadl_ast.UnaryOp.F32_CAST, 6),       # as_float
+            (cadl_ast.UnaryOp.F64_CAST, 7),       # as_double
+            (cadl_ast.UnaryOp.INT_CAST, 8),       # as_int
+            (cadl_ast.UnaryOp.UINT_CAST, 9)       # as_uint
         ]
         
         for expected_op, stmt_idx in cast_ops:
@@ -709,7 +709,7 @@ class TestIntegration:
                 cast_expr = stmt.rhs
             else:
                 cast_expr = stmt.rhs
-            assert isinstance(cast_expr, UnaryExpr)
+            assert isinstance(cast_expr, cadl_ast.UnaryExpr)
             assert cast_expr.op == expected_op
 
 

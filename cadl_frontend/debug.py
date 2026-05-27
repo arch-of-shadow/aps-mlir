@@ -25,6 +25,7 @@ from functools import wraps
 
 class DebugLevel(IntEnum):
     """Debug levels ordered by severity."""
+
     DEBUG = 10
     INFO = 20
     WARNING = 30
@@ -35,6 +36,7 @@ class DebugLevel(IntEnum):
 
 class DebugConfig:
     """Global debug configuration."""
+
     def __init__(self):
         self.level = DebugLevel.WARNING  # Default: only warnings and above
         self.output = sys.stderr  # Default output stream
@@ -73,6 +75,7 @@ _config = DebugConfig()
 # ANSI color codes
 class Colors:
     """ANSI color codes for terminal output."""
+
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
@@ -122,7 +125,7 @@ def dbg_print(
     module: Optional[str] = None,
     sep: str = " ",
     end: str = "\n",
-    **kwargs
+    **kwargs,
 ) -> None:
     """
     Print debug message if current debug level permits.
@@ -207,35 +210,29 @@ def debug_function(level: DebugLevel = DebugLevel.DEBUG):
         def my_function(x, y):
             return x + y
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             module = func.__module__
             func_name = func.__qualname__
 
-            dbg_print(
-                f"→ Entering {func_name}",
-                level=level,
-                module=module
-            )
+            dbg_print(f"→ Entering {func_name}", level=level, module=module)
 
             try:
                 result = func(*args, **kwargs)
-                dbg_print(
-                    f"← Exiting {func_name}",
-                    level=level,
-                    module=module
-                )
+                dbg_print(f"← Exiting {func_name}", level=level, module=module)
                 return result
             except Exception as e:
                 dbg_print(
                     f"✗ Exception in {func_name}: {e}",
                     level=DebugLevel.ERROR,
-                    module=module
+                    module=module,
                 )
                 raise
 
         return wrapper
+
     return decorator
 
 
@@ -275,6 +272,7 @@ class debug_level_context:
             # Debug output enabled for this block
             dbg_print("Detailed debug info")
     """
+
     def __init__(self, level: DebugLevel, module: Optional[str] = None):
         self.level = level
         self.module = module
@@ -290,7 +288,11 @@ class debug_level_context:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        _ = (exc_type, exc_val, exc_tb)  # Unused but required by context manager protocol
+        _ = (
+            exc_type,
+            exc_val,
+            exc_tb,
+        )  # Unused but required by context manager protocol
         if self.module:
             if self.old_level is None:
                 _config.module_levels.pop(self.module, None)

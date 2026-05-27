@@ -6,7 +6,7 @@ Tests all expression types: binary, unary, if, call, index, slice, etc.
 
 import pytest
 from cadl_frontend import parse_proc
-from cadl_frontend.ast import *
+from cadl_frontend import cadl_ast
 
 
 class TestBasicExpressions:
@@ -68,7 +68,7 @@ class TestBinaryOperators:
             assert ast is not None
             flow = list(ast.flows.values())[0]
             assign = flow.body[0]
-            assert isinstance(assign.rhs, BinaryExpr)
+            assert isinstance(assign.rhs, cadl_ast.BinaryExpr)
 
     def test_comparison_operators(self):
         """Test comparison operators"""
@@ -107,8 +107,8 @@ class TestUnaryOperators:
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
-        assert isinstance(assign.rhs, UnaryExpr)
-        assert assign.rhs.op == UnaryOp.NEG
+        assert isinstance(assign.rhs, cadl_ast.UnaryExpr)
+        assert assign.rhs.op == cadl_ast.UnaryOp.NEG
 
     def test_logical_not(self):
         """Test logical NOT operator"""
@@ -116,8 +116,8 @@ class TestUnaryOperators:
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
-        assert isinstance(assign.rhs, UnaryExpr)
-        assert assign.rhs.op == UnaryOp.NOT
+        assert isinstance(assign.rhs, cadl_ast.UnaryExpr)
+        assert assign.rhs.op == cadl_ast.UnaryOp.NOT
 
     def test_bitwise_not(self):
         """Test bitwise NOT operator"""
@@ -125,16 +125,16 @@ class TestUnaryOperators:
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
-        assert isinstance(assign.rhs, UnaryExpr)
-        assert assign.rhs.op == UnaryOp.BIT_NOT
+        assert isinstance(assign.rhs, cadl_ast.UnaryExpr)
+        assert assign.rhs.op == cadl_ast.UnaryOp.BIT_NOT
 
     def test_cast_operators(self):
         """Test type cast operators"""
         casts = [
-            ("$signed", UnaryOp.SIGNED_CAST),
-            ("$unsigned", UnaryOp.UNSIGNED_CAST),
-            ("$f32", UnaryOp.F32_CAST),
-            ("$f64", UnaryOp.F64_CAST),
+            ("$signed", cadl_ast.UnaryOp.SIGNED_CAST),
+            ("$unsigned", cadl_ast.UnaryOp.UNSIGNED_CAST),
+            ("$f32", cadl_ast.UnaryOp.F32_CAST),
+            ("$f64", cadl_ast.UnaryOp.F64_CAST),
         ]
 
         for cast_op, expected_op in casts:
@@ -142,7 +142,7 @@ class TestUnaryOperators:
             ast = parse_proc(source)
             flow = list(ast.flows.values())[0]
             assign = flow.body[0]
-            assert isinstance(assign.rhs, UnaryExpr)
+            assert isinstance(assign.rhs, cadl_ast.UnaryExpr)
             assert assign.rhs.op == expected_op
 
 
@@ -159,8 +159,8 @@ class TestIfExpressions:
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
-        assert isinstance(assign.rhs, IfExpr)
-        assert isinstance(assign.rhs.condition, BinaryExpr)
+        assert isinstance(assign.rhs, cadl_ast.IfExpr)
+        assert isinstance(assign.rhs.condition, cadl_ast.BinaryExpr)
 
     def test_if_expression_in_assignment(self):
         """Test if expression as assignment RHS"""
@@ -172,7 +172,7 @@ class TestIfExpressions:
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
-        assert isinstance(assign.rhs, IfExpr)
+        assert isinstance(assign.rhs, cadl_ast.IfExpr)
 
     def test_nested_if_expressions(self):
         """Test nested if expressions"""
@@ -184,8 +184,8 @@ class TestIfExpressions:
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
-        assert isinstance(assign.rhs, IfExpr)
-        assert isinstance(assign.rhs.else_branch, IfExpr)
+        assert isinstance(assign.rhs, cadl_ast.IfExpr)
+        assert isinstance(assign.rhs.else_branch, cadl_ast.IfExpr)
 
     def test_if_with_complex_conditions(self):
         """Test if with complex boolean conditions"""
@@ -197,8 +197,8 @@ class TestIfExpressions:
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
-        assert isinstance(assign.rhs, IfExpr)
-        assert isinstance(assign.rhs.condition, BinaryExpr)
+        assert isinstance(assign.rhs, cadl_ast.IfExpr)
+        assert isinstance(assign.rhs.condition, cadl_ast.BinaryExpr)
 
     def test_if_with_arithmetic_expressions(self):
         """Test if with arithmetic in branches"""
@@ -210,8 +210,8 @@ class TestIfExpressions:
         ast = parse_proc(source)
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
-        assert isinstance(assign.rhs, IfExpr)
-        assert isinstance(assign.rhs.then_branch, BinaryExpr)
+        assert isinstance(assign.rhs, cadl_ast.IfExpr)
+        assert isinstance(assign.rhs.then_branch, cadl_ast.BinaryExpr)
 
     def test_chained_if_expressions(self):
         """Test chained if-else-if expressions"""
@@ -225,10 +225,10 @@ class TestIfExpressions:
         assign = flow.body[0]
 
         # First if
-        assert isinstance(assign.rhs, IfExpr)
+        assert isinstance(assign.rhs, cadl_ast.IfExpr)
         # Second if (in else branch)
         middle_if = assign.rhs.else_branch
-        assert isinstance(middle_if, IfExpr)
+        assert isinstance(middle_if, cadl_ast.IfExpr)
 
 
 class TestOperatorPrecedence:
@@ -246,10 +246,10 @@ class TestOperatorPrecedence:
         assign = flow.body[0]
 
         # Should parse as: a + (b * c)
-        assert isinstance(assign.rhs, BinaryExpr)
-        assert assign.rhs.op == BinaryOp.ADD
-        assert isinstance(assign.rhs.right, BinaryExpr)
-        assert assign.rhs.right.op == BinaryOp.MUL
+        assert isinstance(assign.rhs, cadl_ast.BinaryExpr)
+        assert assign.rhs.op == cadl_ast.BinaryOp.ADD
+        assert isinstance(assign.rhs.right, cadl_ast.BinaryExpr)
+        assert assign.rhs.right.op == cadl_ast.BinaryOp.MUL
 
     def test_bitwise_precedence(self):
         """Test bitwise operator precedence"""
@@ -263,8 +263,8 @@ class TestOperatorPrecedence:
         assign = flow.body[0]
 
         # Should parse as: a | (b & c)
-        assert isinstance(assign.rhs, BinaryExpr)
-        assert assign.rhs.op == BinaryOp.BIT_OR
+        assert isinstance(assign.rhs, cadl_ast.BinaryExpr)
+        assert assign.rhs.op == cadl_ast.BinaryOp.BIT_OR
 
     def test_shift_vs_arithmetic_precedence(self):
         """Test that arithmetic has higher precedence than shift"""
@@ -278,8 +278,8 @@ class TestOperatorPrecedence:
         assign = flow.body[0]
 
         # Should parse as: a << (2 + b)
-        assert isinstance(assign.rhs, BinaryExpr)
-        assert assign.rhs.op == BinaryOp.LSHIFT
+        assert isinstance(assign.rhs, cadl_ast.BinaryExpr)
+        assert assign.rhs.op == cadl_ast.BinaryOp.LSHIFT
 
     def test_comparison_vs_bitwise_precedence(self):
         """Test comparison vs bitwise precedence"""

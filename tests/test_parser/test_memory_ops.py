@@ -6,7 +6,7 @@ Tests _irf, _mem access, and burst operations with range slice syntax.
 
 import pytest
 from cadl_frontend import parse_proc
-from cadl_frontend.ast import *
+from cadl_frontend import cadl_ast
 
 
 class TestMemoryAccess:
@@ -23,8 +23,8 @@ class TestMemoryAccess:
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
 
-        assert isinstance(assign.rhs, IndexExpr)
-        assert isinstance(assign.rhs.expr, IdentExpr)
+        assert isinstance(assign.rhs, cadl_ast.IndexExpr)
+        assert isinstance(assign.rhs.expr, cadl_ast.IdentExpr)
         assert assign.rhs.expr.name == "_mem"
 
     def test_memory_write_access(self):
@@ -38,8 +38,8 @@ class TestMemoryAccess:
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
 
-        assert isinstance(assign.lhs, IndexExpr)
-        assert isinstance(assign.lhs.expr, IdentExpr)
+        assert isinstance(assign.lhs, cadl_ast.IndexExpr)
+        assert isinstance(assign.lhs.expr, cadl_ast.IdentExpr)
         assert assign.lhs.expr.name == "_mem"
 
     def test_memory_with_address_calculation(self):
@@ -69,8 +69,8 @@ class TestIRFAccess:
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
 
-        assert isinstance(assign.rhs, IndexExpr)
-        assert isinstance(assign.rhs.expr, IdentExpr)
+        assert isinstance(assign.rhs, cadl_ast.IndexExpr)
+        assert isinstance(assign.rhs.expr, cadl_ast.IdentExpr)
         assert assign.rhs.expr.name == "_irf"
 
     def test_irf_write_access(self):
@@ -84,8 +84,8 @@ class TestIRFAccess:
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
 
-        assert isinstance(assign.lhs, IndexExpr)
-        assert isinstance(assign.lhs.expr, IdentExpr)
+        assert isinstance(assign.lhs, cadl_ast.IndexExpr)
+        assert isinstance(assign.lhs.expr, cadl_ast.IdentExpr)
         assert assign.lhs.expr.name == "_irf"
 
     def test_irf_with_multiple_registers(self):
@@ -150,8 +150,8 @@ class TestRangeSliceSyntax:
         flow = ast.flows["test"]
         assign = flow.body[0]
 
-        assert isinstance(assign.rhs, RangeSliceExpr)
-        assert isinstance(assign.rhs.expr, IdentExpr)
+        assert isinstance(assign.rhs, cadl_ast.RangeSliceExpr)
+        assert isinstance(assign.rhs.expr, cadl_ast.IdentExpr)
         assert assign.rhs.expr.name == "buffer"
         assert assign.rhs.length is not None
 
@@ -167,7 +167,7 @@ class TestRangeSliceSyntax:
         flow = ast.flows["test"]
         assign = flow.body[0]
 
-        assert isinstance(assign.rhs, RangeSliceExpr)
+        assert isinstance(assign.rhs, cadl_ast.RangeSliceExpr)
         assert assign.rhs.length is None
 
     def test_range_slice_with_variables(self):
@@ -182,9 +182,9 @@ class TestRangeSliceSyntax:
         flow = ast.flows["test"]
         assign = flow.body[0]
 
-        assert isinstance(assign.rhs, RangeSliceExpr)
-        assert isinstance(assign.rhs.start, IdentExpr)
-        assert isinstance(assign.rhs.length, IdentExpr)
+        assert isinstance(assign.rhs, cadl_ast.RangeSliceExpr)
+        assert isinstance(assign.rhs.start, cadl_ast.IdentExpr)
+        assert isinstance(assign.rhs.length, cadl_ast.IdentExpr)
 
     def test_range_slice_as_lvalue(self):
         """Test range slice on left side of assignment"""
@@ -198,7 +198,7 @@ class TestRangeSliceSyntax:
         flow = ast.flows["test"]
         assign = flow.body[0]
 
-        assert isinstance(assign.lhs, RangeSliceExpr)
+        assert isinstance(assign.lhs, cadl_ast.RangeSliceExpr)
 
 
 class TestBurstOperations:
@@ -217,11 +217,11 @@ class TestBurstOperations:
         assign = flow.body[0]
 
         # LHS: buffer range slice
-        assert isinstance(assign.lhs, RangeSliceExpr)
+        assert isinstance(assign.lhs, cadl_ast.RangeSliceExpr)
         assert assign.lhs.expr.name == "buffer"
 
         # RHS: __burst_read range slice
-        assert isinstance(assign.rhs, RangeSliceExpr)
+        assert isinstance(assign.rhs, cadl_ast.RangeSliceExpr)
         assert assign.rhs.expr.name == "__burst_read"
 
     def test_burst_write_basic(self):
@@ -237,11 +237,11 @@ class TestBurstOperations:
         assign = flow.body[0]
 
         # LHS: __burst_write range slice
-        assert isinstance(assign.lhs, RangeSliceExpr)
+        assert isinstance(assign.lhs, cadl_ast.RangeSliceExpr)
         assert assign.lhs.expr.name == "__burst_write"
 
         # RHS: buffer range slice
-        assert isinstance(assign.rhs, RangeSliceExpr)
+        assert isinstance(assign.rhs, cadl_ast.RangeSliceExpr)
         assert assign.rhs.expr.name == "buffer"
 
     def test_burst_bidirectional(self):
@@ -285,10 +285,10 @@ class TestBurstOperations:
         assign = flow.body[0]
 
         # Check LHS has arithmetic expression
-        assert isinstance(assign.lhs.start, BinaryExpr)
+        assert isinstance(assign.lhs.start, cadl_ast.BinaryExpr)
 
         # Check RHS has arithmetic expression
-        assert isinstance(assign.rhs.start, BinaryExpr)
+        assert isinstance(assign.rhs.start, cadl_ast.BinaryExpr)
 
     def test_burst_in_rtype_flow(self):
         """Test that burst operations work in rtype flows"""
@@ -303,7 +303,7 @@ class TestBurstOperations:
 
         # Verify it's an rtype
         flow = ast.flows["dma_transfer"]
-        assert flow.kind == FlowKind.RTYPE
+        assert flow.kind == cadl_ast.FlowKind.RTYPE
 
         # Verify both burst operations present
         assert len(flow.body) == 2

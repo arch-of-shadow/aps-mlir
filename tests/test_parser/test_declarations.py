@@ -6,7 +6,7 @@ Tests static variables, regfiles, and their attributes.
 
 import pytest
 from cadl_frontend import parse_proc
-from cadl_frontend.ast import *
+from cadl_frontend import cadl_ast
 
 
 class TestRegfileDeclarations:
@@ -45,7 +45,7 @@ class TestStaticDeclarations:
 
         static = list(ast.statics.values())[0]
         assert static.id == "counter"
-        assert isinstance(static.ty, DataType_Single)
+        assert isinstance(static.ty, cadl_ast.DataType_Single)
 
     def test_static_with_initialization(self):
         """Test static with initialization"""
@@ -53,21 +53,21 @@ class TestStaticDeclarations:
         ast = parse_proc(source)
         static = list(ast.statics.values())[0]
         assert static.expr is not None
-        assert isinstance(static.expr, LitExpr)
+        assert isinstance(static.expr, cadl_ast.LitExpr)
 
     def test_static_array(self):
         """Test static array declaration"""
         source = "static buffer: [i32; 1024];"
         ast = parse_proc(source)
         static = list(ast.statics.values())[0]
-        assert isinstance(static.ty, DataType_Array)
+        assert isinstance(static.ty, cadl_ast.DataType_Array)
 
     def test_static_array_with_aggregate(self):
         """Test static array with aggregate initialization"""
         source = "static arr: [u32; 3] = {1, 2, 3};"
         ast = parse_proc(source)
         static = list(ast.statics.values())[0]
-        assert isinstance(static.expr, AggregateExpr)
+        assert isinstance(static.expr, cadl_ast.AggregateExpr)
         assert len(static.expr.elements) == 3
 
 
@@ -87,7 +87,7 @@ class TestStaticAttributes:
         buffer = ast.statics["buffer"]
         assert buffer.attrs is not None
         assert "impl" in buffer.attrs
-        assert isinstance(buffer.attrs["impl"], StringLitExpr)
+        assert isinstance(buffer.attrs["impl"], cadl_ast.StringLitExpr)
         assert buffer.attrs["impl"].value == "1rw"
 
     def test_static_with_multiple_attributes(self):
@@ -105,10 +105,10 @@ class TestStaticAttributes:
         assert "impl" in scratch.attrs
         assert "partition" in scratch.attrs
 
-        assert isinstance(scratch.attrs["impl"], StringLitExpr)
+        assert isinstance(scratch.attrs["impl"], cadl_ast.StringLitExpr)
         assert scratch.attrs["impl"].value == "2rw"
 
-        assert isinstance(scratch.attrs["partition"], StringLitExpr)
+        assert isinstance(scratch.attrs["partition"], cadl_ast.StringLitExpr)
         assert scratch.attrs["partition"].value == "cyclic"
 
     def test_static_with_attribute_and_init(self):
@@ -123,7 +123,7 @@ class TestStaticAttributes:
         counter = ast.statics["counter"]
         assert "impl" in counter.attrs
         assert counter.expr is not None
-        assert isinstance(counter.expr, LitExpr)
+        assert isinstance(counter.expr, cadl_ast.LitExpr)
 
     def test_static_without_attributes(self):
         """Test static without attributes (regression test)"""
@@ -147,7 +147,7 @@ class TestStaticAttributes:
 
         data = ast.statics["data"]
         assert "factor" in data.attrs
-        assert isinstance(data.attrs["factor"], LitExpr)
+        assert isinstance(data.attrs["factor"], cadl_ast.LitExpr)
 
     def test_mixed_statics_with_and_without_attributes(self):
         """Test multiple statics, some with attributes, some without"""

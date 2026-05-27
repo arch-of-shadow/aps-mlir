@@ -15,10 +15,79 @@ Ident = str
 Map = Dict
 
 
+__all__ = [
+    "Ident",
+    "Map",
+    "Expr",
+    "LitExpr",
+    "StringLitExpr",
+    "ComplexExpr",
+    "IdentExpr",
+    "TupleExpr",
+    "BinaryExpr",
+    "UnaryExpr",
+    "CallExpr",
+    "IndexExpr",
+    "SliceExpr",
+    "RangeSliceExpr",
+    "SelectExpr",
+    "IfExpr",
+    "AggregateExpr",
+    "ArrayLiteralExpr",
+    "BinaryOp",
+    "UnaryOp",
+    "BasicType",
+    "BasicType_ApFixed",
+    "BasicType_ApUFixed",
+    "BasicType_Float32",
+    "BasicType_Float64",
+    "BasicType_String",
+    "BasicType_USize",
+    "DataType",
+    "DataType_Single",
+    "DataType_Array",
+    "DataType_Instance",
+    "CompoundType",
+    "CompoundType_Basic",
+    "LiteralInner",
+    "LiteralInner_Fixed",
+    "LiteralInner_Float",
+    "Literal",
+    "Stmt",
+    "ExprStmt",
+    "AssignStmt",
+    "ReturnStmt",
+    "ForStmt",
+    "StaticStmt",
+    "GuardStmt",
+    "DoWhileStmt",
+    "DirectiveStmt",
+    "SpawnStmt",
+    "WithBinding",
+    "FnArg",
+    "Static",
+    "FlowKind",
+    "FlowAttributes",
+    "Flow",
+    "Regfile",
+    "ProcPart",
+    "RegfilePart",
+    "FlowPart",
+    "StaticPart",
+    "Proc",
+    "expr_is_lval",
+    "expr_as_literal",
+    "expr_flatten",
+    "parse_basic_type_from_string",
+    "parse_literal_from_string",
+]
+
+
 # Expression types
 @dataclass
 class Expr:
     """Base class for all expressions"""
+
     pass
 
     def __str__(self) -> str:
@@ -29,8 +98,9 @@ class Expr:
 @dataclass
 class LitExpr(Expr):
     """Literal expression with proper type information"""
+
     literal: Literal
-    
+
     def __str__(self) -> str:
         lit_inner = self.literal.lit
         if isinstance(lit_inner, (LiteralInner_Fixed, LiteralInner_Float)):
@@ -41,6 +111,7 @@ class LitExpr(Expr):
 @dataclass
 class StringLitExpr(Expr):
     """String literal expression"""
+
     value: str
 
     def __str__(self) -> str:
@@ -50,6 +121,7 @@ class StringLitExpr(Expr):
 @dataclass
 class ComplexExpr(Expr):
     """Complex number expression"""
+
     real: Expr
     imag: Expr
 
@@ -60,8 +132,9 @@ class ComplexExpr(Expr):
 @dataclass
 class IdentExpr(Expr):
     """Identifier expression"""
+
     name: str
-    
+
     def __str__(self) -> str:
         return self.name
 
@@ -69,8 +142,9 @@ class IdentExpr(Expr):
 @dataclass
 class TupleExpr(Expr):
     """Tuple expression"""
+
     elements: List[Expr]
-    
+
     def __str__(self) -> str:
         elements_str = ", ".join(str(e) for e in self.elements)
         return f"({elements_str})"
@@ -79,10 +153,11 @@ class TupleExpr(Expr):
 @dataclass
 class BinaryExpr(Expr):
     """Binary operation expression"""
+
     op: BinaryOp
     left: Expr
     right: Expr
-    
+
     def __str__(self) -> str:
         return f"({self.left} {self.op.value} {self.right})"
 
@@ -90,9 +165,10 @@ class BinaryExpr(Expr):
 @dataclass
 class UnaryExpr(Expr):
     """Unary operation expression"""
+
     op: UnaryOp
     operand: Expr
-    
+
     def __str__(self) -> str:
         if self.op.value.startswith("$"):
             return f"{self.op.value}({self.operand})"
@@ -103,9 +179,10 @@ class UnaryExpr(Expr):
 @dataclass
 class CallExpr(Expr):
     """Function call expression"""
+
     name: str
     args: List[Expr]
-    
+
     def __str__(self) -> str:
         args_str = ", ".join(str(arg) for arg in self.args)
         return f"{self.name}({args_str})"
@@ -114,9 +191,10 @@ class CallExpr(Expr):
 @dataclass
 class IndexExpr(Expr):
     """Array/vector indexing expression"""
+
     expr: Expr
     indices: List[Expr]
-    
+
     def __str__(self) -> str:
         indices_str = ", ".join(str(idx) for idx in self.indices)
         return f"{self.expr}[{indices_str}]"
@@ -125,6 +203,7 @@ class IndexExpr(Expr):
 @dataclass
 class SliceExpr(Expr):
     """Array/vector slicing expression"""
+
     expr: Expr
     start: Expr
     end: Expr
@@ -136,6 +215,7 @@ class SliceExpr(Expr):
 @dataclass
 class RangeSliceExpr(Expr):
     """Range slicing expression with +: operator (e.g., arr[start +: length])"""
+
     expr: Expr
     start: Expr
     length: Optional[Expr] = None
@@ -148,6 +228,7 @@ class RangeSliceExpr(Expr):
 @dataclass
 class SelectExpr(Expr):
     """Select expression"""
+
     arms: List[tuple[Expr, Expr]]
     default: Expr
 
@@ -159,6 +240,7 @@ class SelectExpr(Expr):
 @dataclass
 class IfExpr(Expr):
     """If expression"""
+
     condition: Expr
     then_branch: Expr
     else_branch: Expr
@@ -170,6 +252,7 @@ class IfExpr(Expr):
 @dataclass
 class AggregateExpr(Expr):
     """Aggregate expression (like struct literals)"""
+
     elements: List[Expr]
 
     def __str__(self) -> str:
@@ -180,6 +263,7 @@ class AggregateExpr(Expr):
 @dataclass
 class ArrayLiteralExpr(Expr):
     """Array literal expression (used in annotations like #[attr([0, 1])])"""
+
     elements: List[Expr]
 
     def __str__(self) -> str:
@@ -222,96 +306,113 @@ class UnaryOp(Enum):
     UINT_CAST = "$uint"
 
 
-# New IR Type System - matches type_sys_ir.rs
-from enum import Enum
-
 class BasicType:
     """Base class for BasicType enum variants"""
+
     pass
 
-@dataclass  
+
+@dataclass
 class BasicType_ApFixed(BasicType):
     """Signed fixed-point type - BasicType::ApFixed(u32)"""
+
     width: int
-    
+
     def __str__(self) -> str:
         return f"i{self.width}"
 
+
 @dataclass
-class BasicType_ApUFixed(BasicType): 
+class BasicType_ApUFixed(BasicType):
     """Unsigned fixed-point type - BasicType::ApUFixed(u32)"""
+
     width: int
-    
+
     def __str__(self) -> str:
         return f"u{self.width}"
+
 
 @dataclass
 class BasicType_Float32(BasicType):
     """32-bit float type - BasicType::Float32"""
+
     pass
-    
+
     def __str__(self) -> str:
         return "f32"
 
+
 @dataclass
 class BasicType_Float64(BasicType):
-    """64-bit float type - BasicType::Float64"""  
+    """64-bit float type - BasicType::Float64"""
+
     pass
-    
+
     def __str__(self) -> str:
         return "f64"
+
 
 @dataclass
 class BasicType_String(BasicType):
     """String type - BasicType::String"""
+
     pass
-    
+
     def __str__(self) -> str:
         return "string"
+
 
 @dataclass
 class BasicType_USize(BasicType):
     """USize type - BasicType::USize"""
+
     pass
-    
+
     def __str__(self) -> str:
         return "usize"
 
 
 class DataType:
     """Base class for DataType enum variants"""
+
     pass
+
 
 @dataclass
 class DataType_Single(DataType):
     """Single data type - DataType::Single(BasicType)"""
+
     basic_type: BasicType
-    
+
     def __str__(self) -> str:
         return str(self.basic_type)
+
 
 @dataclass
 class DataType_Array(DataType):
     """Array data type - DataType::Array(BasicType, Vec<usize>)"""
+
     element_type: BasicType
     dimensions: List[int]
-    
+
     def __str__(self) -> str:
         dims_str = "; ".join(str(d) for d in self.dimensions)
         return f"[{self.element_type}; {dims_str}]"
 
+
 @dataclass
 class DataType_Instance(DataType):
     """Instance data type - DataType::Instance"""
+
     pass
-    
+
     def __str__(self) -> str:
         return "Instance"
 
 
 class CompoundType:
     """Base class for CompoundType enum variants"""
-    
+
     def to_basic(self) -> DataType:
         """Convert to basic type - matches Rust as_basic() method"""
         if isinstance(self, CompoundType_Basic):
@@ -319,9 +420,11 @@ class CompoundType:
         else:
             raise RuntimeError(f"Unknown CompoundType variant: {type(self)}")
 
+
 @dataclass
 class CompoundType_Basic(CompoundType):
     """Basic compound type - CompoundType::Basic(DataType)"""
+
     data_type: DataType
 
     def __str__(self) -> str:
@@ -331,21 +434,28 @@ class CompoundType_Basic(CompoundType):
 # Literal System - matches literal.rs
 class LiteralInner:
     """Base class for LiteralInner enum variants"""
+
     pass
+
 
 @dataclass
 class LiteralInner_Fixed(LiteralInner):
     """Fixed-point literal - LiteralInner::Fixed(BigInt)"""
+
     value: int  # Using int instead of BigInt for simplicity
+
 
 @dataclass
 class LiteralInner_Float(LiteralInner):
     """Float literal - LiteralInner::Float(f64)"""
+
     value: float
+
 
 @dataclass
 class Literal:
     """Literal with type information - matches Rust Literal struct"""
+
     lit: LiteralInner
     ty: BasicType
 
@@ -354,8 +464,9 @@ class Literal:
 @dataclass
 class Stmt:
     """Base class for all statements"""
+
     pass
-    
+
     def __str__(self) -> str:
         return self.__class__.__name__
 
@@ -363,8 +474,9 @@ class Stmt:
 @dataclass
 class ExprStmt(Stmt):
     """Expression statement"""
+
     expr: Expr
-    
+
     def __str__(self) -> str:
         return f"{self.expr};"
 
@@ -372,11 +484,12 @@ class ExprStmt(Stmt):
 @dataclass
 class AssignStmt(Stmt):
     """Assignment statement"""
+
     is_let: bool
     lhs: Expr
     rhs: Expr
     type_annotation: Optional[DataType] = None
-    
+
     def __str__(self) -> str:
         let_str = "let " if self.is_let else ""
         type_str = f": {self.type_annotation}" if self.type_annotation else ""
@@ -386,8 +499,9 @@ class AssignStmt(Stmt):
 @dataclass
 class ReturnStmt(Stmt):
     """Return statement"""
+
     exprs: List[Expr]
-    
+
     def __str__(self) -> str:
         exprs_str = ", ".join(str(expr) for expr in self.exprs)
         return f"return ({exprs_str});"
@@ -396,6 +510,7 @@ class ReturnStmt(Stmt):
 @dataclass
 class ForStmt(Stmt):
     """For loop statement"""
+
     init: Stmt
     condition: Expr
     update: Stmt
@@ -412,7 +527,8 @@ class ForStmt(Stmt):
 @dataclass
 class StaticStmt(Stmt):
     """Static variable declaration statement"""
-    static: 'Static'
+
+    static: "Static"
 
     def __str__(self) -> str:
         return f"{self.static}"
@@ -421,6 +537,7 @@ class StaticStmt(Stmt):
 @dataclass
 class GuardStmt(Stmt):
     """Guard statement (conditional execution)"""
+
     condition: Expr
     stmt: Stmt
 
@@ -431,7 +548,8 @@ class GuardStmt(Stmt):
 @dataclass
 class DoWhileStmt(Stmt):
     """Do-while loop statement"""
-    bindings: List['WithBinding']
+
+    bindings: List["WithBinding"]
     body: List[Stmt]
     condition: Expr
 
@@ -450,6 +568,7 @@ class DoWhileStmt(Stmt):
 @dataclass
 class DirectiveStmt(Stmt):
     """Directive statement (compiler hints)"""
+
     name: str
     expr: Optional[Expr] = None
 
@@ -461,6 +580,7 @@ class DirectiveStmt(Stmt):
 @dataclass
 class SpawnStmt(Stmt):
     """Spawn statement (parallel execution)"""
+
     stmts: List[Stmt]
 
     def __str__(self) -> str:
@@ -470,10 +590,12 @@ class SpawnStmt(Stmt):
         lines.append("}")
         return "\n".join(lines)
 
+
 # Function-related structures
 @dataclass
 class WithBinding:
     """With binding for loop constructs"""
+
     id: str
     ty: BasicType
     init: Optional[Expr] = None
@@ -488,6 +610,7 @@ class WithBinding:
 @dataclass
 class FnArg:
     """Function argument (used for flows)"""
+
     id: str
     ty: CompoundType
 
@@ -498,6 +621,7 @@ class FnArg:
 @dataclass
 class Static:
     """Static variable declaration"""
+
     id: str
     ty: DataType
     expr: Optional[Expr] = None
@@ -520,6 +644,7 @@ class Static:
         else:
             return f"{attrs_str}{self.id}: {self.ty}"
 
+
 # Flow-related structures
 class FlowKind(Enum):
     DEFAULT = "default"
@@ -529,6 +654,7 @@ class FlowKind(Enum):
 @dataclass
 class FlowAttributes:
     """Flow attributes (decorators)"""
+
     attrs: Dict[str, Optional[Expr]] = field(default_factory=dict)
 
     @classmethod
@@ -565,6 +691,7 @@ class FlowAttributes:
 @dataclass
 class Flow:
     """Flow definition"""
+
     name: str
     kind: FlowKind
     inputs: List[tuple[str, DataType]] = field(default_factory=list)
@@ -578,7 +705,7 @@ class Flow:
     def get_body(self) -> Optional[List[Stmt]]:
         """Get flow body"""
         return self.body
-    
+
     def __str__(self) -> str:
         kind_str = "rtype" if self.kind == FlowKind.RTYPE else "flow"
         args = ", ".join(f"{name}: {dtype}" for name, dtype in self.inputs)
@@ -598,6 +725,7 @@ class Flow:
 @dataclass
 class Regfile:
     """Register file definition"""
+
     name: str
     width: int
     depth: int
@@ -611,30 +739,35 @@ class Regfile:
 @dataclass
 class ProcPart:
     """Base class for processor parts"""
+
     pass
 
 
 @dataclass
 class RegfilePart(ProcPart):
     """Regfile processor part"""
+
     regfile: Regfile
 
 
 @dataclass
 class FlowPart(ProcPart):
     """Flow processor part"""
+
     flow: Flow
 
 
 @dataclass
 class StaticPart(ProcPart):
     """Static processor part"""
+
     static: Static
 
 
 @dataclass
 class Proc:
     """Main processor structure"""
+
     regfiles: Map[str, Regfile] = field(default_factory=dict)
     flows: Map[str, Flow] = field(default_factory=dict)
     statics: Map[str, Static] = field(default_factory=dict)
@@ -651,7 +784,7 @@ class Proc:
             self.flows[part.flow.name] = part.flow
         elif isinstance(part, StaticPart):
             self.statics[part.static.id] = part.static
-    
+
     def __str__(self) -> str:
         parts = []
         if self.regfiles:
@@ -661,11 +794,11 @@ class Proc:
         if self.statics:
             parts.append(f"{len(self.statics)} statics")
         return f"Proc({', '.join(parts)})"
-    
+
     def pretty_print(self) -> str:
         """Detailed pretty printing of the processor"""
         lines = ["Processor AST:"]
-        
+
         if self.regfiles:
             lines.append("  Regfiles:")
             for regfile in self.regfiles.values():
@@ -679,10 +812,10 @@ class Proc:
         if self.flows:
             lines.append("  Flows:")
             for flow in self.flows.values():
-                flow_lines = str(flow).split('\n')
+                flow_lines = str(flow).split("\n")
                 for line in flow_lines:
                     lines.append(f"    {line}")
-                
+
         return "\n".join(lines)
 
     @classmethod
@@ -719,16 +852,16 @@ def expr_flatten(expr: Expr) -> List[Expr]:
     return [expr]
 
 
-# Convenience factory methods for type system  
+# Convenience factory methods for type system
 def parse_basic_type_from_string(type_str: str) -> BasicType:
     """Parse a basic type from string (like 'u32', 'i8', 'f32')"""
     if type_str == "usize":
         return BasicType_USize()
-    elif type_str.startswith('u'):
+    elif type_str.startswith("u"):
         width = int(type_str[1:])
         return BasicType_ApUFixed(width)
-    elif type_str.startswith('i'):
-        width = int(type_str[1:])  
+    elif type_str.startswith("i"):
+        width = int(type_str[1:])
         return BasicType_ApFixed(width)
     elif type_str == "f32":
         return BasicType_Float32()
@@ -749,35 +882,29 @@ def parse_literal_from_string(literal_str: str) -> Literal:
         width = int(width_str)
 
         # Parse based on format specifier
-        if format_and_value.startswith(('b', 'B')):
+        if format_and_value.startswith(("b", "B")):
             value = int(format_and_value[1:], 2)
-        elif format_and_value.startswith(('h', 'H')):
+        elif format_and_value.startswith(("h", "H")):
             value = int(format_and_value[1:], 16)
-        elif format_and_value.startswith(('o', 'O')):
+        elif format_and_value.startswith(("o", "O")):
             value = int(format_and_value[1:], 8)
-        elif format_and_value.startswith(('d', 'D')):
+        elif format_and_value.startswith(("d", "D")):
             value = int(format_and_value[1:])
         else:
             # No format specifier, treat as decimal
             value = int(format_and_value)
 
-        return Literal(
-            LiteralInner_Fixed(value),
-            BasicType_ApUFixed(width)
-        )
+        return Literal(LiteralInner_Fixed(value), BasicType_ApUFixed(width))
     else:
         # Handle literals without width specification
-        if literal_str.startswith(('0x', '0X')):
+        if literal_str.startswith(("0x", "0X")):
             value = int(literal_str, 16)
-        elif literal_str.startswith(('0b', '0B')):
+        elif literal_str.startswith(("0b", "0B")):
             value = int(literal_str, 2)
-        elif literal_str.startswith(('0o', '0O')):
+        elif literal_str.startswith(("0o", "0O")):
             value = int(literal_str, 8)
         else:
             value = int(literal_str)
 
         # Default to 32-bit unsigned
-        return Literal(
-            LiteralInner_Fixed(value),
-            BasicType_ApUFixed(32)
-        )
+        return Literal(LiteralInner_Fixed(value), BasicType_ApUFixed(32))

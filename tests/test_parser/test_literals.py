@@ -6,7 +6,7 @@ Tests number literals, string literals, and literal width specifications.
 
 import pytest
 from cadl_frontend import parse_proc
-from cadl_frontend.ast import *
+from cadl_frontend import cadl_ast
 
 
 class TestNumberLiterals:
@@ -32,7 +32,7 @@ class TestNumberLiterals:
         ast = parse_proc(source)
         assert ast is not None
         static = list(ast.statics.values())[0]
-        assert isinstance(static.expr, LitExpr)
+        assert isinstance(static.expr, cadl_ast.LitExpr)
 
     def test_binary_literals(self):
         """Test binary number parsing"""
@@ -40,7 +40,7 @@ class TestNumberLiterals:
         ast = parse_proc(source)
         assert ast is not None
         static = list(ast.statics.values())[0]
-        assert isinstance(static.expr, LitExpr)
+        assert isinstance(static.expr, cadl_ast.LitExpr)
 
     def test_octal_literals(self):
         """Test octal number parsing"""
@@ -48,7 +48,7 @@ class TestNumberLiterals:
         ast = parse_proc(source)
         assert ast is not None
         static = list(ast.statics.values())[0]
-        assert isinstance(static.expr, LitExpr)
+        assert isinstance(static.expr, cadl_ast.LitExpr)
 
 
 class TestLiteralWidths:
@@ -57,10 +57,10 @@ class TestLiteralWidths:
     def test_width_specified_literals(self):
         """Test literals with explicit width specifications"""
         test_cases = [
-            ("5'b101010", BasicType_ApUFixed, 5, 42),
-            ("8'hFF", BasicType_ApUFixed, 8, 255),
-            ("15'd123", BasicType_ApUFixed, 15, 123),
-            ("3'o123", BasicType_ApUFixed, 3, 83),
+            ("5'b101010", cadl_ast.BasicType_ApUFixed, 5, 42),
+            ("8'hFF", cadl_ast.BasicType_ApUFixed, 8, 255),
+            ("15'd123", cadl_ast.BasicType_ApUFixed, 15, 123),
+            ("3'o123", cadl_ast.BasicType_ApUFixed, 3, 83),
         ]
 
         for literal_str, expected_type_class, expected_width, expected_value in test_cases:
@@ -68,22 +68,22 @@ class TestLiteralWidths:
             ast = parse_proc(source)
 
             static = list(ast.statics.values())[0]
-            assert isinstance(static.expr, LitExpr)
+            assert isinstance(static.expr, cadl_ast.LitExpr)
 
             literal = static.expr.literal
             assert isinstance(literal.ty, expected_type_class)
             assert literal.ty.width == expected_width
 
             lit_inner = literal.lit
-            assert isinstance(lit_inner, LiteralInner_Fixed)
+            assert isinstance(lit_inner, cadl_ast.LiteralInner_Fixed)
             assert lit_inner.value == expected_value
 
     def test_default_width_literals(self):
         """Test that literals without width get default 32-bit unsigned type"""
         test_cases = [
-            ("0x1234", BasicType_ApUFixed, 32),
-            ("42", BasicType_ApUFixed, 32),
-            ("0b1010", BasicType_ApUFixed, 32),
+            ("0x1234", cadl_ast.BasicType_ApUFixed, 32),
+            ("42", cadl_ast.BasicType_ApUFixed, 32),
+            ("0b1010", cadl_ast.BasicType_ApUFixed, 32),
         ]
 
         for literal_str, expected_type_class, expected_width in test_cases:
@@ -91,7 +91,7 @@ class TestLiteralWidths:
             ast = parse_proc(source)
 
             static = list(ast.statics.values())[0]
-            assert isinstance(static.expr, LitExpr)
+            assert isinstance(static.expr, cadl_ast.LitExpr)
 
             literal = static.expr.literal
             assert isinstance(literal.ty, expected_type_class)
@@ -109,8 +109,8 @@ class TestLiteralWidths:
         assert len(ast.statics) == 3
 
         for static in ast.statics.values():
-            assert isinstance(static.expr, LitExpr)
-            assert isinstance(static.expr.literal.ty, BasicType_ApUFixed)
+            assert isinstance(static.expr, cadl_ast.LitExpr)
+            assert isinstance(static.expr.literal.ty, cadl_ast.BasicType_ApUFixed)
             assert static.expr.literal.ty.width == 8
 
     def test_number_format_parsing(self):
@@ -142,7 +142,7 @@ class TestStringLiterals:
         assert ast is not None
         flow = list(ast.flows.values())[0]
         assign = flow.body[0]
-        assert isinstance(assign.rhs, StringLitExpr)
+        assert isinstance(assign.rhs, cadl_ast.StringLitExpr)
         assert assign.rhs.value == "hello"
 
 
