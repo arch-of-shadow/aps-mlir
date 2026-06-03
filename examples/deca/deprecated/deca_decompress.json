@@ -1,6 +1,0 @@
-{
-  "deca_decompress_u1": {
-    "opcode": "0x2B",
-    "funct7": "0x5"
-  }
-}

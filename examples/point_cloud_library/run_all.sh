@@ -1,0 +1,5 @@
+pixi run mlir examples/pcl-recycle/v3ddist_vv.cadl /tmp/v3ddist_vv.mlir && pixi run opt /tmp/v3ddist_vv.mlir /tmp/v3ddist_vv.opt.mlir && pixi run sv /tmp/v3ddist_vv.opt.mlir ./v3ddist_vv.sv
+pixi run mlir examples/pcl-recycle/vcovmat3d_vs.cadl /tmp/vcovmat3d_vs.mlir && pixi run opt /tmp/vcovmat3d_vs.mlir /tmp/vcovmat3d_vs.opt.mlir && pixi run sv /tmp/vcovmat3d_vs.opt.mlir ./vcovmat3d_vs.sv
+pixi run mlir examples/pcl-recycle/vfpsmax.cadl /tmp/vfpsmax.mlir && pixi run opt /tmp/vfpsmax.mlir /tmp/vfpsmax.opt.mlir && pixi run sv /tmp/vfpsmax.opt.mlir ./vfpsmax.sv
+pixi run mlir examples/pcl-recycle/vgemv3d.cadl /tmp/vgemv3d.mlir && pixi run opt /tmp/vgemv3d.mlir /tmp/vgemv3d.opt.mlir && pixi run sv /tmp/vgemv3d.opt.mlir ./vgemv3d.sv
+pixi run mlir examples/pcl-recycle/pcl_all.cadl /tmp/pcl_all.mlir && pixi run opt /tmp/pcl_all.mlir /tmp/pcl_all.opt.mlir && pixi run sv /tmp/pcl_all.opt.mlir ./pcl_all.sv

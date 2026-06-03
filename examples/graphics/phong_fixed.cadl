@@ -1,0 +1,112 @@
+// Fixed-point Phong lighting over a 4x4 image.
+//
+// Input layout at rs1:
+//   normal.x / normal.y / normal.z planes: 16 i16 each
+//   view.x / view.y / view.z planes: 16 i16 each
+//   packed light.x / light.y i16 pair
+//   packed light.z / light intensity i16 pair
+//
+// Output layout at rs2:
+//   diffuse plane: 16 i16
+//   specular plane: 16 i16
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static normal_x: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static normal_y: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static normal_z: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static view_x: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static view_y: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static view_z: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static diffuse: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static specular: [i16; 16];
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0011001)]
+rtype phong_fixed(rs1: u5, rs2: u5, rd: u5) {
+    let in_addr: u32 = _irf[rs1];
+    let out_addr: u32 = _irf[rs2];
+    let plane_bytes: u32 = 32;
+    let light_pair_bytes: u32 = 4;
+
+    normal_x[0 +: ] = _burst_read[in_addr +: 16];
+    normal_y[0 +: ] = _burst_read[in_addr + plane_bytes +: 16];
+    normal_z[0 +: ] = _burst_read[in_addr + plane_bytes + plane_bytes +: 16];
+    view_x[0 +: ] = _burst_read[in_addr + plane_bytes * 3 +: 16];
+    view_y[0 +: ] = _burst_read[in_addr + plane_bytes * 4 +: 16];
+    view_z[0 +: ] = _burst_read[in_addr + plane_bytes * 5 +: 16];
+
+    let light_xy: i32 = _mem[in_addr + plane_bytes * 6];
+    let light_zi: i32 = _mem[in_addr + plane_bytes * 6 + light_pair_bytes];
+    let lx0: i16 = light_xy[15:0];
+    let ly0: i16 = light_xy[31:16];
+    let lz0: i16 = light_zi[15:0];
+    let li0: i16 = light_zi[31:16];
+    
+    [[unroll(4)]]
+    with idx: u32 = (0, idx_) do {
+        let nx: i16 = normal_x[idx];
+        let ny: i16 = normal_y[idx];
+        let nz: i16 = normal_z[idx];
+        let vx: i16 = view_x[idx];
+        let vy: i16 = view_y[idx];
+        let vz: i16 = view_z[idx];
+        let nx32: i32 = nx;
+        let ny32: i32 = ny;
+        let nz32: i32 = nz;
+        let vx32: i32 = vx;
+        let vy32: i32 = vy;
+        let vz32: i32 = vz;
+        let lx32: i32 = lx0;
+        let ly32: i32 = ly0;
+        let lz32: i32 = lz0;
+        let li32: i32 = li0;
+
+        let nl0: i32 = ((nx32 * lx32) + (ny32 * ly32) + (nz32 * lz32)) >> 8;
+        let diff0: i32 = if (nl0 > 0) {(nl0 * li32) >> 8} else {0};
+        let hx0: i32 = vx32 + lx32;
+        let hy0: i32 = vy32 + ly32;
+        let hz0: i32 = vz32 + lz32;
+        let nh0: i32 = ((nx32 * hx0) + (ny32 * hy0) + (nz32 * hz0)) >> 8;
+        let nh0_pos: i32 = if (nh0 > 0) {nh0} else {0};
+        let spec0_sq: i32 = (nh0_pos * nh0_pos) >> 8;
+        let spec0: i32 = if (nh0 > 0) {(spec0_sq * li32) >> 8} else {0};
+
+        diffuse[idx] = diff0[15:0];
+        specular[idx] = spec0[15:0];
+        let idx_: u32 = idx + 1;
+    } while (idx_ < 16);
+
+    _burst_write[out_addr +: 16] = diffuse[0 +: ];
+    _burst_write[out_addr + plane_bytes +: 16] = specular[0 +: ];
+    _irf[rd] = 0;
+}

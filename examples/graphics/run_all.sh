@@ -1,0 +1,4 @@
+pixi run mlir examples/graphics/mean_var_fixed.cadl /tmp/mean_var_fixed.mlir && pixi run opt /tmp/mean_var_fixed.mlir /tmp/mean_var_fixed.opt.mlir && pixi run sv /tmp/mean_var_fixed.opt.mlir ./mean_var_fixed.sv
+pixi run mlir examples/graphics/phong_fixed.cadl /tmp/phong_fixed.mlir && pixi run opt /tmp/phong_fixed.mlir /tmp/phong_fixed.opt.mlir && pixi run sv /tmp/phong_fixed.opt.mlir ./phong_fixed.sv
+pixi run mlir examples/graphics/rgb2yuv_fixed.cadl /tmp/rgb2yuv_fixed.mlir && pixi run opt /tmp/rgb2yuv_fixed.mlir /tmp/rgb2yuv_fixed.opt.mlir && pixi run sv /tmp/rgb2yuv_fixed.opt.mlir ./rgb2yuv_fixed.sv
+pixi run mlir examples/graphics/graphics.cadl /tmp/graphics.mlir && pixi run opt /tmp/graphics.mlir /tmp/graphics.opt.mlir && pixi run sv /tmp/graphics.opt.mlir ./graphics.sv

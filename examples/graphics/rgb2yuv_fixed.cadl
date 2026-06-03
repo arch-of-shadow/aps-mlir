@@ -1,0 +1,82 @@
+// RGB to YUV conversion over a 4x4 image.
+//
+// Input layout at rs1:
+//   R plane: 16 i16 values
+//   G plane: 16 i16 values
+//   B plane: 16 i16 values
+//
+// Output layout at rs2:
+//   Y plane: 16 i16 values
+//   U plane: 16 i16 values
+//   V plane: 16 i16 values
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static in_r: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static in_g: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static in_b: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static out_y: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static out_u: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static out_v: [i16; 16];
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0011000)]
+rtype rgb2yuv_fixed(rs1: u5, rs2: u5, rd: u5) {
+    let in_addr: u32 = _irf[rs1];
+    let out_addr: u32 = _irf[rs2];
+    let plane_bytes: u32 = 32;
+    let max_channel: i32 = 255;
+    let zero: i32 = 0;
+    let uv_bias: i32 = 128 << 8;
+
+    in_r[0 +: ] = _burst_read[in_addr +: 16];
+    in_g[0 +: ] = _burst_read[in_addr + plane_bytes +: 16];
+    in_b[0 +: ] = _burst_read[in_addr + plane_bytes + plane_bytes +: 16];
+
+    with row: u32 = (0, row_) do {
+        [[unroll(4)]]
+        with col: u32 = (0, col_) do {
+            let idx: u32 = row * 4 + col;
+            let r: i16 = in_r[idx];
+            let g: i16 = in_g[idx];
+            let b: i16 = in_b[idx];
+            let r32: i32 = r;
+            let g32: i32 = g;
+            let b32: i32 = b;
+            let y_raw: i32 = (77 * r32 + 150 * g32 + 29 * b32) >> 8;
+            let u_raw: i32 = ((0 - 43 * r32) + (0 - 85 * g32) + (128 * b32) + uv_bias) >> 8;
+            let v_raw: i32 = ((128 * r32) + (0 - 107 * g32) + (0 - 21 * b32) + uv_bias) >> 8;
+            out_y[idx] = if (y_raw > max_channel) {16'd255} else {if (y_raw < zero) {16'd0} else {y_raw[15:0]}};
+            out_u[idx] = if (u_raw > max_channel) {16'd255} else {if (u_raw < zero) {16'd0} else {u_raw[15:0]}};
+            out_v[idx] = if (v_raw > max_channel) {16'd255} else {if (v_raw < zero) {16'd0} else {v_raw[15:0]}};
+            let col_: u32 = col + 1;
+        } while (col_ < 4);
+        let row_: u32 = row + 1;
+    } while (row_ < 4);
+
+    _burst_write[out_addr +: 16] = out_y[0 +: ];
+    _burst_write[out_addr + plane_bytes +: 16] = out_u[0 +: ];
+    _burst_write[out_addr + plane_bytes + plane_bytes +: 16] = out_v[0 +: ];
+    _irf[rd] = 0;
+}

@@ -1,0 +1,73 @@
+// Bilinear sampling in Q8 fixed point over a 4x4 image.
+//
+// Input layout at rs1:
+//   u coordinates: 16 u32 values in Q8, range [0, 255]
+//   v coordinates: 16 u32 values in Q8, range [0, 255]
+//   texture red plane: 4x4 as 16 u32 values
+//
+// Output layout at rs2:
+//   sampled red channel: 16 u32 values
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static coord_u: [u32; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static coord_v: [u32; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static texture_r: [u32; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static sample_r: [u32; 16];
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0011010)]
+rtype bilinear_sampling_fixed(rs1: u5, rs2: u5, rd: u5) {
+    let in_addr: u32 = _irf[rs1];
+    let out_addr: u32 = _irf[rs2];
+    let plane_bytes: u32 = 64;
+    let frac_mask: u32 = 32'hFF;
+    let one_q: u32 = 256;
+    let tex_stride: u32 = 4;
+    let max_coord: u32 = 2;
+
+    coord_u[0 +: ] = _burst_read[in_addr +: 16];
+    coord_v[0 +: ] = _burst_read[in_addr + plane_bytes +: 16];
+    texture_r[0 +: ] = _burst_read[in_addr + plane_bytes + plane_bytes +: 16];
+
+    with row: u32 = (0, row_) do {
+        [[unroll(4)]]
+        with col: u32 = (0, col_) do {
+            let idx: u32 = row * 4 + col;
+            let u_q: u32 = coord_u[idx];
+            let v_q: u32 = coord_v[idx];
+            let fu_q: u32 = u_q * 3;
+            let fv_q: u32 = v_q * 3;
+            let iu_raw: u32 = fu_q >> 8;
+            let iv_raw: u32 = fv_q >> 8;
+            let iu: u32 = if (iu_raw > max_coord) {max_coord} else {iu_raw};
+            let iv: u32 = if (iv_raw > max_coord) {max_coord} else {iv_raw};
+            let au: u32 = fu_q & frac_mask;
+            let av: u32 = fv_q & frac_mask;
+            let inv_au: u32 = one_q - au;
+            let inv_av: u32 = one_q - av;
+            let tex00: u32 = iv * tex_stride + iu;
+            let r0: u32 = ((texture_r[tex00] * inv_au) + (texture_r[tex00 + 1] * au)) >> 8;
+            let r1: u32 = ((texture_r[tex00 + tex_stride] * inv_au) + (texture_r[tex00 + tex_stride + 1] * au)) >> 8;
+            sample_r[idx] = ((r0 * inv_av) + (r1 * av)) >> 8;
+            let col_: u32 = col + 1;
+        } while (col_ < 4);
+        let row_: u32 = row + 1;
+    } while (row_ < 4);
+
+    _burst_write[out_addr +: 16] = sample_r[0 +: ];
+    _irf[rd] = 0;
+}

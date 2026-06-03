@@ -1,1 +1,0 @@
-pixi run opt examples/aspdac_tutorial/tutorial.cadl tutorial.mlir && pixi run sv tutorial.mlir tutorial.sv

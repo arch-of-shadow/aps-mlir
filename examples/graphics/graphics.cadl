@@ -1,0 +1,247 @@
+// Mean and variance over 32 signed samples.
+//
+// Input layout at rs1:
+//   32 i32 values
+//
+// Output layout at rs2:
+//   mean_q at byte offset 0
+//   var_q  at byte offset 4
+//
+// Variance uses divide-by-32 approximation to keep lowering simple.
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static arr0: [i32; 32];
+
+// 2
+// #[partition_dim_array([0])]
+// #[partition_factor_array([4])]
+// #[partition_cyclic_array([1])]
+// static arr1: [i32; 16];
+
+// #[partition_dim_array([0])]
+// #[partition_factor_array([4])]
+// #[partition_cyclic_array([1])]
+// static arr2: [i32; 16];
+
+// #[partition_dim_array([0])]
+// #[partition_factor_array([4])]
+// #[partition_cyclic_array([1])]
+// static arr3: [i32; 16];
+
+// #[partition_dim_array([0])]
+// #[partition_factor_array([4])]
+// #[partition_cyclic_array([1])]
+// static arr4: [i32; 16];
+
+// #[partition_dim_array([0])]
+// #[partition_factor_array([4])]
+// #[partition_cyclic_array([1])]
+// static arr5: [i32; 16];
+
+// #[partition_dim_array([0])]
+// #[partition_factor_array([4])]
+// #[partition_cyclic_array([1])]
+// static arr6: [i32; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static diffuse: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static specular: [i16; 16];
+
+// 3
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static arr1: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static arr2: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static arr3: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static arr4: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static arr5: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static arr6: [i16; 16];
+
+static sum_acc: i32;
+static sum_sq_diff_acc: i32;
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0011011)]
+rtype mean_var_fixed(rs1: u5, rs2: u5, rd: u5) {
+    let in_addr: u32 = _irf[rs1];
+    let out_addr: u32 = _irf[rs2];
+
+    arr0[0 +: ] = _burst_read[in_addr +: 32];
+
+    sum_acc = 0;
+    [[unroll(4)]]
+    with i: u32 = (0, i_) do {
+        sum_acc = sum_acc + arr0[i];
+        let i_: u32 = i + 1;
+    } while (i_ < 32);
+
+    let mean_q: i32 = sum_acc << 3;
+
+    sum_sq_diff_acc = 0;
+    [[unroll(4)]]
+    with i: u32 = (0, i_) do {
+        let sample: i32 = arr0[i];
+        let diff: i32 = (sample << 8) - mean_q;
+        sum_sq_diff_acc = sum_sq_diff_acc + ((diff * diff) >> 8);
+        let i_: u32 = i + 1;
+    } while (i_ < 32);
+
+    _mem[out_addr] = mean_q;
+    _mem[out_addr + 4] = sum_sq_diff_acc >> 5;
+    _irf[rd] = 0;
+}
+
+// Fixed-point Phong lighting over a 4x4 image.
+//
+// Input layout at rs1:
+//   normal.x / normal.y / normal.z planes: 16 i16 each
+//   view.x / view.y / view.z planes: 16 i16 each
+//   packed light.x / light.y i16 pair
+//   packed light.z / light intensity i16 pair
+//
+// Output layout at rs2:
+//   diffuse plane: 16 i16
+//   specular plane: 16 i16
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0011001)]
+rtype phong_fixed(rs1: u5, rs2: u5, rd: u5) {
+    let in_addr: u32 = _irf[rs1];
+    let out_addr: u32 = _irf[rs2];
+    let plane_bytes: u32 = 32;
+    let light_pair_bytes: u32 = 4;
+
+    arr1[0 +: ] = _burst_read[in_addr +: 16];
+    arr2[0 +: ] = _burst_read[in_addr + plane_bytes +: 16];
+    arr3[0 +: ] = _burst_read[in_addr + plane_bytes + plane_bytes +: 16];
+    arr4[0 +: ] = _burst_read[in_addr + plane_bytes * 3 +: 16];
+    arr5[0 +: ] = _burst_read[in_addr + plane_bytes * 4 +: 16];
+    arr6[0 +: ] = _burst_read[in_addr + plane_bytes * 5 +: 16];
+
+    let light_xy: i32 = _mem[in_addr + plane_bytes * 6];
+    let light_zi: i32 = _mem[in_addr + plane_bytes * 6 + light_pair_bytes];
+    let lx0: i16 = light_xy[15:0];
+    let ly0: i16 = light_xy[31:16];
+    let lz0: i16 = light_zi[15:0];
+    let li0: i16 = light_zi[31:16];
+
+    [[unroll(2)]]
+    with idx: u32 = (0, idx_) do {
+        let nx: i16 = arr1[idx];
+        let ny: i16 = arr2[idx];
+        let nz: i16 = arr3[idx];
+        let vx: i16 = arr4[idx];
+        let vy: i16 = arr5[idx];
+        let vz: i16 = arr6[idx];
+        let nx32: i32 = nx;
+        let ny32: i32 = ny;
+        let nz32: i32 = nz;
+        let vx32: i32 = vx;
+        let vy32: i32 = vy;
+        let vz32: i32 = vz;
+        let lx32: i32 = lx0;
+        let ly32: i32 = ly0;
+        let lz32: i32 = lz0;
+        let li32: i32 = li0;
+
+        let nl0: i32 = ((nx32 * lx32) + (ny32 * ly32) + (nz32 * lz32)) >> 8;
+        let diff0: i32 = if (nl0 > 0) {(nl0 * li32) >> 8} else {0};
+        let hx0: i32 = vx32 + lx32;
+        let hy0: i32 = vy32 + ly32;
+        let hz0: i32 = vz32 + lz32;
+        let nh0: i32 = ((nx32 * hx0) + (ny32 * hy0) + (nz32 * hz0)) >> 8;
+        let nh0_pos: i32 = if (nh0 > 0) {nh0} else {0};
+        let spec0_sq: i32 = (nh0_pos * nh0_pos) >> 8;
+        let spec0: i32 = if (nh0 > 0) {(spec0_sq * li32) >> 8} else {0};
+
+        diffuse[idx] = diff0[15:0];
+        specular[idx] = spec0[15:0];
+        let idx_: u32 = idx + 1;
+    } while (idx_ < 16);
+
+    _burst_write[out_addr +: 16] = diffuse[0 +: ];
+    _burst_write[out_addr + plane_bytes +: 16] = specular[0 +: ];
+    _irf[rd] = 0;
+}
+
+// RGB to YUV conversion over a 4x4 image.
+//
+// Input layout at rs1:
+//   R plane: 16 i16 values
+//   G plane: 16 i16 values
+//   B plane: 16 i16 values
+//
+// Output layout at rs2:
+//   Y plane: 16 i16 values
+//   U plane: 16 i16 values
+//   V plane: 16 i16 values
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0011000)]
+rtype rgb2yuv_fixed(rs1: u5, rs2: u5, rd: u5) {
+    let in_addr: u32 = _irf[rs1];
+    let out_addr: u32 = _irf[rs2];
+    let plane_bytes: u32 = 32;
+    let max_channel: i32 = 255;
+    let zero: i32 = 0;
+    let uv_bias: i32 = 128 << 8;
+
+    arr1[0 +: ] = _burst_read[in_addr +: 16];
+    arr2[0 +: ] = _burst_read[in_addr + plane_bytes +: 16];
+    arr3[0 +: ] = _burst_read[in_addr + plane_bytes + plane_bytes +: 16];
+
+    with row: u32 = (0, row_) do {
+        [[unroll(2)]]
+        with col: u32 = (0, col_) do {
+            let idx: u32 = row * 4 + col;
+            let r: i16 = arr1[idx];
+            let g: i16 = arr2[idx];
+            let b: i16 = arr3[idx];
+            let r32: i32 = r;
+            let g32: i32 = g;
+            let b32: i32 = b;
+            let y_raw: i32 = (77 * r32 + 150 * g32 + 29 * b32) >> 8;
+            let u_raw: i32 = ((0 - 43 * r32) + (0 - 85 * g32) + (128 * b32) + uv_bias) >> 8;
+            let v_raw: i32 = ((128 * r32) + (0 - 107 * g32) + (0 - 21 * b32) + uv_bias) >> 8;
+            arr4[idx] = if (y_raw > max_channel) {16'd255} else {if (y_raw < zero) {16'd0} else {y_raw[15:0]}};
+            arr5[idx] = if (u_raw > max_channel) {16'd255} else {if (u_raw < zero) {16'd0} else {u_raw[15:0]}};
+            arr6[idx] = if (v_raw > max_channel) {16'd255} else {if (v_raw < zero) {16'd0} else {v_raw[15:0]}};
+            let col_: u32 = col + 1;
+        } while (col_ < 4);
+        let row_: u32 = row + 1;
+    } while (row_ < 4);
+
+    _burst_write[out_addr +: 16] = arr4[0 +: ];
+    _burst_write[out_addr + plane_bytes +: 16] = arr5[0 +: ];
+    _burst_write[out_addr + plane_bytes + plane_bytes +: 16] = arr6[0 +: ];
+    _irf[rd] = 0;
+}
