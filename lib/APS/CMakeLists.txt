@@ -5,6 +5,7 @@ add_mlir_library(APS
   MemoryIndexUtils.cpp
   AffineMemToAPS.cpp
   MemRefToAPS.cpp
+  AutoBurstPartition.cpp
   APSMemoryMap.cpp
   RaiseMemRefToAffine.cpp
   DuplicateMemLoads.cpp

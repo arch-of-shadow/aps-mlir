@@ -656,6 +656,21 @@ void updateIntv(std::pair<int, int>& intv, std::pair<int, int> queryIntv) {
   intv.second = std::max(queryIntv.second, intv.second);
 }
 
+void restoreScheduledLoopAttrs(mlir::Operation *op,
+                               scheduling::ScheduleBase *scheduler) {
+  auto info = scheduler->queryLoop(op);
+  if (!info.first)
+    return;
+
+  auto *ctx = op->getContext();
+  auto i32 = mlir::IntegerType::get(ctx, 32);
+  op->setAttr("pipeline", mlir::IntegerAttr::get(i32, 1));
+  if (info.second > 0) {
+    op->setAttr("II", mlir::IntegerAttr::get(i32, info.second));
+    setPragmaStructureAttrNewValueByOp(op, "pipeline", info.second);
+  }
+}
+
 std::pair<int, int> queryAllOps(mlir::Block &block, scheduling::ScheduleBase *scheduler, bool isDataflow = false) {
   std::pair<int, int> intv = {INT_MAX, INT_MIN};
   for (auto &op : block) {
@@ -668,8 +683,10 @@ std::pair<int, int> queryAllOps(mlir::Block &block, scheduling::ScheduleBase *sc
     } else if (auto whileOp = llvm::dyn_cast<mlir::tor::WhileOp>(op)) {
       updateIntv(queryIntv, queryAllOps(whileOp.getBefore().front(), scheduler, isDataflow));
       updateIntv(queryIntv, queryAllOps(whileOp.getAfter().front(), scheduler, isDataflow));
+      restoreScheduledLoopAttrs(&op, scheduler);
     } else if (auto forOp = llvm::dyn_cast<mlir::tor::ForOp>(op)) {
       updateIntv(queryIntv, queryAllOps(*forOp.getBody(), scheduler, isDataflow));
+      restoreScheduledLoopAttrs(&op, scheduler);
     } else if (auto callOp = llvm::dyn_cast<mlir::tor::CallOp>(op)) {
       if (isDataflow) {
         // Do not assign callops inside dataflow region to the timegraph

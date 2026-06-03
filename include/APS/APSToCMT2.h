@@ -34,6 +34,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -60,16 +61,134 @@ struct SlotInfo {
   llvm::SmallVector<mlir::Operation *, 4> ops;
 };
 
-/// Cross-slot FIFO for communicating values between pipeline stages
-struct CrossSlotFIFO {
-  mlir::Value producerValue;        // The SSA value being communicated
-  int64_t producerSlot = 0;         // Source time slot
-  int64_t consumerSlot = 0;         // Destination time slot
-  std::string instanceName;         // FIFO instance name
-  mlir::Type firType;               // FIRRTL type for the value
-  Instance *fifoInstance = nullptr; // FIFO module instance
-  llvm::SmallVector<std::pair<mlir::Operation *, unsigned>>
-      consumers; // (consumerOp, operandIndex) pairs
+/// FIFO bundle for scope entry/exit boundaries.
+struct ScopeBoundaryResources {
+  Instance *entryTokenFIFO = nullptr;
+  Instance *exitTokenFIFO = nullptr;
+  Instance *liveInBundleFIFO = nullptr;
+  Instance *liveOutBundleFIFO = nullptr;
+
+  void clear() {
+    entryTokenFIFO = nullptr;
+    exitTokenFIFO = nullptr;
+    liveInBundleFIFO = nullptr;
+    liveOutBundleFIFO = nullptr;
+  }
+
+  bool isValidForNonPipeline(bool allowOpenEntry = true,
+                             bool allowOpenExit = true) const {
+    if (!allowOpenEntry && !entryTokenFIFO)
+      return false;
+    if (!allowOpenExit && !exitTokenFIFO)
+      return false;
+    return true;
+  }
+};
+
+/// FIFO bundle for a stage inside a block.
+struct StageTransferResources {
+  Instance *stageTokenFIFO = nullptr;
+  Instance *stageInputBundleFIFO = nullptr;
+  Instance *stageOutputBundleFIFO = nullptr;
+  llvm::DenseMap<mlir::Value, Instance *> deferredFIFOs;
+  llvm::DenseMap<mlir::Value, mlir::Value> localValueMap;
+
+  void clear() {
+    stageTokenFIFO = nullptr;
+    stageInputBundleFIFO = nullptr;
+    stageOutputBundleFIFO = nullptr;
+    deferredFIFOs.clear();
+    localValueMap.clear();
+  }
+
+  bool isValidForNonPipeline(bool hasNextStage) const {
+    if (hasNextStage)
+      return stageTokenFIFO != nullptr;
+    return true;
+  }
+};
+
+/// Resources owned by a basic block scope.
+struct BlockScopeResources {
+  ScopeBoundaryResources boundary;
+  llvm::SmallVector<StageTransferResources, 4> stages;
+  llvm::DenseMap<mlir::Value, Instance *> valueMapRegs;
+  llvm::DenseMap<mlir::Value, Instance *> inputValueRegs;
+  llvm::DenseMap<mlir::Value, llvm::SmallVector<Instance *, 4>> outputValueRegs;
+  llvm::DenseMap<mlir::Value, Instance *> stageLocalRegs;
+  Instance *contextTokenReg = nullptr;
+
+  void clear() {
+    boundary.clear();
+    stages.clear();
+    valueMapRegs.clear();
+    inputValueRegs.clear();
+    outputValueRegs.clear();
+    stageLocalRegs.clear();
+    contextTokenReg = nullptr;
+  }
+
+  StageTransferResources &ensureStage(size_t idx) {
+    if (idx >= stages.size())
+      stages.resize(idx + 1);
+    return stages[idx];
+  }
+
+  bool isValidForNonPipeline() const {
+    return true;
+  }
+};
+
+/// Resources owned by a loop scope.
+struct LoopScopeResources {
+  ScopeBoundaryResources boundary;
+  Instance *bodyAdmitFIFO = nullptr;
+  Instance *bodyDoneTokenFIFO = nullptr;
+  Instance *issueTokenFIFO = nullptr;
+  Instance *loopFrameToNextFIFO = nullptr;
+  Instance *loopInputBundleFIFO = nullptr;
+  Instance *loopOutputBundleFIFO = nullptr;
+  Instance *loopStateReg = nullptr;
+  Instance *doneCounterReg = nullptr;
+  Instance *contextTokenReg = nullptr;
+  Instance *creditReg = nullptr;
+  Instance *tagReg = nullptr;
+  llvm::DenseMap<mlir::Value, Instance *> loopCarriedRegs;
+  llvm::DenseMap<mlir::Value, Instance *> frameLocalRegs;
+  llvm::DenseMap<mlir::Value, Instance *> inputStateRegs;
+  llvm::DenseMap<mlir::Value, Instance *> loopToBodyFIFOs;
+
+  void clear() {
+    boundary.clear();
+    bodyAdmitFIFO = nullptr;
+    bodyDoneTokenFIFO = nullptr;
+    issueTokenFIFO = nullptr;
+    loopFrameToNextFIFO = nullptr;
+    loopInputBundleFIFO = nullptr;
+    loopOutputBundleFIFO = nullptr;
+    loopStateReg = nullptr;
+    doneCounterReg = nullptr;
+    contextTokenReg = nullptr;
+    creditReg = nullptr;
+    tagReg = nullptr;
+    loopCarriedRegs.clear();
+    frameLocalRegs.clear();
+    inputStateRegs.clear();
+    loopToBodyFIFOs.clear();
+  }
+
+  bool isValidForNonPipeline() const {
+    if (!bodyAdmitFIFO || !bodyDoneTokenFIFO || !loopStateReg)
+      return false;
+    return true;
+  }
+
+  bool isValidForPipeline() const {
+    if (!bodyAdmitFIFO || !bodyDoneTokenFIFO || !loopStateReg ||
+        !issueTokenFIFO || !doneCounterReg)
+      return false;
+    return true;
+  }
 };
 
 /// Helper struct for memory entry information

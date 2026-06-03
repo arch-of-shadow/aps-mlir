@@ -1,7 +1,7 @@
 //===- BlockHandler.cpp - Unified Block Handler Implementation ------------===//
 //
-// This file implements the unified block handler with producer-responsible
-// FIFO coordination for all control flow structures
+// This file implements the unified block handler with token coordination for
+// all control flow structures.
 //
 //===----------------------------------------------------------------------===//
 
@@ -45,9 +45,15 @@ BlockHandler::BlockHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp 
     : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
       roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), regRdInstance(regRdInstance),
       dmaItfc(dmaItfc), csrItfc(csrItfc), circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode),
-      namePrefix(namePrefix.empty() ? "inst" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str() + "_" : namePrefix),
+      namePrefix(namePrefix.empty() ? "op" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str() + "_" : namePrefix),
       inputTokenFIFO(inputTokenFIFO), outputTokenFIFO(outputTokenFIFO), input_fifos(input_fifos),
       output_fifos(output_fifos) {
+}
+
+void BlockHandler::addInputRegister(Value value, Instance *reg) {
+  if (!value || !reg)
+    return;
+  input_regs[value] = reg;
 }
 
 LogicalResult BlockHandler::processFunctionAsBlocks() {
@@ -65,26 +71,25 @@ LogicalResult BlockHandler::processFunctionAsBlocks() {
   if (failed(analyzeCrossBlockDataflow()))
     return failure();
 
-  // Phase 2: FIFO Infrastructure
-  // Create cross-block value FIFOs (data communication)
-  if (failed(createProducerFIFOs()))
+  // Phase 2: block-to-block data infrastructure.
+  if (failed(createCrossBlockValueRegs()))
     return failure();
 
-  // Create intra-block coordination FIFOs (slot-to-slot within blocks)
+  // Create token FIFOs between sequential sub-blocks.
   if (failed(createBlockTokenFIFOs()))
     return failure();
 
-  // Phase 2.5: Input Distribution Analysis and Infrastructure
-  // Analyze if sub-blocks need input distribution (1-to-N fanout)
+  if (pipelineMode && failed(createPipelineInputFanoutFIFOs()))
+    return failure();
+
+  // Phase 2.5: parent live-in capture for multi-consumer sub-block inputs.
   if (failed(analyzeInputDistributionNeeds()))
     return failure();
 
-  // Create input distribution FIFOs if needed
-  if (failed(createInputDistributionInfrastructure()))
+  if (failed(createInputDistributionRegs()))
     return failure();
 
-  // Generate input distribution rule if needed
-  if (failed(generateInputDistributionRule()))
+  if (failed(generateInputCaptureRule()))
     return failure();
 
   // Phase 3: Block Processing (delegated to handlers)
@@ -137,26 +142,25 @@ LogicalResult BlockHandler::processLoopBodyAsBlocks(tor::ForOp loopOp) {
   if (failed(analyzeCrossBlockDataflow()))
     return failure();
 
-  // Phase 2: FIFO Infrastructure
-  // Create cross-block value FIFOs (data communication)
-  if (failed(createProducerFIFOs()))
+  // Phase 2: block-to-block data infrastructure.
+  if (failed(createCrossBlockValueRegs()))
     return failure();
 
-  // Create intra-block coordination FIFOs (slot-to-slot within blocks)
+  // Create token FIFOs between sequential sub-blocks.
   if (failed(createBlockTokenFIFOs()))
     return failure();
 
-  // Phase 2.5: Input Distribution Analysis and Infrastructure
-  // Analyze if sub-blocks need input distribution (1-to-N fanout)
+  if (pipelineMode && failed(createPipelineInputFanoutFIFOs()))
+    return failure();
+
+  // Phase 2.5: parent live-in capture for multi-consumer sub-block inputs.
   if (failed(analyzeInputDistributionNeeds()))
     return failure();
 
-  // Create input distribution FIFOs if needed
-  if (failed(createInputDistributionInfrastructure()))
+  if (failed(createInputDistributionRegs()))
     return failure();
 
-  // Generate input distribution rule if needed
-  if (failed(generateInputDistributionRule()))
+  if (failed(generateInputCaptureRule()))
     return failure();
 
   // Phase 3: Block Processing (delegated to handlers)
@@ -169,10 +173,6 @@ LogicalResult BlockHandler::processLoopBodyAsBlocks(tor::ForOp loopOp) {
 }
 
 LogicalResult BlockHandler::createBlockTokenFIFOs() {
-  // Create token FIFOs for cross-block coordination following Blockgen.md
-  // token_fifo_b{i}_b{i+1} as specified in the documentation
-  // Note: First block's input token FIFO should be provided externally
-
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
 
@@ -182,12 +182,12 @@ LogicalResult BlockHandler::createBlockTokenFIFOs() {
     BlockInfo &currentBlock = blocks[i];
     BlockInfo &nextBlock = blocks[i + 1];
 
-    auto *tokenMod = STLLibrary::createFIFO1PushModule(1, circuit);
+    auto *tokenMod = STLLibrary::createFIFO2IModule(1, circuit);
     builder.restoreInsertionPoint(savedIP);
 
-    // Follow Blockgen.md naming: {prefix}token_fifo_b{i}_b{i+1}
-    std::string tokenName = namePrefix + "token_fifo_b" + std::to_string(currentBlock.blockId) +
-                           "_b" + std::to_string(nextBlock.blockId);
+    std::string tokenName = namePrefix + "b" +
+                            std::to_string(currentBlock.blockId) + "b" +
+                            std::to_string(nextBlock.blockId) + "tok";
     auto *tokenFIFO = mainModule->addInstance(tokenName, tokenMod,
                                               {mainClk.getValue(), mainRst.getValue()});
 
@@ -196,10 +196,14 @@ LogicalResult BlockHandler::createBlockTokenFIFOs() {
     // Set up unified token system using new naming convention
     currentBlock.output_token_fifo = tokenFIFO;
     nextBlock.input_token_fifo = tokenFIFO;
+    currentBlock.scopeResources.boundary.exitTokenFIFO = tokenFIFO;
+    nextBlock.scopeResources.boundary.entryTokenFIFO = tokenFIFO;
   }
 
   blocks[0].input_token_fifo = inputTokenFIFO; // the whole block's
   blocks[blocks.size() - 1].output_token_fifo = outputTokenFIFO; // same
+  blocks[0].scopeResources.boundary.entryTokenFIFO = inputTokenFIFO;
+  blocks[blocks.size() - 1].scopeResources.boundary.exitTokenFIFO = outputTokenFIFO;
 
   return success();
 }
@@ -281,7 +285,7 @@ LogicalResult BlockHandler::analyzeCrossBlockDataflow() {
           flow.value = producedValue;
           flow.producer_block = &producerBlock;
           flow.consumer_block = consumerBlock;
-          flow.fifo = nullptr; // Will be set during FIFO creation
+          flow.storage = nullptr; // Will be set during storage creation
 
           crossBlockFlows.push_back(flow);
         }
@@ -472,13 +476,14 @@ LogicalResult BlockHandler::processBlock(BlockInfo& block) {
                  << ", output=" << (block.output_token_fifo ? "present" : "null") << "\n";
 
     // Create a LoopHandler to process this loop block with proper FIFO arguments
-    // Pass block's name with trailing "_" as prefix for nested components
+    // Pass block's compact name as prefix for nested components.
     std::string loopPrefix = block.blockName + "_";
     LoopHandler loopHandler(pass, mainModule, funcOp, poolInstance,
                            roccInstance, hellaMemInstance, dmaItfc, csrItfc,
                            circuit, mainClk, mainRst, opcode, regRdInstance,
                            block.input_token_fifo, block.output_token_fifo,
                            block.input_fifos, block.output_fifos, loopPrefix);
+    loopHandler.setRequireContextToken(pipelineMode);
 
     // Process the loop block with the LoopHandler
     if (failed(loopHandler.processLoopBlock(block))) {
@@ -507,17 +512,19 @@ LogicalResult BlockHandler::processBlock(BlockInfo& block) {
   return processRegularBlockWithBBHandler(block);
 }
 
-LogicalResult BlockHandler::createProducerFIFOs() {
-  // Create producer FIFOs for cross-block data communication
-  // Following Blockgen.md: fifo_b{i}_b{j}_{op} naming convention
+LogicalResult BlockHandler::createCrossBlockValueRegs() {
+  // Non-pipeline block-to-block data is held in producer-owned registers.
+  // Control tokens serialize block execution, so one register per produced
+  // value is shared by all downstream consumers in the same non-pipeline scope.
   // PANIC: Ensure critical data structures are valid
 
   if (crossBlockFlows.empty()) {
     return success(); // No flows to process
   }
 
-  // Counter per (producer, consumer) pair to ensure unique FIFO names for each def-use relationship
-  llvm::DenseMap<std::pair<unsigned, unsigned>, unsigned> fifoCounterPerPair;
+  llvm::DenseMap<unsigned, unsigned> valueRegCounterPerProducer;
+  auto &builder = mainModule->getBuilder();
+  auto savedIP = builder.saveInsertionPoint();
 
   for (CrossBlockValueFlow &flow : crossBlockFlows) {
     // PANIC: Ensure flow has valid producer and consumer blocks
@@ -529,9 +536,9 @@ LogicalResult BlockHandler::createProducerFIFOs() {
     BlockInfo *consumerBlock = flow.consumer_block;
     Value value = flow.value;
 
-    // Skip constants - they don't need FIFOs since there will be no readers
+    // Skip constants - they don't need storage since there will be no readers.
     if (value.getDefiningOp<arith::ConstantOp>()) {
-      llvm::dbgs() << "[BlockHandler] Skipping FIFO creation for constant value\n";
+      llvm::dbgs() << "[BlockHandler] Skipping register creation for constant value\n";
       continue;
     }
 
@@ -540,52 +547,110 @@ LogicalResult BlockHandler::createProducerFIFOs() {
       llvm::report_fatal_error("Producer block ID out of range");
     }
 
-    // Get and increment counter for this (producer, consumer) pair
-    auto blockPair = std::make_pair(producerBlock->blockId, consumerBlock->blockId);
-    unsigned counter = fifoCounterPerPair[blockPair]++;
+    if (pipelineMode) {
+      unsigned counter = valueRegCounterPerProducer[producerBlock->blockId]++;
+      unsigned bitWidth = getBitWidth(value.getType());
+      auto *fifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
+      builder.restoreInsertionPoint(savedIP);
+      std::string fifoName = namePrefix + "b" +
+                             std::to_string(producerBlock->blockId) + "b" +
+                             std::to_string(consumerBlock->blockId) + "v" +
+                             std::to_string(counter);
+      Instance *fifo = mainModule->addInstance(
+          fifoName, fifoMod, {mainClk.getValue(), mainRst.getValue()});
 
-    // Producer creates FIFO for this value with def-use naming (producer -> consumer)
-    Instance* fifo = createProducerFIFO(value, producerBlock->blockId, consumerBlock->blockId, counter);
-
-    // PANIC: Ensure FIFO creation succeeded
-    if (!fifo) {
-      llvm::report_fatal_error("Failed to create producer FIFO");
+      flow.storage = fifo;
+      continue;
     }
 
-    // Store in producer's output_fifos as (consumer_block, FIFO) pair
-    // This allows producer to enqueue to all consumer FIFOs
-    producerBlock->output_fifos[value].push_back(std::make_pair(consumerBlock, fifo));
+    Instance *valueReg = producerBlock->scopeResources.valueMapRegs.lookup(value);
+    if (!valueReg) {
+      unsigned counter = valueRegCounterPerProducer[producerBlock->blockId]++;
+      valueReg = createCrossBlockValueReg(value, producerBlock->blockId,
+                                          counter);
 
-    // Store in THIS specific consumer's input FIFOs (not all consumers!)
-    // Each consumer gets its own dedicated FIFO from the producer
-    consumerBlock->input_fifos[value] = fifo;
+      // PANIC: Ensure register creation succeeded
+      if (!valueReg) {
+        llvm::report_fatal_error("Failed to create cross-block value register");
+      }
 
-    flow.fifo = fifo;
+      producerBlock->scopeResources.outputValueRegs[value].push_back(valueReg);
+      producerBlock->scopeResources.valueMapRegs[value] = valueReg;
+    }
+
+    consumerBlock->scopeResources.inputValueRegs[value] = valueReg;
+    consumerBlock->scopeResources.valueMapRegs[value] = valueReg;
+
+    flow.storage = valueReg;
   }
 
   return success();
 }
 
-Instance* BlockHandler::createProducerFIFO(Value value, unsigned producerBlockId, unsigned consumerBlockId, unsigned counter) {
+LogicalResult BlockHandler::createPipelineInputFanoutFIFOs() {
+  pipelineInputFanoutFlows.clear();
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
 
-  // Get bit width for FIFO sizing
+  unsigned fanoutIdx = 0;
+  for (auto &[inputValue, inputFIFO] : input_fifos) {
+    if (!inputFIFO)
+      continue;
+
+    llvm::SmallVector<unsigned, 4> users;
+    for (unsigned i = 0; i < blocks.size(); ++i) {
+      if (isValueUsedInBlock(inputValue, blocks[i]))
+        users.push_back(i);
+    }
+
+    if (users.size() < 2)
+      continue;
+
+    unsigned sourceIdx = users.front();
+    BlockInfo *sourceBlock = &blocks[sourceIdx];
+    unsigned bitWidth = getBitWidth(inputValue.getType());
+
+    for (unsigned i = 1; i < users.size(); ++i) {
+      BlockInfo *consumerBlock = &blocks[users[i]];
+      auto *fifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
+      builder.restoreInsertionPoint(savedIP);
+      std::string fifoName = namePrefix + "inf" + std::to_string(fanoutIdx++);
+      Instance *fifo = mainModule->addInstance(
+          fifoName, fifoMod, {mainClk.getValue(), mainRst.getValue()});
+      CrossBlockValueFlow flow;
+      flow.value = inputValue;
+      flow.producer_block = sourceBlock;
+      flow.consumer_block = consumerBlock;
+      flow.storage = fifo;
+      pipelineInputFanoutFlows.push_back(flow);
+    }
+  }
+
+  return success();
+}
+
+Instance* BlockHandler::createCrossBlockValueReg(Value value,
+                                                 unsigned producerBlockId,
+                                                 unsigned counter) {
+  auto &builder = mainModule->getBuilder();
+  auto savedIP = builder.saveInsertionPoint();
+
+  // Get bit width for register sizing
   unsigned bitWidth = getBitWidth(value.getType());
 
-  // Create FIFO module
-  auto *fifoMod = STLLibrary::createFIFO1PushModule(bitWidth, circuit);
+  // Create register module
+  auto *regMod = STLLibrary::createRegModule(bitWidth, 0, circuit);
   builder.restoreInsertionPoint(savedIP);
 
-  // Create FIFO instance with unique name reflecting def-use relationship
-  // Format: {prefix}fifo_b{producer}_b{consumer}_v{counter}
-  std::string fifoName = namePrefix + "fifo_b" + std::to_string(producerBlockId) +
-                         "_b" + std::to_string(consumerBlockId) +
-                         "_v" + std::to_string(counter);
-  auto *fifoInstance = mainModule->addInstance(fifoName, fifoMod,
-                                               {mainClk.getValue(), mainRst.getValue()});
+  // Name by producer/value, not by consumer edge: all non-pipeline consumers
+  // share this register.
+  std::string regName = namePrefix + "b" +
+                        std::to_string(producerBlockId) + "v" +
+                        std::to_string(counter);
+  auto *regInstance = mainModule->addInstance(regName, regMod,
+                                              {mainClk.getValue(), mainRst.getValue()});
 
-  return fifoInstance;
+  return regInstance;
 }
 
 llvm::SmallVector<BlockInfo*> BlockHandler::findValueConsumers(Value value) {
@@ -683,27 +748,30 @@ unsigned BlockHandler::getBitWidth(mlir::Type type) {
 LogicalResult BlockHandler::processAllBlocks() {
   llvm::dbgs() << "[BlockHandler] Processing all blocks through specialized handlers\n";
 
-  // Update token and input FIFOs for sub-blocks based on distribution
+  // Update token and parent-live-in storage for sub-blocks.
   for (unsigned i = 0; i < blocks.size(); i++) {
     BlockInfo &block = blocks[i];
 
     // === 1. Determine input token FIFO for this sub-block ===
     if (i == 0) {
-      // First sub-block receives token from distribution rule (if exists) or parent
+      // First sub-block receives token from input capture rule (if exists) or parent
       if (needsInputDistribution) {
         // Distribution rule consumes parent's inputTokenFIFO
         // Distribution rule enqueues to input_distribution_token_fifo
         // First sub-block dequeues from input_distribution_token_fifo
         block.input_token_fifo = input_distribution_token_fifo;
-        llvm::dbgs() << "[BlockHandler] First sub-block uses distribution token FIFO\n";
+        block.scopeResources.boundary.entryTokenFIFO = input_distribution_token_fifo;
+        llvm::dbgs() << "[BlockHandler] First sub-block uses input-capture token FIFO\n";
       } else {
         // No distribution needed - first sub-block directly uses parent's inputTokenFIFO
         block.input_token_fifo = inputTokenFIFO;
+        block.scopeResources.boundary.entryTokenFIFO = inputTokenFIFO;
         llvm::dbgs() << "[BlockHandler] First sub-block uses parent input token FIFO\n";
       }
     } else {
       // Subsequent sub-blocks receive token from previous sub-block
       block.input_token_fifo = blocks[i-1].output_token_fifo;
+      block.scopeResources.boundary.entryTokenFIFO = blocks[i-1].output_token_fifo;
       llvm::dbgs() << "[BlockHandler] Sub-block " << i
                    << " uses previous sub-block's output token FIFO\n";
     }
@@ -712,43 +780,73 @@ LogicalResult BlockHandler::processAllBlocks() {
     if (i == blocks.size() - 1) {
       // Last sub-block enqueues to parent's outputTokenFIFO
       block.output_token_fifo = outputTokenFIFO;
+      block.scopeResources.boundary.exitTokenFIFO = outputTokenFIFO;
     }
     // Note: For non-last sub-blocks, output_token_fifo is created in createBlockTokenFIFOs
 
-    // === 3. Determine input value FIFOs for this sub-block ===
-    if (i == 0 && needsInputDistribution) {
-      // First sub-block with distribution: use distribution FIFOs
-      // Only include values that THIS sub-block actually uses
-      block.input_fifos.clear();
-      for (auto &[inputValue, subBlockMap] : input_distribution_fifos) {
-        if (subBlockMap.count(i)) {
-          block.input_fifos[inputValue] = subBlockMap[i];
-          llvm::dbgs() << "[BlockHandler] First sub-block uses distribution FIFO for value\n";
+    // === 3. Determine parent live-in storage for this sub-block ===
+    block.input_fifos.clear();
+    for (auto &[inputValue, inputFIFO] : input_fifos) {
+      if (!inputFIFO || !isValueUsedInBlock(inputValue, block))
+        continue;
+
+      auto capturedValueIt = input_distribution_regs.find(inputValue);
+      if (capturedValueIt != input_distribution_regs.end()) {
+        auto capturedRegIt = capturedValueIt->second.find(i);
+        if (capturedRegIt != capturedValueIt->second.end()) {
+          Instance *captureReg = capturedRegIt->second;
+          block.scopeResources.inputValueRegs[inputValue] = captureReg;
+          block.scopeResources.valueMapRegs[inputValue] = captureReg;
+          llvm::dbgs() << "[BlockHandler] Sub-block " << i
+                       << " reads captured parent input register\n";
+          continue;
         }
       }
-    } else if (i == 0 && !needsInputDistribution) {
-      // First sub-block without distribution: use parent's input_fifos directly
-      block.input_fifos = input_fifos;
-      llvm::dbgs() << "[BlockHandler] First sub-block uses parent input FIFOs directly\n";
-    } else if (i > 0 && needsInputDistribution) {
-      // Subsequent sub-blocks with distribution: use distribution FIFOs (if they need the values)
-      // Also use cross-block FIFOs created by analyzeCrossBlockDataflow
-      for (auto &[inputValue, subBlockMap] : input_distribution_fifos) {
-        if (subBlockMap.count(i)) {
-          block.input_fifos[inputValue] = subBlockMap[i];
-          llvm::dbgs() << "[BlockHandler] Sub-block " << i
-                       << " uses distribution FIFO for value\n";
-        }
+
+      block.input_fifos[inputValue] = inputFIFO;
+      llvm::dbgs() << "[BlockHandler] Sub-block " << i
+                   << " directly consumes parent input FIFO\n";
+    }
+    for (auto &[inputValue, inputReg] : input_regs) {
+      if (!inputReg || !isValueUsedInBlock(inputValue, block))
+        continue;
+      block.scopeResources.inputValueRegs[inputValue] = inputReg;
+      block.scopeResources.valueMapRegs[inputValue] = inputReg;
+      llvm::dbgs() << "[BlockHandler] Sub-block " << i
+                   << " reads inherited parent input register\n";
+    }
+
+    if (pipelineMode) {
+      for (CrossBlockValueFlow &flow : crossBlockFlows) {
+        if (flow.consumer_block == &block && flow.storage)
+          block.input_fifos[flow.value] = flow.storage;
+      }
+      for (CrossBlockValueFlow &flow : pipelineInputFanoutFlows) {
+        if (flow.consumer_block == &block && flow.storage)
+          block.input_fifos[flow.value] = flow.storage;
       }
     }
-    // Note: cross-block FIFOs between sub-blocks are already populated by analyzeCrossBlockDataflow
+    // Internal cross-block data is carried by scopeResources registers populated
+    // by createCrossBlockValueRegs().
 
     // === 4. Determine output value FIFOs for this sub-block ===
     if (i == blocks.size() - 1) {
       // Last sub-block: use parent's output_fifos for values needed by parent's consumers
       block.output_fifos = output_fifos;
     }
-    // Note: For non-last sub-blocks, output_fifos are created in createProducerFIFOs
+    if (pipelineMode) {
+      for (CrossBlockValueFlow &flow : crossBlockFlows) {
+        if (flow.producer_block == &block && flow.storage)
+          block.output_fifos[flow.value].push_back(
+              std::make_pair(flow.consumer_block, flow.storage));
+      }
+      for (CrossBlockValueFlow &flow : pipelineInputFanoutFlows) {
+        if (flow.producer_block == &block && flow.storage)
+          block.output_fifos[flow.value].push_back(
+              std::make_pair(flow.consumer_block, flow.storage));
+      }
+    }
+    // Note: For non-last sub-blocks, cross-block values use scope-owned regs.
   }
 
   // Process each block using appropriate handler
@@ -768,6 +866,7 @@ LogicalResult BlockHandler::processRegularBlockWithBBHandler(BlockInfo& block) {
   BBHandler bbHandler(pass, mainModule, funcOp, poolInstance, roccInstance,
                      hellaMemInstance, regRdInstance, dmaItfc, csrItfc,
                      circuit, mainClk, mainRst, opcode);
+  bbHandler.setPipelineMode(pipelineMode);
 
   // Use the new BlockInfo interface for cleaner API and proper blockName access
   return bbHandler.processBasicBlock(block);
@@ -840,22 +939,22 @@ std::string BlockHandler::generateBlockName(unsigned blockId, BlockType type, co
   // Generate base name based on block type
   switch (type) {
     case BlockType::REGULAR:
-      baseName = "block_" + std::to_string(blockId);
+      baseName = "b" + std::to_string(blockId);
       break;
     case BlockType::LOOP_HEADER:
-      baseName = "loop_" + std::to_string(blockId);
+      baseName = "l" + std::to_string(blockId);
       break;
     case BlockType::CONDITIONAL_THEN:
-      baseName = "if_then_" + std::to_string(blockId);
+      baseName = "ift" + std::to_string(blockId);
       break;
     case BlockType::CONDITIONAL_ELSE:
-      baseName = "if_else_" + std::to_string(blockId);
+      baseName = "ife" + std::to_string(blockId);
       break;
     case BlockType::CONDITIONAL_EXIT:
-      baseName = "if_exit_" + std::to_string(blockId);
+      baseName = "ifx" + std::to_string(blockId);
       break;
     default:
-      baseName = "block_" + std::to_string(blockId);
+      baseName = "b" + std::to_string(blockId);
       break;
   }
 
@@ -869,11 +968,17 @@ std::string BlockHandler::generateBlockName(unsigned blockId, BlockType type, co
 }
 
 //===----------------------------------------------------------------------===//
-// Input Distribution Implementation (for sub-blocks with shared inputs)
+// Input Capture Implementation (for sub-blocks with shared inputs)
 //===----------------------------------------------------------------------===//
 
 LogicalResult BlockHandler::analyzeInputDistributionNeeds() {
   llvm::dbgs() << "[BlockHandler] Analyzing input distribution needs for sub-blocks\n";
+
+  if (pipelineMode) {
+    needsInputDistribution = false;
+    llvm::dbgs() << "[BlockHandler] Pipeline mode skips register-based input capture\n";
+    return success();
+  }
 
   // If we don't have multiple sub-blocks, no distribution needed
   if (blocks.size() <= 1) {
@@ -899,7 +1004,8 @@ LogicalResult BlockHandler::analyzeInputDistributionNeeds() {
     }
 
     // AGGRESSIVE: Only need distribution if MULTIPLE sub-blocks use this value
-    // If only 0 or 1 sub-block uses it, normal cross-block FIFO is sufficient
+    // If only 0 or 1 sub-block uses it, direct parent FIFO consumption is
+    // sufficient and avoids an extra capture register.
     if (subBlocksUsingValue.size() >= 2) {
       needsInputDistribution = true;
       llvm::dbgs() << "[BlockHandler] Input value needs distribution to "
@@ -907,12 +1013,12 @@ LogicalResult BlockHandler::analyzeInputDistributionNeeds() {
 
       // Record which sub-blocks need this value (for later FIFO creation)
       for (unsigned subBlockIdx : subBlocksUsingValue) {
-        // Mark this (value, sub-block) pair for FIFO creation
-        // Actual FIFO creation happens in createInputDistributionInfrastructure
-        input_distribution_fifos[inputValue][subBlockIdx] = nullptr;
+        // Mark this (value, sub-block) pair for register attachment.
+        // Actual register creation happens in createInputDistributionRegs.
+        input_distribution_regs[inputValue][subBlockIdx] = nullptr;
       }
     } else if (subBlocksUsingValue.size() == 1) {
-      llvm::dbgs() << "[BlockHandler] Input value used by only 1 sub-block, no distribution needed (use normal cross-block FIFO)\n";
+      llvm::dbgs() << "[BlockHandler] Input value used by only 1 sub-block, no capture needed (direct parent FIFO)\n";
     } else {
       llvm::dbgs() << "[BlockHandler] Input value not used by any sub-block\n";
     }
@@ -927,59 +1033,58 @@ LogicalResult BlockHandler::analyzeInputDistributionNeeds() {
   return success();
 }
 
-LogicalResult BlockHandler::createInputDistributionInfrastructure() {
+LogicalResult BlockHandler::createInputDistributionRegs() {
   if (!needsInputDistribution) {
-    llvm::dbgs() << "[BlockHandler] No input distribution needed, skipping infrastructure\n";
+    llvm::dbgs() << "[BlockHandler] No input capture needed, skipping infrastructure\n";
     return success();
   }
 
-  llvm::dbgs() << "[BlockHandler] Creating input distribution infrastructure\n";
+  llvm::dbgs() << "[BlockHandler] Creating input capture infrastructure\n";
 
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
 
-  // 1. Create token FIFO: parent -> distribution rule
-  auto *tokenFifoMod = STLLibrary::createFIFO1PushModule(1, circuit);
+  // 1. Create token FIFO: capture rule -> first sub-block.
+  auto *tokenFifoMod = STLLibrary::createFIFO2IModule(1, circuit);
   builder.restoreInsertionPoint(savedIP);
-  std::string tokenFifoName = namePrefix + "dist_token_fifo";
+  std::string tokenFifoName = namePrefix + "captok";
   input_distribution_token_fifo = mainModule->addInstance(
       tokenFifoName, tokenFifoMod, {mainClk.getValue(), mainRst.getValue()});
-  llvm::dbgs() << "[BlockHandler] Created distribution token FIFO: " << tokenFifoName << "\n";
+  llvm::dbgs() << "[BlockHandler] Created input capture token FIFO: " << tokenFifoName << "\n";
 
-  // 2. For each input value used by sub-blocks, create distribution FIFOs
-  for (auto &[inputValue, subBlockMap] : input_distribution_fifos) {
-    for (auto &[subBlockIdx, _] : subBlockMap) {
-      // Create dedicated FIFO for this sub-block
-      unsigned bitWidth = getBitWidth(inputValue.getType());
-      auto *fifoMod = STLLibrary::createFIFO1PushModule(bitWidth, circuit);
-      builder.restoreInsertionPoint(savedIP);
+  // 2. For each multi-consumer input value, create one shared capture register.
+  unsigned captureRegIdx = 0;
+  for (auto &[inputValue, subBlockMap] : input_distribution_regs) {
+    unsigned bitWidth = getBitWidth(inputValue.getType());
+    auto *regMod = STLLibrary::createRegModule(bitWidth, 0, circuit);
+    builder.restoreInsertionPoint(savedIP);
 
-      std::string fifoName = namePrefix + "dist_to_block" +
-                             std::to_string(subBlockIdx) + "_fifo_v" +
-                             std::to_string(input_distribution_fifos[inputValue].size() - 1);
+    std::string regName = namePrefix + "capr" +
+                          std::to_string(captureRegIdx++);
 
-      Instance *distFifo = mainModule->addInstance(
-          fifoName, fifoMod, {mainClk.getValue(), mainRst.getValue()});
+    Instance *captureReg = mainModule->addInstance(
+        regName, regMod, {mainClk.getValue(), mainRst.getValue()});
 
-      input_distribution_fifos[inputValue][subBlockIdx] = distFifo;
-
-      llvm::dbgs() << "[BlockHandler] Created distribution FIFO: " << fifoName
-                   << " for sub-block " << subBlockIdx << " (width=" << bitWidth << ")\n";
+    for (auto &[subBlockIdx, reg] : subBlockMap) {
+      reg = captureReg;
+      llvm::dbgs() << "[BlockHandler] Attached input capture register "
+                   << regName << " to sub-block " << subBlockIdx
+                   << " (width=" << bitWidth << ")\n";
     }
   }
 
   return success();
 }
 
-LogicalResult BlockHandler::generateInputDistributionRule() {
+LogicalResult BlockHandler::generateInputCaptureRule() {
   if (!needsInputDistribution) {
-    llvm::dbgs() << "[BlockHandler] No input distribution rule needed\n";
+    llvm::dbgs() << "[BlockHandler] No input capture rule needed\n";
     return success();
   }
 
-  llvm::dbgs() << "[BlockHandler] Generating input distribution rule\n";
+  llvm::dbgs() << "[BlockHandler] Generating input capture rule\n";
 
-  std::string ruleName = namePrefix + "input_distribution";
+  std::string ruleName = namePrefix + "input_capture";
   auto *rule = mainModule->addRule(ruleName);
 
   // === GUARD ===
@@ -995,41 +1100,43 @@ LogicalResult BlockHandler::generateInputDistributionRule() {
   rule->body([&](mlir::OpBuilder &b) {
     auto loc = b.getUnknownLoc();
 
-    llvm::dbgs() << "[BlockHandler] Generating distribution rule body\n";
+    llvm::dbgs() << "[BlockHandler] Generating input capture rule body\n";
 
     // 1. Dequeue input token from parent
     if (inputTokenFIFO) {
       inputTokenFIFO->callMethod("deq", {}, b);
-      llvm::dbgs() << "[BlockHandler] Distribution rule: dequeued input token\n";
+      llvm::dbgs() << "[BlockHandler] Input capture rule: dequeued input token\n";
     }
 
-    // 2. For each input value, dequeue once and distribute to all sub-blocks
-    for (auto &[inputValue, subBlockMap] : input_distribution_fifos) {
+    // 2. For each multi-consumer input value, dequeue once and write register.
+    for (auto &[inputValue, subBlockMap] : input_distribution_regs) {
       auto inputFifoIt = input_fifos.find(inputValue);
       if (inputFifoIt == input_fifos.end() || !inputFifoIt->second)
         continue;
 
       Instance *inputFIFO = inputFifoIt->second;
 
-      // Dequeue ONCE from input FIFO
       auto dequeuedValue = inputFIFO->callMethod("deq", {}, b)[0];
-      llvm::dbgs() << "[BlockHandler] Distribution rule: dequeued input value\n";
+      llvm::dbgs() << "[BlockHandler] Input capture rule: dequeued input value\n";
 
-      // Enqueue to ALL sub-block distribution FIFOs that need it
-      for (auto &[subBlockIdx, distFifo] : subBlockMap) {
-        if (distFifo) {
-          distFifo->callMethod("enq", {dequeuedValue}, b);
-          llvm::dbgs() << "[BlockHandler] Distribution rule: enqueued to sub-block "
-                       << subBlockIdx << " FIFO\n";
+      Instance *captureReg = nullptr;
+      for (auto &[subBlockIdx, reg] : subBlockMap) {
+        if (reg) {
+          captureReg = reg;
+          break;
         }
+      }
+      if (captureReg) {
+        captureReg->callMethod("write", {dequeuedValue}, b);
+        llvm::dbgs() << "[BlockHandler] Input capture rule: wrote capture register\n";
       }
     }
 
-    // 3. Enqueue token to distribution token FIFO (signals distribution complete)
+    // 3. Enqueue token to first sub-block after all capture registers are valid.
     if (input_distribution_token_fifo) {
       auto tokenVal = UInt::constant(1, 1, b, loc);
       input_distribution_token_fifo->callMethod("enq", {tokenVal.getValue()}, b);
-      llvm::dbgs() << "[BlockHandler] Distribution rule: enqueued distribution token\n";
+      llvm::dbgs() << "[BlockHandler] Input capture rule: enqueued capture token\n";
     }
 
     b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{});
@@ -1037,7 +1144,7 @@ LogicalResult BlockHandler::generateInputDistributionRule() {
 
   rule->finalize();
 
-  llvm::dbgs() << "[BlockHandler] Input distribution rule generated: " << ruleName << "\n";
+  llvm::dbgs() << "[BlockHandler] Input capture rule generated: " << ruleName << "\n";
 
   return success();
 }

@@ -54,6 +54,10 @@ LogicalResult LoopHandler::processLoopBlock(BlockInfo &loopBlock) {
   // Process a single loop block following Blockgen.md canonical pattern
   // entry → body → next with proper token coordination
 
+  loop.scopeResources.clear();
+  inductionVarReg = nullptr;
+  inductionVarFIFO = nullptr;
+
   // 1. Extract the tor.for operation from this block segment
   tor::ForOp forOp = nullptr;
   for (Operation *op : loopBlock.operations) {
@@ -71,10 +75,13 @@ LogicalResult LoopHandler::processLoopBlock(BlockInfo &loopBlock) {
     llvm::report_fatal_error("Loop block segment does not contain tor.for operation");
   }
 
-  // 2. Initialize the single loop with proper hierarchical name
-  // Use namePrefix (inherited from BlockHandler) instead of loopBlock.blockName to avoid duplication
-  std::string loop_name = namePrefix + "loop";
+  // 2. Initialize the single loop with the enclosing compact block name.
+  std::string loop_name = namePrefix;
+  if (!loop_name.empty() && loop_name.back() == '_')
+    loop_name.pop_back();
   loop.initialize(forOp, loop_name);
+  loop.isPipeline = hasPipelineAttr(forOp);
+  loop.context_token_reg = nullptr;
 
   // 3. Extract loop control information
   loop.inductionVar = forOp.getInductionVar();
@@ -88,17 +95,38 @@ LogicalResult LoopHandler::processLoopBlock(BlockInfo &loopBlock) {
     loop.iterArgTypes.push_back(iterArg.getType());
   }
 
-  // 4. Create simplified loop infrastructure (FIFOs)
-  if (failed(createLoopInfrastructure()))
+  if (!loop.iterArgs.empty() || forOp->getNumResults() != 0) {
+    return forOp.emitError(
+        "loop with iter_args/results is not supported by APSToCMT2 loop "
+        "lowering yet");
+  }
+
+  // 4. Create simplified loop infrastructure.
+  if (failed(createLoopInfrastructure(loopBlock)))
     return failure();
+
+  if (outputTokenFIFO)
+    loop.scopeResources.boundary.exitTokenFIFO = outputTokenFIFO;
+
+  if (loop.isPipeline) {
+    if (!loop.scopeResources.isValidForPipeline())
+      llvm::report_fatal_error("pipeline loop scope resources are incomplete");
+  } else if (!loop.scopeResources.isValidForNonPipeline()) {
+    llvm::report_fatal_error("non-pipeline loop scope resources are incomplete");
+  }
 
   // 5. Process loop body operations using BBHandler with token coordination
   if (failed(processLoopBodyOperations(forOp, loopBlock)))
     return failure();
 
-  // 6. Generate canonical loop rules (entry → body → next)
-  if (failed(generateCanonicalLoopRules(loopBlock)))
-    return failure();
+  // 6. Generate loop control rules.
+  if (loop.isPipeline) {
+    if (failed(generatePipelineLoopRules(loopBlock)))
+      return failure();
+  } else {
+    if (failed(generateCanonicalLoopRules(loopBlock)))
+      return failure();
+  }
 
   return success();
 }
@@ -128,6 +156,21 @@ LogicalResult LoopHandler::generateCanonicalLoopRules(BlockInfo &loopBlock) {
   return success();
 }
 
+LogicalResult LoopHandler::generatePipelineLoopRules(BlockInfo &loopBlock) {
+  llvm::dbgs() << "[LoopHandler] Generating pipeline loop rules (entry + "
+                  "issue + retire) for loop "
+               << loop.loopName << "\n";
+
+  if (failed(generatePipelineLoopEntryRule(loopBlock)))
+    return failure();
+  if (failed(generatePipelineLoopIssueRule(loopBlock)))
+    return failure();
+  if (failed(generatePipelineLoopRetireRule(loopBlock)))
+    return failure();
+
+  return success();
+}
+
 LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
   // Per Blockgen.md: Create entry rule that handles loop initialization
   // Use loop name as distinguisher, not loop ID
@@ -135,7 +178,15 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
 
   rule->guard([&](mlir::OpBuilder &b) {
     auto loc = b.getUnknownLoc();
-    // Per Blockgen.md: use 1'b1 - coordination handled automatically by CMT
+    if (loop.scopeResources.contextTokenReg) {
+      auto tokenValues = loop.scopeResources.contextTokenReg->callValue("read", b);
+      if (tokenValues.empty())
+        llvm::report_fatal_error("LoopHandler: context token read returned no value");
+      Signal token(tokenValues[0], &b, loc);
+      auto one = UInt::constant(1, 1, b, loc);
+      b.create<circt::cmt2::ReturnOp>(loc, (token == one).getValue());
+      return;
+    }
     auto alwaysTrue = UInt::constant(1, 1, b, loc);
     b.create<circt::cmt2::ReturnOp>(loc, alwaysTrue.getValue());
   });
@@ -146,17 +197,26 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
     llvm::dbgs() << "[LoopHandler] Generating entry rule for loop "
                  << loop.loopName << "\n";
 
+    if (loop.scopeResources.contextTokenReg) {
+      auto unavailable = UInt::constant(0, 1, b, loc);
+      loop.scopeResources.contextTokenReg->callMethod(
+          "write", {unavailable.getValue()}, b);
+      llvm::dbgs() << "[LoopHandler] Acquired loop context token\n";
+    }
+
     // 1. Dequeue token from previous block (token input fifo)
-    if (inputTokenFIFO) {
-      auto prevToken = inputTokenFIFO->callMethod("deq", {}, b);
+    if (loop.scopeResources.boundary.entryTokenFIFO) {
+      auto prevToken = loop.scopeResources.boundary.entryTokenFIFO->callMethod("deq", {}, b);
       llvm::dbgs() << "[LoopHandler] Dequeued token from previous block\n";
     } else {
       llvm::dbgs() << "[LoopHandler] No input token FIFO (top-level loop)\n";
     }
 
-    // 2. Handle cross-block value consumption from input fifos
-    // IMPORTANT: Only dequeue values that are actually used by this loop
-    // (either by the loop operations themselves or by the loop body via loop-to-body FIFOs)
+    llvm::SmallVector<std::pair<Instance *, mlir::Value>, 4>
+        pendingLoopToBodyValues;
+
+    // 2. Handle parent live-ins from direct input FIFOs.
+    // IMPORTANT: Only dequeue values that are actually used by this loop.
     for (auto &[value, fifo] : input_fifos) {
       if (!fifo)
         continue;
@@ -191,12 +251,45 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
       // Enqueue to loop-to-body FIFO for first iteration
       if (hasLoopToBodyFifo) {
         Instance *loopToBodyFifo = loop.loop_to_body_fifos[value];
-        loopToBodyFifo->callMethod("enq", {dequeuedValue}, b);
-        llvm::dbgs() << "[LoopHandler] Enqueued value to loop-to-body FIFO for first iteration\n";
+        pendingLoopToBodyValues.push_back({loopToBodyFifo, dequeuedValue});
       }
     }
 
-    // 3. Initialize loop state in loop carry fifo
+    // 3. Handle parent live-ins captured by an enclosing block register.
+    for (auto &[value, reg] : loopBlock.scopeResources.inputValueRegs) {
+      if (!reg)
+        continue;
+
+      if (value.getDefiningOp<arith::ConstantOp>()) {
+        llvm::dbgs() << "[LoopHandler] Skipping constant value in captured input regs\n";
+        continue;
+      }
+
+      bool hasLoopToBodyFifo = loop.loop_to_body_fifos.count(value) > 0;
+      bool hasStateRegister = loop.input_state_registers.count(value) > 0;
+
+      if (!hasLoopToBodyFifo && !hasStateRegister) {
+        llvm::dbgs() << "[LoopHandler] Skipping captured input reg - value not used by loop\n";
+        continue;
+      }
+
+      auto capturedValue = reg->callValue("read", b);
+      if (capturedValue.empty())
+        continue;
+
+      if (hasStateRegister) {
+        Instance *stateReg = loop.input_state_registers[value];
+        stateReg->callMethod("write", {capturedValue[0]}, b);
+        llvm::dbgs() << "[LoopHandler] Wrote captured input value to state register\n";
+      }
+
+      if (hasLoopToBodyFifo) {
+        Instance *loopToBodyFifo = loop.loop_to_body_fifos[value];
+        pendingLoopToBodyValues.push_back({loopToBodyFifo, capturedValue[0]});
+      }
+    }
+
+    // 4. Initialize loop state in loop carry fifo
     // Pack state: [counter][bound][step][iter_args...]
     // Convert all values to FIRRTL types before creating Signals
     auto convertToFIRRTL = [&](mlir::Value val) -> mlir::Value {
@@ -222,27 +315,55 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
     //   loopState = loopState.cat(Signal(convertToFIRRTL(loop.iterArgs[i]), &b, loc));
     // }
 
-    loop.loop_state_fifo->callMethod("enq", {loopState.getValue()}, b);
-    llvm::dbgs() << "[LoopHandler] Initialized loop state FIFO\n";
+    auto *loopStateReg = loop.scopeResources.loopStateReg ? loop.scopeResources.loopStateReg : loop.loop_state_reg;
+    loopStateReg->callMethod("write", {loopState.getValue()}, b);
+    llvm::dbgs() << "[LoopHandler] Initialized loop state register\n";
 
-    // 4. Extract and enqueue loop variables for the loop body
-    // Extract induction variable from loop state and enqueue to its FIFO
-    if (loop.inductionVar && inductionVarFIFO) {
-      // Extract induction variable from loop state (first 32 bits)
-      Signal stateSig(loopState.getValue(), &b, loc);
-      auto inductionVar = stateSig.bits(95, 64);
-      inductionVarFIFO->callMethod("enq", {inductionVar.getValue()}, b);
-      llvm::dbgs() << "[LoopHandler] Enqueued induction variable to its FIFO\n";
-    }
+    Signal lowerSig(convertToFIRRTL(loop.lowerBound), &b, loc);
+    Signal upperSig(convertToFIRRTL(loop.upperBound), &b, loc);
+    auto shouldEnter = lowerSig <= upperSig;
 
-    // 6. Signal loop body to start using token coordination
-    // Per Blockgen.md: enq token to body for loop body execution
-    auto startToken = UInt::constant(1, 1, b, loc);
-    if (loop.token_fifos.to_body) {
-      loop.token_fifos.to_body->callMethod("enq", {startToken.getValue()}, b);
-      llvm::dbgs()
-          << "[LoopHandler] Signaled loop body to start via token FIFO\n";
-    }
+    If(
+        shouldEnter,
+        [&](mlir::OpBuilder &b) {
+          for (auto &[loopToBodyFifo, liveInValue] : pendingLoopToBodyValues) {
+            loopToBodyFifo->callMethod("enq", {liveInValue}, b);
+            llvm::dbgs() << "[LoopHandler] Enqueued live-in value to "
+                            "loop-to-body FIFO for first iteration\n";
+          }
+
+          // Extract and publish loop variables for the loop body.
+          if (loop.inductionVar && inductionVarReg) {
+            Signal stateSig(loopState.getValue(), &b, loc);
+            auto inductionVar = stateSig.bits(95, 64);
+            inductionVarReg->callMethod("write", {inductionVar.getValue()}, b);
+            llvm::dbgs() << "[LoopHandler] Wrote induction variable register\n";
+          }
+
+          auto startToken = UInt::constant(1, 1, b, loc);
+          if (loop.scopeResources.bodyAdmitFIFO) {
+            loop.scopeResources.bodyAdmitFIFO->callMethod(
+                "enq", {startToken.getValue()}, b);
+            llvm::dbgs()
+                << "[LoopHandler] Signaled loop body to start via token FIFO\n";
+          }
+        },
+        [&](mlir::OpBuilder &b) {
+          auto *exitTokenFIFO = loop.scopeResources.boundary.exitTokenFIFO
+                                    ? loop.scopeResources.boundary.exitTokenFIFO
+                                    : outputTokenFIFO;
+          if (exitTokenFIFO) {
+            auto exitToken = UInt::constant(1, 1, b, loc);
+            exitTokenFIFO->callMethod("enq", {exitToken.getValue()}, b);
+          }
+          if (loop.scopeResources.contextTokenReg) {
+            auto available = UInt::constant(1, 1, b, loc);
+            loop.scopeResources.contextTokenReg->callMethod(
+                "write", {available.getValue()}, b);
+          }
+          emitLoopExitValues(b, loc);
+        },
+        b, loc);
 
     b.create<circt::cmt2::ReturnOp>(loc);
   });
@@ -272,15 +393,20 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
         << loop.loopName << "\n";
 
     // 1. Dequeue body completion token from body_to_next fifo
-    if (loop.token_fifos.body_to_next) {
+    if (loop.scopeResources.bodyDoneTokenFIFO) {
       auto bodyCompleteToken =
-          loop.token_fifos.body_to_next->callMethod("deq", {}, b);
+          loop.scopeResources.bodyDoneTokenFIFO->callMethod("deq", {}, b);
       llvm::dbgs() << "[LoopHandler] Dequeued body completion token\n";
     }
 
-    // 2. Dequeue loop state from previous iteration
-    if (loop.loop_state_fifo) {
-      auto loopState = loop.loop_state_fifo->callMethod("deq", {}, b)[0];
+    // 2. Read loop state from the single non-pipeline loop context.
+    auto *loopStateReg = loop.scopeResources.loopStateReg ? loop.scopeResources.loopStateReg : loop.loop_state_reg;
+    if (loopStateReg) {
+      auto loopStateValues = loopStateReg->callValue("read", b);
+      if (loopStateValues.empty()) {
+        llvm::report_fatal_error("LoopHandler: loop state register read returned no value");
+      }
+      auto loopState = loopStateValues[0];
 
       // Extract state components using Signal operations
       // [counter:32][bound:32][step:32][iter_arg0...]
@@ -330,40 +456,32 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
               updatedState = updatedState.cat(Signal(iterArg, &b, loc));
             }
 
-            // Enqueue updated state for next iteration
-            loop.loop_state_fifo->callMethod("enq", {updatedState.bits(stateOffset - 1, 0).getValue()},
-                                             b);
+            // Write updated state for next iteration.
+            loopStateReg->callMethod("write", {updatedState.bits(stateOffset - 1, 0).getValue()}, b);
 
-            // Read from state registers and enqueue to loop-to-body FIFOs
-            // This provides the cross-block values for the next iteration
-            for (auto &[value, fifo] : input_fifos) {
-              // Skip constants - they don't have state registers
-              if (value.getDefiningOp<arith::ConstantOp>()) {
+            // Re-issue every loop live-in payload for the next iteration.
+            for (auto &[value, loopToBodyFifo] : loop.loop_to_body_fifos) {
+              Instance *stateReg = loop.input_state_registers.lookup(value);
+              if (!stateReg || !loopToBodyFifo)
                 continue;
-              }
-
-              if (fifo && loop.input_state_registers.count(value) && loop.loop_to_body_fifos.count(value)) {
-                Instance *stateReg = loop.input_state_registers[value];
-                auto storedValue = stateReg->callMethod("read", {}, b)[0];
-                Instance *loopToBodyFifo = loop.loop_to_body_fifos[value];
-                loopToBodyFifo->callMethod("enq", {storedValue}, b);
-                llvm::dbgs() << "[LoopHandler] Next rule: read from state register and enqueued to loop-to-body FIFO\n";
-              }
+              auto storedValue = stateReg->callValue("read", b);
+              if (storedValue.empty())
+                continue;
+              loopToBodyFifo->callMethod("enq", {storedValue[0]}, b);
+              llvm::dbgs() << "[LoopHandler] Next rule: re-issued live-in "
+                              "value to loop-to-body FIFO\n";
             }
 
-            if (loop.inductionVar && inductionVarFIFO) {
-              // Extract induction variable from loop state (first 32 bits)
-              Signal stateSig(updatedState.getValue(), &b, loc);
+            if (loop.inductionVar && inductionVarReg) {
               auto inductionVar = nextCounter.bits(31, 0);
-              inductionVarFIFO->callMethod("enq", {inductionVar.getValue()}, b);
-              llvm::dbgs() << "[LoopHandler] Enqueued induction variable to its FIFO\n";
+              inductionVarReg->callMethod("write", {inductionVar.getValue()}, b);
+              llvm::dbgs() << "[LoopHandler] Wrote induction variable register\n";
             }
 
             // Signal next iteration via token FIFO coordination
-            if (loop.token_fifos.to_body) {
+            if (loop.scopeResources.bodyAdmitFIFO) {
               auto continueToken = UInt::constant(1, 1, b, loc);
-              loop.token_fifos.to_body->callMethod(
-                  "enq", {continueToken.getValue()}, b);
+              loop.scopeResources.bodyAdmitFIFO->callMethod("enq", {continueToken.getValue()}, b);
               llvm::dbgs() << "[LoopHandler] Next rule: signaling next "
                               "iteration via token FIFO\n";
             }
@@ -375,20 +493,24 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
 
             // Signal loop completion directly to next block via output token FIFO
             // (no intermediate next_to_exit FIFO needed)
-            if (outputTokenFIFO) {
+            auto *exitTokenFIFO = loop.scopeResources.boundary.exitTokenFIFO ? loop.scopeResources.boundary.exitTokenFIFO
+                                                                             : outputTokenFIFO;
+            if (exitTokenFIFO) {
               auto outputExitToken = UInt::constant(1, 1, b, loc);
-              outputTokenFIFO->callMethod("enq", {outputExitToken.getValue()}, b);
+              exitTokenFIFO->callMethod("enq", {outputExitToken.getValue()}, b);
               llvm::dbgs() << "[LoopHandler] Next rule: enqueued output token to next block\n";
             } else {
               llvm::dbgs() << "[LoopHandler] No output token FIFO (top-level loop exit)\n";
             }
 
-            // Pass loop results to next block via output FIFOs
-            // For now, just pass the iter_args as results
-            for (unsigned i = 0; i < loop.iterArgs.size(); i++) {
-              llvm::dbgs() << "[LoopHandler] Passing iter_arg " << i
-                           << " to next block\n";
+            if (loop.scopeResources.contextTokenReg) {
+              auto available = UInt::constant(1, 1, b, loc);
+              loop.scopeResources.contextTokenReg->callMethod(
+                  "write", {available.getValue()}, b);
+              llvm::dbgs() << "[LoopHandler] Released loop context token\n";
             }
+
+            emitLoopExitValues(b, loc);
           },
           b, loc);
     } 
@@ -404,7 +526,247 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
   return success();
 }
 
-LogicalResult LoopHandler::createLoopInfrastructure() {
+LogicalResult LoopHandler::generatePipelineLoopEntryRule(BlockInfo &loopBlock) {
+  auto *rule = mainModule->addRule(loop.loopName + "_entry_rule");
+
+  rule->guard([&](mlir::OpBuilder &b) {
+    auto loc = b.getUnknownLoc();
+    if (loop.scopeResources.contextTokenReg) {
+      auto tokenValues = loop.scopeResources.contextTokenReg->callValue("read", b);
+      if (tokenValues.empty())
+        llvm::report_fatal_error("LoopHandler: context token read returned no value");
+      Signal token(tokenValues[0], &b, loc);
+      auto one = UInt::constant(1, 1, b, loc);
+      b.create<circt::cmt2::ReturnOp>(loc, (token == one).getValue());
+      return;
+    }
+    auto alwaysTrue = UInt::constant(1, 1, b, loc);
+    b.create<circt::cmt2::ReturnOp>(loc, alwaysTrue.getValue());
+  });
+
+  rule->body([&](mlir::OpBuilder &b) {
+    auto loc = b.getUnknownLoc();
+
+    if (loop.scopeResources.contextTokenReg) {
+      auto unavailable = UInt::constant(0, 1, b, loc);
+      loop.scopeResources.contextTokenReg->callMethod(
+          "write", {unavailable.getValue()}, b);
+    }
+
+    if (loop.scopeResources.boundary.entryTokenFIFO)
+      loop.scopeResources.boundary.entryTokenFIFO->callMethod("deq", {}, b);
+
+    for (auto &[value, fifo] : input_fifos) {
+      if (!fifo || value.getDefiningOp<arith::ConstantOp>())
+        continue;
+      if (!loop.input_state_registers.count(value))
+        continue;
+      auto dequeuedValue = fifo->callMethod("deq", {}, b);
+      if (!dequeuedValue.empty())
+        loop.input_state_registers[value]->callMethod("write",
+                                                      {dequeuedValue[0]}, b);
+    }
+
+    for (auto &[value, reg] : loopBlock.scopeResources.inputValueRegs) {
+      if (!reg || value.getDefiningOp<arith::ConstantOp>())
+        continue;
+      if (!loop.input_state_registers.count(value))
+        continue;
+      auto capturedValue = reg->callValue("read", b);
+      if (!capturedValue.empty())
+        loop.input_state_registers[value]->callMethod("write",
+                                                      {capturedValue[0]}, b);
+    }
+
+    auto convertToFIRRTL = [&](mlir::Value val) -> mlir::Value {
+      if (isa<circt::firrtl::FIRRTLBaseType>(val.getType()))
+        llvm::report_fatal_error(
+            "LoopHandler: loop boundary is not a constant!");
+      if (auto constOp = val.getDefiningOp<arith::ConstantOp>()) {
+        auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
+        unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
+        return UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc)
+            .getValue();
+      }
+      llvm::report_fatal_error(
+          "LoopHandler: Cannot convert non-constant MLIR type to FIRRTL");
+    };
+
+    Signal loopState(convertToFIRRTL(loop.lowerBound), &b, loc);
+    loopState = loopState.cat(Signal(convertToFIRRTL(loop.upperBound), &b, loc));
+    loopState = loopState.cat(Signal(convertToFIRRTL(loop.step), &b, loc));
+    loop.scopeResources.loopStateReg->callMethod("write",
+                                                 {loopState.getValue()}, b);
+
+    loop.scopeResources.doneCounterReg->callMethod(
+        "write", {convertToFIRRTL(loop.lowerBound)}, b);
+
+    auto token = UInt::constant(1, 1, b, loc);
+    loop.scopeResources.issueTokenFIFO->callMethod("enq", {token.getValue()},
+                                                   b);
+
+    b.create<circt::cmt2::ReturnOp>(loc);
+  });
+
+  rule->finalize();
+  return success();
+}
+
+LogicalResult LoopHandler::generatePipelineLoopIssueRule(BlockInfo &loopBlock) {
+  auto *rule = mainModule->addRule(loop.loopName + "_issue_rule");
+
+  rule->guard([](mlir::OpBuilder &b) {
+    auto loc = b.getUnknownLoc();
+    auto alwaysTrue = UInt::constant(1, 1, b, loc);
+    b.create<circt::cmt2::ReturnOp>(loc, alwaysTrue.getValue());
+  });
+
+  rule->body([&](mlir::OpBuilder &b) {
+    auto loc = b.getUnknownLoc();
+
+    loop.scopeResources.issueTokenFIFO->callMethod("deq", {}, b);
+
+    auto stateValues = loop.scopeResources.loopStateReg->callValue("read", b);
+    if (stateValues.empty())
+      llvm::report_fatal_error(
+          "LoopHandler: pipeline issue state register read returned no value");
+
+    Signal stateSig(stateValues[0], &b, loc);
+    auto currentCounter = stateSig.bits(95, 64);
+    auto upperBound = stateSig.bits(63, 32);
+    auto step = stateSig.bits(31, 0);
+    auto shouldIssue = currentCounter <= upperBound;
+
+    If(
+        shouldIssue,
+        [&](mlir::OpBuilder &b) {
+          if (inductionVarFIFO)
+            inductionVarFIFO->callMethod("enq",
+                                         {currentCounter.bits(31, 0).getValue()},
+                                         b);
+
+          auto bodyToken = UInt::constant(1, 1, b, loc);
+          loop.scopeResources.bodyAdmitFIFO->callMethod(
+              "enq", {bodyToken.getValue()}, b);
+
+          auto nextCounter = currentCounter + step;
+          Signal updatedState(nextCounter.bits(31, 0).getValue(), &b, loc);
+          updatedState = updatedState.cat(upperBound);
+          updatedState = updatedState.cat(step);
+          loop.scopeResources.loopStateReg->callMethod(
+              "write", {updatedState.getValue()}, b);
+
+          auto shouldReissue = nextCounter <= upperBound;
+          If(
+              shouldReissue,
+              [&](mlir::OpBuilder &b) {
+                auto issueToken = UInt::constant(1, 1, b, loc);
+                loop.scopeResources.issueTokenFIFO->callMethod(
+                    "enq", {issueToken.getValue()}, b);
+              },
+              [&](mlir::OpBuilder &b) {}, b, loc);
+        },
+        [&](mlir::OpBuilder &b) {
+          auto *exitTokenFIFO = loop.scopeResources.boundary.exitTokenFIFO
+                                    ? loop.scopeResources.boundary.exitTokenFIFO
+                                    : outputTokenFIFO;
+          if (exitTokenFIFO) {
+            auto exitToken = UInt::constant(1, 1, b, loc);
+            exitTokenFIFO->callMethod("enq", {exitToken.getValue()}, b);
+          }
+          if (loop.scopeResources.contextTokenReg) {
+            auto available = UInt::constant(1, 1, b, loc);
+            loop.scopeResources.contextTokenReg->callMethod(
+                "write", {available.getValue()}, b);
+          }
+          emitLoopExitValues(b, loc);
+        },
+        b, loc);
+
+    b.create<circt::cmt2::ReturnOp>(loc);
+  });
+
+  rule->finalize();
+  return success();
+}
+
+LogicalResult LoopHandler::generatePipelineLoopRetireRule(BlockInfo &loopBlock) {
+  auto *rule = mainModule->addRule(loop.loopName + "_retire_rule");
+
+  rule->guard([](mlir::OpBuilder &b) {
+    auto loc = b.getUnknownLoc();
+    auto alwaysTrue = UInt::constant(1, 1, b, loc);
+    b.create<circt::cmt2::ReturnOp>(loc, alwaysTrue.getValue());
+  });
+
+  rule->body([&](mlir::OpBuilder &b) {
+    auto loc = b.getUnknownLoc();
+
+    loop.scopeResources.bodyDoneTokenFIFO->callMethod("deq", {}, b);
+
+    auto stateValues = loop.scopeResources.loopStateReg->callValue("read", b);
+    auto doneValues = loop.scopeResources.doneCounterReg->callValue("read", b);
+    if (stateValues.empty() || doneValues.empty())
+      llvm::report_fatal_error(
+          "LoopHandler: pipeline retire register read returned no value");
+
+    Signal stateSig(stateValues[0], &b, loc);
+    auto upperBound = stateSig.bits(63, 32);
+    auto step = stateSig.bits(31, 0);
+
+    Signal doneSig(doneValues[0], &b, loc);
+    auto nextDone = doneSig + step;
+    loop.scopeResources.doneCounterReg->callMethod(
+        "write", {nextDone.bits(31, 0).getValue()}, b);
+
+    auto shouldHaveMoreCompletions = nextDone <= upperBound;
+    If(
+        shouldHaveMoreCompletions,
+        [&](mlir::OpBuilder &b) {},
+        [&](mlir::OpBuilder &b) {
+          auto *exitTokenFIFO = loop.scopeResources.boundary.exitTokenFIFO
+                                    ? loop.scopeResources.boundary.exitTokenFIFO
+                                    : outputTokenFIFO;
+          if (exitTokenFIFO) {
+            auto exitToken = UInt::constant(1, 1, b, loc);
+            exitTokenFIFO->callMethod("enq", {exitToken.getValue()}, b);
+          }
+          if (loop.scopeResources.contextTokenReg) {
+            auto available = UInt::constant(1, 1, b, loc);
+            loop.scopeResources.contextTokenReg->callMethod(
+                "write", {available.getValue()}, b);
+          }
+          emitLoopExitValues(b, loc);
+        },
+        b, loc);
+
+    b.create<circt::cmt2::ReturnOp>(loc);
+  });
+
+  rule->finalize();
+  return success();
+}
+
+void LoopHandler::emitLoopExitValues(mlir::OpBuilder &b, mlir::Location loc) {
+  (void)loc;
+  for (auto &[value, consumers] : output_fifos) {
+    Instance *stateReg = loop.input_state_registers.lookup(value);
+    if (!stateReg)
+      continue;
+
+    auto storedValue = stateReg->callValue("read", b);
+    if (storedValue.empty())
+      continue;
+
+    for (const auto &[consumerBlock, outFIFO] : consumers) {
+      (void)consumerBlock;
+      if (outFIFO)
+        outFIFO->callMethod("enq", {storedValue[0]}, b);
+    }
+  }
+}
+
+LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
   llvm::dbgs() << "[LoopHandler] Creating loop infrastructure for loop "
                << loop.loopName << "\n";
 
@@ -415,19 +777,23 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
   // Entry -> Body: signals that loop body can start
   auto *entryToBodyMod = STLLibrary::createFIFO2IModule(1, circuit);
   builder.restoreInsertionPoint(savedIP);
-  std::string entryToBodyName = loop.loopName + "_token_entry_to_body";
+  std::string entryToBodyName = loop.loopName + "_entok";
   loop.token_fifos.to_body =
       mainModule->addInstance(entryToBodyName, entryToBodyMod,
                               {mainClk.getValue(), mainRst.getValue()});
+  loop.scopeResources.boundary.entryTokenFIFO = inputTokenFIFO;
+  loop.scopeResources.bodyAdmitFIFO = loop.token_fifos.to_body;
   llvm::dbgs() << "[LoopHandler] Created entry-to-body token FIFO: "
                << entryToBodyName << "\n";
 
   // Body -> Next: signals that body execution is complete
   auto *bodyToNextMod = STLLibrary::createFIFO2IModule(1, circuit);
   builder.restoreInsertionPoint(savedIP);
-  std::string bodyToNextName = loop.loopName + "_token_body_to_next";
+  std::string bodyToNextName = loop.loopName + "_dntok";
   loop.token_fifos.body_to_next = mainModule->addInstance(
       bodyToNextName, bodyToNextMod, {mainClk.getValue(), mainRst.getValue()});
+  loop.scopeResources.bodyDoneTokenFIFO = loop.token_fifos.body_to_next;
+  loop.scopeResources.loopFrameToNextFIFO = loop.token_fifos.body_to_next;
   llvm::dbgs() << "[LoopHandler] Created body-to-next token FIFO: "
                << bodyToNextName << "\n";
 
@@ -435,81 +801,139 @@ LogicalResult LoopHandler::createLoopInfrastructure() {
   // This connects the loop's exit directly to the next block
   loop.token_fifos.next_to_exit = nullptr;
 
-  // Create single loop state FIFO for carrying iteration state
+  // Create single loop state register for the one non-pipeline loop context.
   // Calculate total bit width: counter(32) + bound(32) + step(32) + iter_args
   unsigned stateWidth = 32 + 32 + 32; // counter + bound + step
   for (unsigned i = 0; i < loop.iterArgs.size(); i++) {
     stateWidth += getBitWidth(loop.iterArgTypes[i]);
   }
 
-  auto *stateMod = STLLibrary::createFIFO2IModule(stateWidth, circuit);
+  auto *stateMod = STLLibrary::createRegModule(stateWidth, 0, circuit);
   builder.restoreInsertionPoint(savedIP);
-  std::string stateName = loop.loopName + "_state_fifo";
-  loop.loop_state_fifo = mainModule->addInstance(
+  std::string stateName = loop.loopName + "_st";
+  loop.loop_state_reg = mainModule->addInstance(
       stateName, stateMod, {mainClk.getValue(), mainRst.getValue()});
-  llvm::dbgs() << "[LoopHandler] Created loop state FIFO: " << stateName
+  loop.scopeResources.loopStateReg = loop.loop_state_reg;
+  llvm::dbgs() << "[LoopHandler] Created loop state register: " << stateName
                << " (width=" << stateWidth << ")\n";
 
-  // Create FIFO for induction variable that will be used by the entry rule
+  if (loop.isPipeline) {
+    auto *issueTokMod = STLLibrary::createFIFO2IModule(1, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    std::string issueTokName = loop.loopName + "_istok";
+    loop.pipeline_issue_token_fifo = mainModule->addInstance(
+        issueTokName, issueTokMod, {mainClk.getValue(), mainRst.getValue()});
+    loop.scopeResources.issueTokenFIFO = loop.pipeline_issue_token_fifo;
+
+    auto *doneRegMod = STLLibrary::createRegModule(32, 0, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    std::string doneRegName = loop.loopName + "_dn";
+    loop.pipeline_done_reg = mainModule->addInstance(
+        doneRegName, doneRegMod, {mainClk.getValue(), mainRst.getValue()});
+    loop.scopeResources.doneCounterReg = loop.pipeline_done_reg;
+  }
+
+  if (requireContextToken) {
+    auto *contextTokenMod = STLLibrary::createRegModule(1, 1, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    std::string contextTokenName = loop.loopName + "_ctok";
+    loop.context_token_reg = mainModule->addInstance(
+        contextTokenName, contextTokenMod,
+        {mainClk.getValue(), mainRst.getValue()});
+    loop.scopeResources.contextTokenReg = loop.context_token_reg;
+    llvm::dbgs() << "[LoopHandler] Created loop context token register: "
+                 << contextTokenName << "\n";
+  }
+
+  // Create register for induction variable if the body reads it.
   // Only create it if the induction variable is actually used in the loop body
   if (loop.inductionVar) {
     // Get the loop body to check if induction variable is used
     Block *loopBody = loop.forOp ? loop.forOp.getBody() : nullptr;
     if (loopBody && isValueUsedInLoopBody(loop.inductionVar, loopBody)) {
-      llvm::dbgs() << "[LoopHandler] Creating FIFO for induction variable (used in loop body)\n";
-      auto *indVarMod = STLLibrary::createFIFO2IModule(
-          getBitWidth(loop.inductionVar.getType()), circuit);
-      builder.restoreInsertionPoint(savedIP);
-      std::string indVarName = loop.loopName + "_induction_var";
-      inductionVarFIFO = mainModule->addInstance(
-          indVarName, indVarMod, {mainClk.getValue(), mainRst.getValue()});
-      llvm::dbgs() << "[LoopHandler] Created induction variable FIFO: " << indVarName << "\n";
+      unsigned ivWidth = getBitWidth(loop.inductionVar.getType());
+      std::string indVarName = loop.loopName + "_iv";
+      if (loop.isPipeline) {
+        auto *indVarMod = STLLibrary::createFIFO2IModule(ivWidth, circuit);
+        builder.restoreInsertionPoint(savedIP);
+        Instance *indVarInstance = mainModule->addInstance(
+            indVarName, indVarMod, {mainClk.getValue(), mainRst.getValue()});
+        inductionVarFIFO = indVarInstance;
+      } else {
+        auto *indVarMod = STLLibrary::createRegModule(ivWidth, 0, circuit);
+        builder.restoreInsertionPoint(savedIP);
+        Instance *indVarInstance = mainModule->addInstance(
+            indVarName, indVarMod, {mainClk.getValue(), mainRst.getValue()});
+        inductionVarReg = indVarInstance;
+      }
+      llvm::dbgs() << "[LoopHandler] Created induction variable "
+                   << (loop.isPipeline ? "FIFO: " : "register: ")
+                   << indVarName << "\n";
     } else {
-      llvm::dbgs() << "[LoopHandler] Skipping induction variable FIFO creation (not used in loop body)\n";
+      llvm::dbgs() << "[LoopHandler] Skipping induction variable register creation (not used in loop body)\n";
     }
   }
 
-  // Create state registers and loop-to-body FIFOs for input values
-  // Only create for values that are actually used by the loop body
-  // State registers: store values for reuse across iterations (used in next rule)
-  // Loop-to-body FIFOs: separate FIFOs that loop body reads from (fed by entry/next rules)
+  // Create state registers and loop-to-body FIFOs for parent live-ins that
+  // reach the loop through either a direct FIFO or a captured parent register.
+  // State registers store values for reuse across iterations. Loop-to-body
+  // FIFOs are fed by entry/next and consumed by the body.
   Block *loopBody = loop.forOp.getBody();
   llvm::dbgs() << "[LoopHandler] Creating state registers and loop-to-body FIFOs for input values used in loop body\n";
-  for (auto &[value, fifo] : input_fifos) {
-    if (fifo) {
-      // Skip constants - they don't need FIFOs since there will be no readers
-      if (value.getDefiningOp<arith::ConstantOp>()) {
-        llvm::dbgs() << "[LoopHandler] Skipping constant value (constants don't need FIFOs)\n";
-        continue;
-      }
+  auto ensureLoopLiveInStorage = [&](Value value) {
+    if (!value)
+      return;
+    if (loop.input_state_registers.count(value))
+      return;
+    if (value.getDefiningOp<arith::ConstantOp>()) {
+      llvm::dbgs() << "[LoopHandler] Skipping constant value (constants don't need loop live-in storage)\n";
+      return;
+    }
+    if (!isValueUsedInLoopBody(value, loopBody)) {
+      llvm::dbgs() << "[LoopHandler] Skipping value (not used in loop body)\n";
+      return;
+    }
 
-      // Check if this value is actually used in the loop body
-      if (!isValueUsedInLoopBody(value, loopBody)) {
-        llvm::dbgs() << "[LoopHandler] Skipping value (not used in loop body)\n";
-        continue;
-      }
+    unsigned bitWidth = getBitWidth(value.getType());
 
-      unsigned bitWidth = getBitWidth(value.getType());
+    auto *regMod = STLLibrary::createRegModule(bitWidth, 0, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    std::string regName = loop.loopName + "_isr" +
+                          std::to_string(loop.input_state_registers.size());
+    Instance *regInstance = mainModule->addInstance(
+        regName, regMod, {mainClk.getValue(), mainRst.getValue()});
+    loop.input_state_registers[value] = regInstance;
+    loop.scopeResources.inputStateRegs[value] = regInstance;
+    llvm::dbgs() << "[LoopHandler] Created state register: " << regName
+                 << " (width=" << bitWidth << ")\n";
 
-      // Create state register for persistent storage across iterations
-      auto *regMod = STLLibrary::createRegModule(bitWidth, 0, circuit);
-      builder.restoreInsertionPoint(savedIP);
-      std::string regName = loop.loopName + "_input_state_reg_" + std::to_string(loop.input_state_registers.size());
-      Instance *regInstance = mainModule->addInstance(
-          regName, regMod, {mainClk.getValue(), mainRst.getValue()});
-      loop.input_state_registers[value] = regInstance;
-      llvm::dbgs() << "[LoopHandler] Created state register: " << regName << " (width=" << bitWidth << ")\n";
-
-      // Create loop-to-body FIFO for loop body to consume from
+    if (!loop.isPipeline) {
       auto *loopToBodyFifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
       builder.restoreInsertionPoint(savedIP);
-      std::string loopToBodyFifoName = loop.loopName + "_loop_to_body_fifo_" + std::to_string(loop.loop_to_body_fifos.size());
+      std::string loopToBodyFifoName = loop.loopName + "_in" +
+                                       std::to_string(loop.loop_to_body_fifos.size());
       Instance *loopToBodyFifo = mainModule->addInstance(
-          loopToBodyFifoName, loopToBodyFifoMod, {mainClk.getValue(), mainRst.getValue()});
+          loopToBodyFifoName, loopToBodyFifoMod,
+          {mainClk.getValue(), mainRst.getValue()});
       loop.loop_to_body_fifos[value] = loopToBodyFifo;
-      llvm::dbgs() << "[LoopHandler] Created loop-to-body FIFO: " << loopToBodyFifoName << " (width=" << bitWidth << ")\n";
+      loop.scopeResources.loopToBodyFIFOs[value] = loopToBodyFifo;
+      llvm::dbgs() << "[LoopHandler] Created loop-to-body FIFO: "
+                   << loopToBodyFifoName << " (width=" << bitWidth << ")\n";
     }
+  };
+
+  for (auto &[value, fifo] : input_fifos) {
+    if (fifo)
+      ensureLoopLiveInStorage(value);
   }
+  for (auto &[value, reg] : loopBlock.scopeResources.inputValueRegs) {
+    if (reg)
+      ensureLoopLiveInStorage(value);
+  }
+
+  loop.scopeResources.boundary.exitTokenFIFO = outputTokenFIFO;
+  loop.scopeResources.loopCarriedRegs = loop.input_state_registers;
+  loop.scopeResources.frameLocalRegs = loop.loop_to_body_fifos;
 
   return success();
 }
@@ -548,6 +972,21 @@ bool LoopHandler::isValueUsedInLoopBody(Value value, Block *loopBody) {
   return false;
 }
 
+bool LoopHandler::hasPipelineAttr(tor::ForOp forOp) const {
+  if (!forOp)
+    return false;
+  Attribute attr = forOp->getAttr("pipeline");
+  if (!attr)
+    return false;
+  if (auto boolAttr = dyn_cast<BoolAttr>(attr))
+    return boolAttr.getValue();
+  if (auto intAttr = dyn_cast<IntegerAttr>(attr))
+    return intAttr.getValue().getBoolValue();
+  if (isa<UnitAttr>(attr))
+    return true;
+  return false;
+}
+
 LogicalResult LoopHandler::processLoopBodyOperations(tor::ForOp forOp, BlockInfo &loopBlock) {
   llvm::dbgs() << "[LoopHandler] Processing loop body operations for loop " << loop.loopName << "\n";
 
@@ -560,12 +999,10 @@ LogicalResult LoopHandler::processLoopBodyOperations(tor::ForOp forOp, BlockInfo
   // Create input fifos that include loop variables for the loop body
   // Use loop-to-body FIFOs instead of external input_fifos to hide cross-block FIFOs from subblocks
   llvm::DenseMap<Value, Instance*> loopBodyInputFIFOs = loop.loop_to_body_fifos;
-
-  // Add the induction variable FIFO (created in createLoopInfrastructure) to the input map
-  if (loop.inductionVar && inductionVarFIFO) {
-    llvm::dbgs() << "[LoopHandler] Adding induction variable FIFO to loop body inputs\n";
+  if (loop.isPipeline && loop.inductionVar && inductionVarFIFO)
     loopBodyInputFIFOs[loop.inductionVar] = inductionVarFIFO;
-  }
+  llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo *, Instance *>, 4>>
+      loopBodyOutputFIFOs;
 
   // Use BlockHandler's processLoopBodyAsBlocks for proper loop body processing
   // This will handle block segmentation, dataflow analysis, and rule generation
@@ -573,12 +1010,21 @@ LogicalResult LoopHandler::processLoopBodyOperations(tor::ForOp forOp, BlockInfo
       pass, mainModule, funcOp, poolInstance, roccInstance,
       hellaMemInstance, dmaItfc, csrItfc, circuit, mainClk, mainRst, opcode,
       regRdInstance,
-      loop.token_fifos.to_body,      // Input token: signals body can start
-      loop.token_fifos.body_to_next, // Output token: signals body completion
+      loop.scopeResources.bodyAdmitFIFO ? loop.scopeResources.bodyAdmitFIFO : loop.token_fifos.to_body,
+      loop.scopeResources.bodyDoneTokenFIFO ? loop.scopeResources.bodyDoneTokenFIFO : loop.token_fifos.body_to_next,
       loopBodyInputFIFOs,            // Input data FIFOs (including loop variables)
-      output_fifos,                  // Output data FIFOs (to loop handler)
+      loopBodyOutputFIFOs,           // Loop-level outputs are emitted once on exit.
       loop.loopName + "_"            // Name prefix for nested blocks
   );
+  loopBodyHandler.setPipelineMode(loop.isPipeline);
+  if (loop.inductionVar && inductionVarReg) {
+    llvm::dbgs() << "[LoopHandler] Adding induction variable register to loop body inputs\n";
+    loopBodyHandler.addInputRegister(loop.inductionVar, inductionVarReg);
+  }
+  if (loop.isPipeline) {
+    for (auto &[value, reg] : loop.input_state_registers)
+      loopBodyHandler.addInputRegister(value, reg);
+  }
 
   llvm::dbgs() << "[LoopHandler] Processing loop body using BlockHandler::processLoopBodyAsBlocks\n";
 

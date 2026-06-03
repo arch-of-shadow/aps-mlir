@@ -1,7 +1,7 @@
 //===- BlockHandler.h - Unified Block Handler -*- C++ -*-===//
 //
 // This file declares the unified block handler that treats all control flow
-// as blocks with producer-responsible FIFO coordination
+// as blocks with explicit token coordination and non-pipeline value registers
 //
 //===----------------------------------------------------------------------===//
 
@@ -42,7 +42,7 @@ enum class BlockType {
 // Block Information
 //===----------------------------------------------------------------------===//
 
-/// Represents a unified block with FIFO-based communication
+/// Represents a unified block with token-based communication.
 struct BlockInfo {
   unsigned blockId;
   std::string blockName;  // Hierarchical name for nested blocks
@@ -57,9 +57,8 @@ struct BlockInfo {
   llvm::SmallVector<Value> producedValues;
   llvm::SmallVector<Value> consumedValues;
 
-  // Cross-block communication - producer creates these
-  // For each produced value, map to list of (consumer_block, FIFO) pairs
-  // One value may have multiple consumers, each needs its own FIFO
+  // Scope-boundary FIFOs inherited from the parent. Internal block-to-block
+  // values are carried by scopeResources registers in non-pipeline mode.
   llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> output_fifos;
   llvm::DenseMap<Value, Instance*> input_fifos;   // Values this block consumes
 
@@ -70,6 +69,7 @@ struct BlockInfo {
   // Block-specific data (union-like pattern)
   bool is_loop_block;
   bool is_conditional_block;
+  BlockScopeResources scopeResources;
 
   BlockInfo(unsigned blockId, const std::string& blockName, Block* block, BlockType type)
     : blockId(blockId), blockName(blockName), mlirBlock(block), type(type),
@@ -82,14 +82,14 @@ struct CrossBlockValueFlow {
   Value value;
   BlockInfo* producer_block;
   BlockInfo* consumer_block;
-  Instance* fifo;
+  Instance* storage;
 };
 
 //===----------------------------------------------------------------------===//
 // Block Handler Base Class
 //===----------------------------------------------------------------------===//
 
-/// Unified block handler with producer-responsible FIFO coordination
+/// Unified block handler with explicit token coordination.
 class BlockHandler {
 public:
   BlockHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
@@ -111,11 +111,18 @@ public:
   /// Process a specific block (virtual for specialization)
   virtual LogicalResult processBlock(BlockInfo& block);
 
-  /// Create producer FIFO for a value with def-use naming
-  Instance* createProducerFIFO(Value value, unsigned producerBlockId, unsigned consumerBlockId, unsigned counter);
+  /// Create producer-owned register for one produced value.
+  Instance* createCrossBlockValueReg(Value value, unsigned producerBlockId,
+                                     unsigned counter);
 
   /// Find all consumers of a value
   llvm::SmallVector<BlockInfo*> findValueConsumers(Value value);
+
+  /// Register-backed parent live-in available to generated sub-blocks.
+  void addInputRegister(Value value, Instance *reg);
+
+  /// Enable per-iteration FIFO dataflow inside this block hierarchy.
+  void setPipelineMode(bool enabled) { pipelineMode = enabled; }
 
 protected:
   // Core components
@@ -136,6 +143,8 @@ protected:
   // Name prefix for hierarchical naming (e.g., "43_" for opcode, "43_loop_1_" for nested)
   std::string namePrefix;
 
+  bool pipelineMode = false;
+
   // External token FIFOs for top-level block coordination
   Instance *inputTokenFIFO;
   Instance *outputTokenFIFO;
@@ -145,28 +154,32 @@ protected:
   llvm::DenseMap<unsigned, BlockInfo*> blockMap;
   llvm::DenseMap<Block*, BlockInfo*> mlirBlockMap;
 
-  // Cross-block value flows
+  // Cross-block value flows backed by producer-owned registers.
   llvm::SmallVector<CrossBlockValueFlow> crossBlockFlows;
+
+  llvm::SmallVector<CrossBlockValueFlow> pipelineInputFanoutFlows;
   
   // Unified token FIFOs for cross-block coordination (block i -> block i+1)
   llvm::DenseMap<std::pair<unsigned, unsigned>, Instance*> unifiedTokenFIFOs;
 
-  // Input and Output FIFOs of the blocks, via input from parent
+  // Scope-boundary input and output FIFOs inherited from the parent.
   llvm::DenseMap<Value, Instance*> input_fifos;
+  llvm::DenseMap<Value, Instance*> input_regs;
   // Output FIFOs: for each value, list of (consumer_block, FIFO) pairs
   llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> output_fifos;
 
   //===--------------------------------------------------------------------===//
-  // Input Distribution Infrastructure (for sub-blocks)
+  // Input Capture Infrastructure (for multi-consumer parent live-ins)
   //===--------------------------------------------------------------------===//
 
-  // Maps: input_value -> sub_block_index -> dedicated FIFO for that sub-block
-  llvm::DenseMap<Value, llvm::DenseMap<unsigned, Instance*>> input_distribution_fifos;
+  // Maps: input_value -> sub_block_index -> shared capture register.
+  // All sub-blocks using the same input value read the same register.
+  llvm::DenseMap<Value, llvm::DenseMap<unsigned, Instance*>> input_distribution_regs;
 
-  // Flag: whether this block needs input distribution rule
+  // Flag: whether this block needs an input capture rule
   bool needsInputDistribution = false;
 
-  // Token FIFO: parent -> distribution rule (only if distribution needed)
+  // Token FIFO: capture rule -> first sub-block (only if capture is needed)
   Instance* input_distribution_token_fifo = nullptr;
 
   //===--------------------------------------------------------------------===//
@@ -197,27 +210,31 @@ protected:
   bool containsConditional(Block* block);
 
   //===--------------------------------------------------------------------===//
-  // FIFO Infrastructure
+  // Register Infrastructure
   //===--------------------------------------------------------------------===//
 
-  /// Create all producer FIFOs for cross-block communication
-  LogicalResult createProducerFIFOs();
+  /// Create producer-owned registers for cross-block communication
+  LogicalResult createCrossBlockValueRegs();
+
+  /// In pipeline mode, create FIFO fanout for parent FIFO inputs used by
+  /// multiple sub-blocks.
+  LogicalResult createPipelineInputFanoutFIFOs();
 
   /// Get unique FIFO name
   std::string getFIFOName(StringRef prefix, unsigned blockId, StringRef suffix = "");
 
   //===--------------------------------------------------------------------===//
-  // Input Distribution (for sub-blocks with shared inputs)
+  // Input Capture (for sub-blocks with shared inputs)
   //===--------------------------------------------------------------------===//
 
   /// Analyze if input distribution is needed for sub-blocks
   LogicalResult analyzeInputDistributionNeeds();
 
-  /// Create input distribution infrastructure (FIFOs and token coordination)
-  LogicalResult createInputDistributionInfrastructure();
+  /// Create input capture registers and token coordination.
+  LogicalResult createInputDistributionRegs();
 
-  /// Generate input distribution rule (dequeue once, enqueue to all sub-blocks)
-  LogicalResult generateInputDistributionRule();
+  /// Generate input capture rule (dequeue once, write shared registers)
+  LogicalResult generateInputCaptureRule();
 
   //===--------------------------------------------------------------------===//
   // Rule Generation

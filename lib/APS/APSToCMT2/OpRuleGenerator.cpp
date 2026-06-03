@@ -4,7 +4,7 @@
 // that was previously in APSToCMT2.cpp
 //
 // REFACTORED: Now uses BBHandler for object-oriented basic block management
-// and LoopHandler for FIFO-based loop coordination
+// and LoopHandler for token-based loop coordination
 //
 //===----------------------------------------------------------------------===//
 

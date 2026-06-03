@@ -13,6 +13,7 @@ std::unique_ptr<OperationPass<mlir::func::FuncOp>> createNormalizeSCFForIndicesP
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAPSMemToMemRefPass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAffineMemToAPSPass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createMemRefToAPSPass();
+std::unique_ptr<OperationPass<mlir::ModuleOp>> createAutoBurstPartitionPass();
 std::unique_ptr<OperationPass<mlir::ModuleOp>> createAPSMemoryMapPass();
 std::unique_ptr<Pass> createRaiseMemRefToAffinePass();
 std::unique_ptr<OperationPass<mlir::tor::FuncOp>> createDuplicateMemLoadsPass();

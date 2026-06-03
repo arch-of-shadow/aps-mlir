@@ -61,16 +61,6 @@ public:
     return slotMap;
   }
 
-  /// Get cross-slot FIFOs for external access
-  const llvm::DenseMap<mlir::Value, llvm::SmallVector<CrossSlotFIFO *>> &
-  getCrossSlotFIFOs() const {
-    return crossSlotFIFOs;
-  }
-  llvm::DenseMap<mlir::Value, llvm::SmallVector<CrossSlotFIFO *>> &
-  getCrossSlotFIFOs() {
-    return crossSlotFIFOs;
-  }
-
   /// Get function operation
   tor::FuncOp getFuncOp() const { return funcOp; }
 
@@ -87,6 +77,9 @@ public:
 
   /// Process a single basic block using BlockInfo
   LogicalResult processBasicBlock(BlockInfo& block);
+
+  /// In pipeline loop bodies, use FIFOs for inter-slot values instead of regs.
+  void setPipelineMode(bool enabled) { pipelineMode = enabled; }
 
   /// Process a single operation within a basic block
   LogicalResult processOperationInBlock(Operation *op, mlir::OpBuilder &b, 
@@ -111,14 +104,11 @@ private:
 
   // Current block being processed (set by processBasicBlock)
   BlockInfo* currentBlock = nullptr;
+  bool pipelineMode = false;
 
   // Basic block analysis data
   llvm::DenseMap<int64_t, SlotInfo> slotMap;
   llvm::SmallVector<int64_t, 8> slotOrder;
-  llvm::DenseMap<mlir::Value, llvm::SmallVector<CrossSlotFIFO *>>
-      crossSlotFIFOs;
-  llvm::DenseMap<std::pair<int64_t, int64_t>, unsigned> fifoCounts;
-  llvm::SmallVector<std::unique_ptr<CrossSlotFIFO>, 8> fifoStorage;
 
   // Operation generators
   std::unique_ptr<ArithmeticOpGenerator> arithmeticGen;
@@ -129,9 +119,6 @@ private:
   // RoCC command bundle caching
   mlir::Value cachedRoCCCmdBundle;
   Instance *regRdInstance = nullptr;
-
-  // Stage token FIFOs for synchronization
-  llvm::DenseMap<int64_t, Instance *> stageTokenFifos;
 
   // Rule precedence pairs
   llvm::SmallVector<std::pair<std::string, std::string>, 4> precedencePairs;
@@ -149,37 +136,19 @@ private:
   /// Validate that all operations are supported
   LogicalResult validateOperations();
 
-  /// Build cross-slot FIFO mapping for value communication (old interface)
-  LogicalResult buildCrossSlotFIFOs();
-
-  /// Create token FIFOs for stage synchronization (old interface)
-  LogicalResult createTokenFIFOs();
-
-  /// Instantiate cross-slot FIFO hardware modules
-  LogicalResult instantiateCrossSlotFIFOs();
-
-  //===--------------------------------------------------------------------===//
-  // Rule Generation Phase
-  //===--------------------------------------------------------------------===//
-
-  /// Generate rules for each time slot
-  LogicalResult generateSlotRules();
-
   /// Handle RoCC command bundle in slot 0
   LogicalResult handleRoCCCommandBundle(mlir::OpBuilder &b, Location loc);
 
-  /// Handle token synchronization between stages
-  LogicalResult handleTokenSynchronization(mlir::OpBuilder &b, Location loc,
-                                           int64_t slot);
-
-  /// Write token to next stage at the end
-  LogicalResult writeTokenToNextStage(mlir::OpBuilder &b, Location loc,
-                                      int64_t slot);
+  /// Add reverse slot rule precedence so later stages are scheduled before
+  /// earlier stages when they fire in the same cycle.
+  void addReverseSlotRulePrecedence();
 
   LogicalResult
   generateRuleForOperation(Operation *op, mlir::OpBuilder &b, Location loc,
                            int64_t slot,
                            llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  LogicalResult processPipelineBasicBlock(BlockInfo &block);
 
   //===--------------------------------------------------------------------===//
   // Utility Methods

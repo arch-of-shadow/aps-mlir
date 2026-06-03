@@ -48,28 +48,37 @@ BBHandler::BBHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp
   registerGen->setRegRdInstance(regRdInstance);
 }
 
-LogicalResult BBHandler::processBasicBlocks() {
-  // This method requires a function context
-  if (!funcOp) {
-    llvm::dbgs() << "[BBHandler] Error: processBasicBlocks called without function context\n";
-    return failure();
+void BBHandler::addReverseSlotRulePrecedence() {
+  if (!currentBlock || slotOrder.size() < 2)
+    return;
+
+  llvm::SmallVector<std::pair<std::string, std::string>, 16> pairs;
+  for (size_t laterIdx = slotOrder.size(); laterIdx > 1; --laterIdx) {
+    int64_t laterSlot = slotOrder[laterIdx - 1];
+    std::string laterRuleName = currentBlock->blockName + "_slot_" +
+                                std::to_string(laterSlot) + "_rule";
+    for (size_t earlierIdx = 0; earlierIdx < laterIdx - 1; ++earlierIdx) {
+      int64_t earlierSlot = slotOrder[earlierIdx];
+      std::string earlierRuleName = currentBlock->blockName + "_slot_" +
+                                    std::to_string(earlierSlot) + "_rule";
+      pairs.push_back({laterRuleName, earlierRuleName});
+    }
   }
-  
-  // Phase 1: Analysis
-  if (failed(collectOperationsBySlot()))
-    return failure();
-  if (failed(validateOperations()))
-    return failure();
-  if (failed(buildCrossSlotFIFOs()))
-    return failure();
-  if (failed(createTokenFIFOs()))
-    return failure();
 
-  // Phase 2: Rule Generation
-  if (failed(generateSlotRules()))
-    return failure();
+  if (!pairs.empty()) {
+    mainModule->setPrecedence(pairs);
+    llvm::dbgs() << "[BBHandler] Set reverse slot precedence for "
+                 << pairs.size() << " rule pairs in block "
+                 << currentBlock->blockName << "\n";
+  }
+}
 
-  return success();
+LogicalResult BBHandler::processBasicBlocks() {
+  if (!funcOp)
+    return failure();
+  return funcOp.emitError()
+         << "BBHandler::processBasicBlocks is disabled; use BlockHandler to "
+            "provide explicit non-pipeline block boundaries";
 }
 
 LogicalResult BBHandler::collectOperationsBySlot() {
@@ -217,370 +226,6 @@ LogicalResult BBHandler::validateOperations() {
   return success();
 }
 
-LogicalResult BBHandler::buildCrossSlotFIFOs() {
-  auto getSlotForOp = [&](Operation *op) -> std::optional<int64_t> {
-    if (auto attr = op->getAttrOfType<IntegerAttr>("starttime"))
-      return attr.getInt();
-    return {};
-  };
-
-  auto &builder = mainModule->getBuilder();
-  auto ctx = builder.getContext();
-
-  // Build cross-slot FIFO mapping - group consumers by target stage
-  for (int64_t slot : slotOrder) {
-    for (Operation *op : slotMap[slot].ops) {
-      // op->emitWarning("considering building fifo for this!");
-      if (isa<arith::ConstantOp>(op))
-        continue;
-
-      // Skip interface/SPM request operations - their results are dummy tokens that don't need FIFOs
-      if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq, aps::SpmLoadReq>(op)) {
-        llvm::dbgs() << "[FIFO DEBUG] Skipping FIFO creation for interface/SPM request operation\n";
-        continue;
-      }
-
-      for (mlir::Value res : op->getResults()) {
-        if (!isa<mlir::IntegerType>(res.getType()))
-          continue;
-
-        // Skip constants - they don't need FIFOs since they have no readers
-        if (res.getDefiningOp<arith::ConstantOp>()) {
-          llvm::dbgs() << "[FIFO DEBUG] Skipping FIFO creation for constant value\n";
-          continue;
-        }
-
-        // Group consumers by their target stage
-        // IMPORTANT: Only include consumers that are in THIS block's slotMap
-        llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<Operation*, unsigned>>> consumersByStage;
-
-        for (OpOperand &use : res.getUses()) {
-          Operation *user = use.getOwner();
-          auto maybeConsumerSlot = getSlotForOp(user);
-          if (!maybeConsumerSlot)
-            continue;
-          int64_t consumerSlot = *maybeConsumerSlot;
-
-          // Only consider consumers in later slots within the same block
-          if (consumerSlot > slot) {
-            // Check if this consumer operation is actually in the current block
-            bool isInCurrentBlock = false;
-            if (slotMap.count(consumerSlot)) {
-              for (Operation *op : slotMap[consumerSlot].ops) {
-                if (op == user) {
-                  isInCurrentBlock = true;
-                  break;
-                }
-              }
-            }
-
-            // Only create FIFO if consumer is in current block
-            if (isInCurrentBlock) {
-              // user->emitWarning("we build that for this use, arg " + std::to_string(use.getOperandNumber()) );
-              consumersByStage[consumerSlot].push_back({user, use.getOperandNumber()});
-            }
-          }
-        }
-
-        if (consumersByStage.empty())
-          continue;
-
-        auto firType = toFirrtlType(res.getType(), mainModule->getBuilder().getContext());
-        if (!firType) {
-          op->emitError("type is unsupported for rule lowering");
-          return failure();
-        }
-
-        // op->emitWarning("we should build fifo for this, now building!");
-        // Create separate FIFO for each consumer stage
-        for (auto &[consumerSlot, consumers] : consumersByStage) {
-          auto fifo = std::make_unique<CrossSlotFIFO>();
-          fifo->producerValue = res;
-          fifo->producerSlot = slot;
-          fifo->consumerSlot = consumerSlot;
-          fifo->firType = firType;
-          fifo->consumers = std::move(consumers);
-
-          // Generate FIFO name based on producer-consumer slot pair
-          auto key = std::make_pair(slot, consumerSlot);
-          unsigned count = fifoCounts[key]++;
-          fifo->instanceName = currentBlock->blockName + "_fifo_s" + std::to_string(slot) + "_s" +
-                              std::to_string(consumerSlot) + "_v" + std::to_string(count);
-
-          // Debug info: log FIFO creation
-          llvm::dbgs() << "[FIFO DEBUG] Creating FIFO: " << fifo->instanceName
-                       << " for producer in slot " << slot
-                       << " to consumers in slot " << consumerSlot
-                       << " with " << fifo->consumers.size() << " consumers\n";
-
-          crossSlotFIFOs[res].push_back(fifo.get());
-          fifoStorage.push_back(std::move(fifo));
-        }
-      }
-    }
-  }
-
-  // Handle cross-block input values (from inputFIFOs)
-  // These need cross-slot FIFOs from first slot to their consumer slots
-  if (currentBlock && !currentBlock->input_fifos.empty()) {
-    // Determine the first slot in this block
-    int64_t firstSlot = slotOrder.empty() ? 0 : slotOrder.front();
-
-    llvm::dbgs() << "[FIFO DEBUG] Processing " << currentBlock->input_fifos.size()
-                 << " input FIFO values for cross-slot distribution (first slot: "
-                 << firstSlot << ")\n";
-
-    for (auto &[inputValue, inputFIFO] : currentBlock->input_fifos) {
-      if (!inputFIFO)
-        continue;
-
-      if (!isa<mlir::IntegerType>(inputValue.getType()))
-        continue;
-
-      // Skip constants - they don't need cross-slot FIFOs
-      if (inputValue.getDefiningOp<arith::ConstantOp>()) {
-        llvm::dbgs() << "[FIFO DEBUG] Skipping cross-slot FIFO for constant input value\n";
-        continue;
-      }
-
-      // Find all operations that use this input value and group by slot
-      // IMPORTANT: Only include consumers that are in THIS block's slotMap
-      llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<Operation*, unsigned>>> consumersByStage;
-
-      for (OpOperand &use : inputValue.getUses()) {
-        Operation *user = use.getOwner();
-        auto maybeConsumerSlot = getSlotForOp(user);
-        if (!maybeConsumerSlot)
-          continue;
-        int64_t consumerSlot = *maybeConsumerSlot;
-
-        // Check if this consumer operation is actually in the current block
-        bool isInCurrentBlock = false;
-        if (slotMap.count(consumerSlot)) {
-          for (Operation *op : slotMap[consumerSlot].ops) {
-            if (op == user) {
-              isInCurrentBlock = true;
-              break;
-            }
-          }
-        }
-
-        // Only create FIFO if consumer is in current block
-        if (isInCurrentBlock) {
-          consumersByStage[consumerSlot].push_back({user, use.getOperandNumber()});
-        } else {
-          llvm::dbgs() << "[FIFO DEBUG] Skipping consumer in slot " << consumerSlot
-                       << " (belongs to different block)\n";
-        }
-      }
-
-      if (consumersByStage.empty()) {
-        llvm::dbgs() << "[FIFO DEBUG] Input value has no consumers in this block\n";
-        continue;
-      }
-
-      auto firType = toFirrtlType(inputValue.getType(), ctx);
-      if (!firType) {
-        llvm::dbgs() << "[FIFO DEBUG] Input value type unsupported for FIFO\n";
-        continue;
-      }
-
-      // Create cross-slot FIFO from first slot to each consumer slot
-      // IMPORTANT: Skip if consumer is in the first slot (no cross-slot needed)
-      for (auto &[consumerSlot, consumers] : consumersByStage) {
-        // If consumer is in the first slot, no cross-slot FIFO needed
-        if (consumerSlot == firstSlot) {
-          llvm::dbgs() << "[FIFO DEBUG] Skipping input cross-slot FIFO for consumer in first slot "
-                       << consumerSlot << " (no cross-slot needed)\n";
-          continue;
-        }
-
-        auto fifo = std::make_unique<CrossSlotFIFO>();
-        fifo->producerValue = inputValue;
-        fifo->producerSlot = firstSlot;  // Input values are available at first slot
-        fifo->consumerSlot = consumerSlot;
-        fifo->firType = firType;
-        fifo->consumers = std::move(consumers);
-
-        // Generate FIFO name: {blockName}_fifo_s{firstSlot}_s{consumer}_v{count}
-        auto key = std::make_pair(firstSlot, consumerSlot);
-        unsigned count = fifoCounts[key]++;
-        fifo->instanceName = currentBlock->blockName + "_fifo_s" + std::to_string(firstSlot) + "_s" +
-                             std::to_string(consumerSlot) + "_v" + std::to_string(count);
-
-        llvm::dbgs() << "[FIFO DEBUG] Creating input cross-slot FIFO: " << fifo->instanceName
-                     << " for input value to consumers in slot " << consumerSlot
-                     << " with " << fifo->consumers.size() << " consumers\n";
-
-        crossSlotFIFOs[inputValue].push_back(fifo.get());
-        fifoStorage.push_back(std::move(fifo));
-      }
-    }
-  }
-
-  return success();
-}
-
-LogicalResult BBHandler::createTokenFIFOs() {
-  auto savedIP = mainModule->getBuilder().saveInsertionPoint();
-
-  // Create token FIFOs for stage synchronization - one token per stage (except last)
-  stageTokenFifos.clear(); // Clear any existing token FIFOs
-  int64_t firstSlot = slotOrder.empty() ? 0 : slotOrder[0];
-  for (size_t i = 0; i < slotOrder.size() - 1; ++i) {
-    int64_t currentSlot = slotOrder[i];
-    // Create 1-bit FIFO for token passing to next stage
-    // Use FIFO2I for first slot, FIFO1Push for others
-    Module *tokenFifoMod;
-    if (currentSlot == firstSlot) {
-      tokenFifoMod = STLLibrary::createFIFO2IModule(1, circuit);
-      llvm::dbgs() << "[BBHandler] Using FIFO2I for first slot token FIFO\n";
-    } else {
-      tokenFifoMod = STLLibrary::createFIFO1PushModule(1, circuit);
-    }
-    mainModule->getBuilder().restoreInsertionPoint(savedIP);
-    std::string tokenFifoName = currentBlock->blockName + "_token_fifo_s" + std::to_string(currentSlot);
-    auto *tokenFifo = mainModule->addInstance(tokenFifoName, tokenFifoMod,
-                                              {mainClk.getValue(), mainRst.getValue()});
-    stageTokenFifos[currentSlot] = tokenFifo;
-    llvm::dbgs() << "[BBHandler] Created token FIFO for slot " << currentSlot << ": " << tokenFifoName << "\n";
-  }
-
-  return success();
-}
-
-LogicalResult BBHandler::instantiateCrossSlotFIFOs() {
-  // Instantiate FIFO modules for cross-slot data communication
-  // This must be called AFTER buildCrossSlotFIFOs() creates the metadata
-  // and BEFORE rules try to use the FIFOs
-
-  auto &builder = mainModule->getBuilder();
-  auto savedIP = builder.saveInsertionPoint();
-
-  llvm::dbgs() << "[BBHandler] Instantiating " << fifoStorage.size() << " cross-slot FIFO modules\n";
-
-  // Determine the first slot in this basic block
-  int64_t firstSlot = slotOrder.empty() ? 0 : slotOrder[0];
-  llvm::dbgs() << "[BBHandler] First slot in basic block: " << firstSlot << "\n";
-
-  for (auto &fifoPtr : fifoStorage) {
-    auto *fifo = fifoPtr.get();
-    int64_t width = cast<circt::firrtl::UIntType>(fifo->firType).getWidthOrSentinel();
-    if (width < 0)
-      width = 1;
-
-    // Debug info: log FIFO instantiation
-    llvm::dbgs() << "[BBHandler] Instantiating FIFO: " << fifo->instanceName
-                 << " (width=" << width << ", producerSlot=" << fifo->producerSlot << ")\n";
-
-    // Create FIFO module with proper clock and reset
-    // Use FIFO2I for first slot producers in basic block, FIFO1Push for others
-    Module *fifoMod;
-    if (fifo->producerSlot == firstSlot) {
-      fifoMod = STLLibrary::createFIFO2IModule(width, circuit);
-      llvm::dbgs() << "[BBHandler] Using FIFO2I for first slot producer in BB\n";
-    } else {
-      fifoMod = STLLibrary::createFIFO1PushModule(width, circuit);
-      llvm::dbgs() << "[BBHandler] Using FIFO1Push for non-first slot producer\n";
-    }
-    builder.restoreInsertionPoint(savedIP);
-    fifo->fifoInstance = mainModule->addInstance(fifo->instanceName, fifoMod,
-                                                 {mainClk.getValue(), mainRst.getValue()});
-  }
-
-  return success();
-}
-
-LogicalResult BBHandler::generateSlotRules() {
-  auto &builder = mainModule->getBuilder();
-  auto savedIPforRegRd = builder.saveInsertionPoint();
-
-  // Create register instance for RoCC operations
-  auto *regRdMod = STLLibrary::createRegModule(5, 0, circuit);
-  regRdInstance = mainModule->addInstance("reg_rd_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str(), regRdMod,
-                                          {mainClk.getValue(), mainRst.getValue()});
-  builder.restoreInsertionPoint(savedIPforRegRd);
-
-  // Set up register generator with required instances
-  registerGen->setRegRdInstance(regRdInstance);
-
-  // Note: instantiateCrossSlotFIFOs() is called by processBasicBlock() before rule generation
-  // This old code path (generateSlotRules) is deprecated in favor of processBasicBlock()
-
-  // Generate rules for each time slot
-  llvm::DenseMap<mlir::Value, mlir::Value> localMap;
-
-  for (int64_t slot : slotOrder) {
-    auto *rule = mainModule->addRule((std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str() + "_rule_s" + std::to_string(slot));
-
-    // Guard: always ready (constant 1)
-    rule->guard([](mlir::OpBuilder &b) {
-      auto loc = b.getUnknownLoc();
-      auto one = UInt::constant(1, 1, b, loc);
-      b.create<circt::cmt2::ReturnOp>(loc, mlir::ValueRange{one.getValue()});
-    });
-
-    // Body: implement the operations for this time slot
-    rule->body([this, slot, &localMap](mlir::OpBuilder &b) {
-      auto loc = b.getUnknownLoc();
-      localMap.clear();
-
-      // Handle RoCC command bundle in slot 0
-      if (slot == 0) {
-        if (failed(handleRoCCCommandBundle(b, loc)))
-          return;
-      }
-
-      // Handle token synchronization between stages
-      if (failed(handleTokenSynchronization(b, loc, slot)))
-        return;
-
-      // Process all operations in this slot
-      for (Operation *op : slotMap[slot].ops) {
-        LogicalResult result = generateRuleForOperation(op, b, loc, slot, localMap);
-        if (failed(result)) {
-          op->emitError("failed to generate rule for operation in slot " + std::to_string(slot));
-          return;
-        }
-      }
-
-      // Write token to next stage at the end
-      if (failed(writeTokenToNextStage(b, loc, slot)))
-        return;
-
-      // Handle cross-slot FIFO writes for producer operations
-      for (Operation *op : slotMap[slot].ops) {
-        for (mlir::Value result : op->getResults()) {
-          if (!isa<mlir::IntegerType>(result.getType()))
-            continue;
-          auto fifoIt = crossSlotFIFOs.find(result);
-          if (fifoIt != crossSlotFIFOs.end()) {
-            // Enqueue the value to all FIFOs for this producer
-            // Use localMap directly since this is a producer value
-            auto valueIt = localMap.find(result);
-            if (valueIt != localMap.end()) {
-              for (CrossSlotFIFO *fifo : fifoIt->second) {
-                if (fifo->fifoInstance) {
-                  // Build arguments for enq method
-                  llvm::SmallVector<mlir::Value> args;
-                  args.push_back(valueIt->second);
-                  fifo->fifoInstance->callMethod("enq", args, b);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      b.create<circt::cmt2::ReturnOp>(loc);
-    });
-
-    rule->finalize();
-  }
-
-  return success();
-}
-
 LogicalResult BBHandler::handleRoCCCommandBundle(mlir::OpBuilder &b, Location loc) {
   // Only handle RoCC commands if we have a function context
   if (!funcOp) {
@@ -597,41 +242,6 @@ LogicalResult BBHandler::handleRoCCCommandBundle(mlir::OpBuilder &b, Location lo
 
   // Set the cached bundle in register generator
   registerGen->setCachedRoCCCmdBundle(cachedRoCCCmdBundle);
-  return success();
-}
-
-LogicalResult BBHandler::handleTokenSynchronization(mlir::OpBuilder &b, Location loc, int64_t slot) {
-  // Read token from previous stage at the start (except for first stage)
-  if (!slotOrder.empty() && slot != slotOrder[0]) {
-    auto it = std::find(slotOrder.begin(), slotOrder.end(), slot);
-    if (it != slotOrder.begin()) {
-      int64_t prevSlot = *(it - 1);
-      auto tokenFifoIt = stageTokenFifos.find(prevSlot);
-      if (tokenFifoIt != stageTokenFifos.end()) {
-        auto *tokenFifo = tokenFifoIt->second;
-        auto tokenValues = tokenFifo->callValue("deq", b);
-        // Token value should be 1'b1, but we don't need to use it
-        // Just reading from FIFO ensures synchronization
-      }
-    }
-  }
-  return success();
-}
-
-LogicalResult BBHandler::writeTokenToNextStage(mlir::OpBuilder &b, Location loc, int64_t slot) {
-  // Write token to next stage at the end (except for last stage)
-  if (!slotOrder.empty() && slot != slotOrder.back()) {
-    auto it = std::find(slotOrder.begin(), slotOrder.end(), slot);
-    if (it != slotOrder.end() - 1) {
-      int64_t nextSlot = *(it + 1);
-      auto tokenFifoIt = stageTokenFifos.find(slot);
-      if (tokenFifoIt != stageTokenFifos.end()) {
-        auto *tokenFifo = tokenFifoIt->second;
-        auto tokenValue = UInt::constant(1, 1, b, loc);
-        tokenFifo->callMethod("enq", {tokenValue.getValue()}, b);
-      }
-    }
-  }
   return success();
 }
 
@@ -705,205 +315,517 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
     return failure();
   }
 
-  // Phase 3: Set up infrastructure for this specific block
-  // Build cross-slot FIFOs for values that flow between slots within this block
-  if (failed(buildCrossSlotFIFOs()))
-    return failure();
+  if (pipelineMode)
+    return processPipelineBasicBlock(block);
 
-  // Create token FIFOs for stage synchronization
-  if (failed(createTokenFIFOs()))
-    return failure();
+  auto &builder = mainModule->getBuilder();
+  auto savedIP = builder.saveInsertionPoint();
 
-  // Instantiate FIFO modules for cross-slot communication
-  if (failed(instantiateCrossSlotFIFOs()))
-    return failure();
+  llvm::DenseMap<int64_t, Instance *> slotTokenFIFOs;
+  for (size_t i = 0; i + 1 < slotOrder.size(); ++i) {
+    int64_t slot = slotOrder[i];
+    auto *tokenMod = STLLibrary::createFIFO1PushModule(1, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    std::string tokenName = currentBlock->blockName + "_s" +
+                            std::to_string(slot) + "tok";
+    slotTokenFIFOs[slot] = mainModule->addInstance(
+        tokenName, tokenMod, {mainClk.getValue(), mainRst.getValue()});
+  }
 
-  // Phase 4: Generate rules for each time slot with proper coordination
-  llvm::DenseMap<mlir::Value, mlir::Value> localMap;
-  
+  auto isRequestTokenProducer = [](Operation *op) {
+    return isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq,
+               aps::ItfcLoadReq, aps::ItfcStoreReq, aps::SpmLoadReq>(op);
+  };
+
+  auto slotIndexOf = [&](int64_t slot) -> size_t {
+    auto it = llvm::find(slotOrder, slot);
+    if (it == slotOrder.end())
+      return slotOrder.size();
+    return static_cast<size_t>(std::distance(slotOrder.begin(), it));
+  };
+
+  auto isOpInSlot = [&](Operation *candidate, int64_t slot) {
+    auto slotIt = slotMap.find(slot);
+    if (slotIt == slotMap.end())
+      return false;
+    return llvm::is_contained(slotIt->second.ops, candidate);
+  };
+
+  auto isValueUsedInSlot = [&](Value value, int64_t slot) {
+    for (OpOperand &use : value.getUses()) {
+      if (isOpInSlot(use.getOwner(), slot))
+        return true;
+    }
+    return false;
+  };
+
+  auto isValueUsedAfterSlot = [&](Value value, int64_t producerSlot) {
+    size_t producerIdx = slotIndexOf(producerSlot);
+    for (size_t i = producerIdx + 1; i < slotOrder.size(); ++i) {
+      if (isValueUsedInSlot(value, slotOrder[i]))
+        return true;
+    }
+    return false;
+  };
+
+  llvm::DenseMap<Value, Instance *> localValueRegs;
+  unsigned localRegCounter = 0;
+  auto ensureLocalValueReg = [&](Value value) -> Instance * {
+    if (!value || !isa<mlir::IntegerType>(value.getType()))
+      return nullptr;
+    if (auto *defOp = value.getDefiningOp()) {
+      if (isa<arith::ConstantOp, memref::GetGlobalOp>(defOp) ||
+          isRequestTokenProducer(defOp))
+        return nullptr;
+    }
+    auto existing = localValueRegs.find(value);
+    if (existing != localValueRegs.end())
+      return existing->second;
+
+    unsigned bitWidth = 32;
+    if (auto intType = dyn_cast<mlir::IntegerType>(value.getType()))
+      bitWidth = intType.getWidth();
+    auto *regMod = STLLibrary::createRegModule(bitWidth, 0, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    std::string regName = currentBlock->blockName + "_r" +
+                          std::to_string(localRegCounter++);
+    Instance *reg = mainModule->addInstance(
+        regName, regMod, {mainClk.getValue(), mainRst.getValue()});
+    localValueRegs[value] = reg;
+    block.scopeResources.stageLocalRegs[value] = reg;
+    return reg;
+  };
+
   for (int64_t slot : slotOrder) {
-    auto *rule = mainModule->addRule(currentBlock->blockName + "_slot_" + std::to_string(slot) + "_rule");
+    for (Operation *op : slotMap[slot].ops) {
+      if (isRequestTokenProducer(op))
+        continue;
+      for (Value result : op->getResults()) {
+        if (isValueUsedAfterSlot(result, slot))
+          ensureLocalValueReg(result);
+      }
+    }
+  }
 
-    // Guard: use CMT pattern (1'b1) for all slots - coordination handled by FIFO availability
-    rule->guard([](mlir::OpBuilder &b) {
+  int64_t firstSlot = slotOrder.front();
+  for (auto &[value, fifo] : inputFIFOs) {
+    if (!fifo)
+      continue;
+    if (isValueUsedAfterSlot(value, firstSlot))
+      ensureLocalValueReg(value);
+  }
+  for (auto &[value, reg] : block.scopeResources.inputValueRegs) {
+    if (!reg)
+      continue;
+    if (isValueUsedAfterSlot(value, firstSlot))
+      ensureLocalValueReg(value);
+  }
+
+  for (int64_t slot : slotOrder) {
+    auto *rule =
+        mainModule->addRule(currentBlock->blockName + "_slot_" +
+                            std::to_string(slot) + "_rule");
+    rule->guard([&, slot](mlir::OpBuilder &b) {
       auto loc = b.getUnknownLoc();
+      if (slot != slotOrder.front()) {
+        auto it = llvm::find(slotOrder, slot);
+        if (it != slotOrder.begin()) {
+          int64_t prevSlot = *(it - 1);
+          if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot)) {
+            auto full = tokenFIFO->callValue("full", b);
+            if (!full.empty()) {
+              b.create<circt::cmt2::ReturnOp>(loc, full[0]);
+              return;
+            }
+          }
+        }
+      }
       auto one = UInt::constant(1, 1, b, loc);
       b.create<circt::cmt2::ReturnOp>(loc, one.getValue());
     });
 
-    // Body: implement the operations for this time slot with proper coordination
-    rule->body([&](mlir::OpBuilder &b) {
+    rule->body([&, slot](mlir::OpBuilder &b) {
       auto loc = b.getUnknownLoc();
-      localMap.clear();
+      llvm::DenseMap<mlir::Value, mlir::Value> localMap;
 
-      llvm::dbgs() << "[BBHandler] Processing slot " << slot << " with " 
-                   << slotMap[slot].ops.size() << " operations\n";
-
-      // Handle block coordination at the beginning of the first slot
       if (slot == slotOrder.front()) {
-        // Dequeue from input token FIFO (token from previous block in sequence)
         if (block_input_token_fifo) {
-          llvm::dbgs() << "[BBHandler] Dequeuing input token for block " << blockId << " from unified token FIFO\n";
-          auto inputToken = block_input_token_fifo->callMethod("deq", {}, b);
+          llvm::dbgs() << "[BBHandler] Dequeuing input token for block "
+                       << blockId << "\n";
+          block_input_token_fifo->callMethod("deq", {}, b);
         }
-        
-        // Handle cross-block value consumption (data from other blocks)
-        // Per BBHandler_DataFlow.md: dequeue from input_fifos and distribute to:
-        // 1. localMap if used in slot 0 (for immediate use by slot 0 operations)
-        // 2. cross_slot_fifos if used in later slots (for deferred use)
-        // Same dequeued value can go to BOTH destinations
+
         for (auto &[value, fifo] : inputFIFOs) {
-          if (fifo) {
-            llvm::dbgs() << "[BBHandler] Dequeuing cross-block value from input FIFO\n";
-            auto dequeuedValue = fifo->callMethod("deq", {}, b);
-            if (!dequeuedValue.empty()) {
-              bool usedInSlot0 = false;
-              bool usedInLaterSlots = false;
+          if (!fifo)
+            continue;
+          auto dequeuedValue = fifo->callMethod("deq", {}, b);
+          if (dequeuedValue.empty())
+            continue;
+          if (isValueUsedInSlot(value, slot))
+            localMap[value] = dequeuedValue[0];
+          if (Instance *reg = localValueRegs.lookup(value))
+            reg->callMethod("write", {dequeuedValue[0]}, b);
+        }
 
-              // Check if value is used in slot 0 operations
-              if (slotMap.count(slot)) {
-                for (Operation *op : slotMap[slot].ops) {
-                  for (Value operand : op->getOperands()) {
-                    if (operand == value) {
-                      usedInSlot0 = true;
-                      break;
-                    }
-                  }
-                  if (usedInSlot0) break;
-                }
-              }
+        for (auto &[value, reg] : block.scopeResources.inputValueRegs) {
+          if (!reg)
+            continue;
+          auto storedValue = reg->callValue("read", b);
+          if (storedValue.empty())
+            continue;
+          if (isValueUsedInSlot(value, slot))
+            localMap[value] = storedValue[0];
+          if (Instance *localReg = localValueRegs.lookup(value))
+            localReg->callMethod("write", {storedValue[0]}, b);
+        }
+      } else {
+        auto it = llvm::find(slotOrder, slot);
+        if (it != slotOrder.begin()) {
+          int64_t prevSlot = *(it - 1);
+          if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot))
+            tokenFIFO->callMethod("deq", {}, b);
+        }
 
-              // If used in slot 0, store in localMap for immediate use
-              if (usedInSlot0) {
-                localMap[value] = dequeuedValue[0];
-                llvm::dbgs() << "[BBHandler] Stored input value in localMap for slot 0 use\n";
-              }
-
-              // Check if value has cross-slot FIFOs (means used in later slots)
-              auto it = crossSlotFIFOs.find(value);
-              if (it != crossSlotFIFOs.end()) {
-                usedInLaterSlots = true;
-                // Enqueue to all cross-slot FIFOs for this value (one per consumer slot)
-                for (CrossSlotFIFO *crossSlotFifo : it->second) {
-                  if (crossSlotFifo->fifoInstance) {
-                    crossSlotFifo->fifoInstance->callMethod("enq", {dequeuedValue[0]}, b);
-                    llvm::dbgs() << "[BBHandler] Enqueued input value to cross-slot FIFO: "
-                                 << crossSlotFifo->instanceName << " for later slot use\n";
-                  }
-                }
-              }
-
-              if (!usedInSlot0 && !usedInLaterSlots) {
-                llvm::dbgs() << "[BBHandler] WARNING: Input value not used in any slot of this block\n";
-              }
+        for (Operation *op : slotMap[slot].ops) {
+          for (Value operand : op->getOperands()) {
+            if (localMap.count(operand))
+              continue;
+            if (Instance *reg = localValueRegs.lookup(operand)) {
+              auto storedValue = reg->callValue("read", b);
+              if (!storedValue.empty())
+                localMap[operand] = storedValue[0];
             }
           }
         }
       }
 
-      // Handle RoCC command bundle in slot 0 (if present)
       if (slot == 0) {
         if (failed(handleRoCCCommandBundle(b, loc)))
           return;
       }
 
-      // Handle token synchronization between stages (intra-block)
-      if (failed(handleTokenSynchronization(b, loc, slot)))
-        return;
-
-      // Process all operations in this time slot using existing operation generators
       for (Operation *op : slotMap[slot].ops) {
         if (failed(generateRuleForOperation(op, b, loc, slot, localMap))) {
-          llvm::dbgs() << "[BBHandler] Failed to process operation: " << *op << "\n";
+          llvm::dbgs() << "[BBHandler] Failed to process operation: " << *op
+                       << "\n";
           return;
         }
       }
 
-      // Handle cross-slot FIFO writes and cross-block output FIFO writes for producer operations in this slot
       for (Operation *op : slotMap[slot].ops) {
+        if (isRequestTokenProducer(op))
+          continue;
         for (mlir::Value result : op->getResults()) {
           if (!isa<mlir::IntegerType>(result.getType()))
             continue;
-
           auto valueIt = localMap.find(result);
           if (valueIt == localMap.end())
             continue;
 
-          // Enqueue to cross-slot FIFOs (for later slots in same block)
-          auto fifoIt = crossSlotFIFOs.find(result);
-          if (fifoIt != crossSlotFIFOs.end()) {
-            for (CrossSlotFIFO *fifo : fifoIt->second) {
-              if (fifo->fifoInstance) {
-                fifo->fifoInstance->callMethod("enq", {valueIt->second}, b);
-                llvm::dbgs() << "[BBHandler] Enqueued value to cross-slot FIFO\n";
-              }
+          if (Instance *reg = localValueRegs.lookup(result))
+            reg->callMethod("write", {valueIt->second}, b);
+
+          auto regIt = block.scopeResources.outputValueRegs.find(result);
+          if (regIt != block.scopeResources.outputValueRegs.end()) {
+            for (Instance *reg : regIt->second) {
+              if (reg)
+                reg->callMethod("write", {valueIt->second}, b);
             }
           }
 
-          // Enqueue to cross-block output FIFOs (for other blocks)
-          // A value may have multiple consumers, so enqueue to ALL their FIFOs
           auto outputIt = outputFIFOs.find(result);
           if (outputIt != outputFIFOs.end()) {
             for (const auto &[consumerBlock, fifo] : outputIt->second) {
-              if (fifo) {
-                fifo->callMethod("enq", {valueIt->second}, b);
-                llvm::dbgs() << "[BBHandler] Enqueued value to cross-block output FIFO for consumer block "
-                             << consumerBlock->blockId << "\n";
-              }
+              if (!fifo)
+                continue;
+              fifo->callMethod("enq", {valueIt->second}, b);
+              llvm::dbgs()
+                  << "[BBHandler] Enqueued value to block output FIFO for "
+                     "consumer block "
+                  << consumerBlock->blockId << "\n";
             }
           }
         }
       }
 
-      // Write token to next stage at the end (intra-block coordination)
-      if (failed(writeTokenToNextStage(b, loc, slot)))
-        return;
-
-      // Handle block coordination at the end of the last slot
-      if (slot == slotOrder.back()) {
-        // Note: Cross-block output values are now enqueued immediately when produced (see above)
-        // Only need to enqueue the completion token here
-
-        // Enqueue output token to unified token FIFO (token to next block in sequence)
-        if (block_output_token_fifo) {
-          llvm::dbgs() << "[BBHandler] Enqueuing output token for block " << blockId << " to unified token FIFO\n";
+      if (slot != slotOrder.back()) {
+        if (Instance *tokenFIFO = slotTokenFIFOs.lookup(slot)) {
           auto outputToken = UInt::constant(1, 1, b, loc);
-          block_output_token_fifo->callMethod("enq", {outputToken.getValue()}, b);
+          tokenFIFO->callMethod("enq", {outputToken.getValue()}, b);
         }
+      } else if (block_output_token_fifo) {
+        auto outputToken = UInt::constant(1, 1, b, loc);
+        block_output_token_fifo->callMethod("enq", {outputToken.getValue()}, b);
       }
 
       b.create<circt::cmt2::ReturnOp>(loc);
     });
 
     rule->finalize();
-
-    llvm::dbgs() << "[BBHandler] Generated rule for slot " << slot << " in block " << blockId << "\n";
   }
 
-  // Set precedence for rules: later slots have higher priority
-  // Build precedence pairs: each later slot has higher priority than all earlier slots
-  if (slotOrder.size() > 1) {
-    std::vector<std::pair<std::string, std::string>> precedencePairs;
+  llvm::dbgs() << "[BBHandler] Successfully generated " << slotOrder.size()
+               << " non-pipeline slot rules for basic block " << blockId
+               << "\n";
+  addReverseSlotRulePrecedence();
+  return success();
+}
 
-    for (size_t i = slotOrder.size(); i > 1; i--) {
-      int64_t laterSlot = slotOrder[i - 1];
-      for (size_t j = 0; j < i - 1; j++) {
-        int64_t earlierSlot = slotOrder[j];
-        std::string laterRuleName = currentBlock->blockName + "_slot_" + std::to_string(laterSlot) + "_rule";
-        std::string earlierRuleName = currentBlock->blockName + "_slot_" + std::to_string(earlierSlot) + "_rule";
-        // Higher priority first in the pair
-        precedencePairs.push_back({laterRuleName, earlierRuleName});
+LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
+  unsigned blockId = block.blockId;
+  llvm::DenseMap<Value, Instance *> &inputFIFOs = block.input_fifos;
+  llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo *, Instance *>, 4>>
+      &outputFIFOs = block.output_fifos;
+  Instance *blockInputTokenFIFO = block.input_token_fifo;
+  Instance *blockOutputTokenFIFO = block.output_token_fifo;
+
+  auto &builder = mainModule->getBuilder();
+  auto savedIP = builder.saveInsertionPoint();
+
+  llvm::DenseMap<int64_t, Instance *> slotTokenFIFOs;
+  for (size_t i = 0; i + 1 < slotOrder.size(); ++i) {
+    int64_t slot = slotOrder[i];
+    auto *tokenMod = STLLibrary::createFIFO1PushModule(1, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    std::string tokenName = currentBlock->blockName + "_s" +
+                            std::to_string(slot) + "tok";
+    slotTokenFIFOs[slot] = mainModule->addInstance(
+        tokenName, tokenMod, {mainClk.getValue(), mainRst.getValue()});
+  }
+
+  auto isRequestTokenProducer = [](Operation *op) {
+    return isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq,
+               aps::ItfcLoadReq, aps::ItfcStoreReq, aps::SpmLoadReq>(op);
+  };
+
+  auto slotIndexOf = [&](int64_t slot) -> size_t {
+    auto it = llvm::find(slotOrder, slot);
+    if (it == slotOrder.end())
+      return slotOrder.size();
+    return static_cast<size_t>(std::distance(slotOrder.begin(), it));
+  };
+
+  auto isOpInSlot = [&](Operation *candidate, int64_t slot) {
+    auto slotIt = slotMap.find(slot);
+    if (slotIt == slotMap.end())
+      return false;
+    return llvm::is_contained(slotIt->second.ops, candidate);
+  };
+
+  auto isValueUsedInSlot = [&](Value value, int64_t slot) {
+    for (OpOperand &use : value.getUses()) {
+      if (isOpInSlot(use.getOwner(), slot))
+        return true;
+    }
+    return false;
+  };
+
+  auto lastUseIndex = [&](Value value) -> int64_t {
+    int64_t last = -1;
+    for (size_t i = 0; i < slotOrder.size(); ++i)
+      if (isValueUsedInSlot(value, slotOrder[i]))
+        last = static_cast<int64_t>(i);
+    return last;
+  };
+
+  auto needsBlockOutput = [&](Value value) {
+    auto outputIt = outputFIFOs.find(value);
+    return outputIt != outputFIFOs.end() && !outputIt->second.empty();
+  };
+
+  llvm::SmallVector<llvm::DenseMap<Value, Instance *>, 4> liveEdgeFIFOs;
+  if (slotOrder.size() > 1)
+    liveEdgeFIFOs.resize(slotOrder.size() - 1);
+  unsigned dataFifoCounter = 0;
+
+  auto ensureLiveEdgeFIFO = [&](Value value, size_t edgeIdx) -> Instance * {
+    if (!value || !isa<mlir::IntegerType>(value.getType()))
+      return nullptr;
+    if (edgeIdx >= liveEdgeFIFOs.size())
+      return nullptr;
+    auto existing = liveEdgeFIFOs[edgeIdx].find(value);
+    if (existing != liveEdgeFIFOs[edgeIdx].end())
+      return existing->second;
+
+    unsigned bitWidth = dyn_cast<mlir::IntegerType>(value.getType()).getWidth();
+    auto *fifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    std::string fifoName = currentBlock->blockName + "_s" +
+                           std::to_string(slotOrder[edgeIdx]) + "v" +
+                           std::to_string(dataFifoCounter++) + "s" +
+                           std::to_string(slotOrder[edgeIdx + 1]);
+    Instance *fifo = mainModule->addInstance(
+        fifoName, fifoMod, {mainClk.getValue(), mainRst.getValue()});
+    liveEdgeFIFOs[edgeIdx][value] = fifo;
+    return fifo;
+  };
+
+  auto createLivePath = [&](Value value, size_t producerIdx) {
+    if (!value || !isa<mlir::IntegerType>(value.getType()))
+      return;
+
+    int64_t lastRequiredIdx = lastUseIndex(value);
+    if (needsBlockOutput(value))
+      lastRequiredIdx =
+          std::max<int64_t>(lastRequiredIdx,
+                            static_cast<int64_t>(slotOrder.size() - 1));
+    if (lastRequiredIdx <= static_cast<int64_t>(producerIdx))
+      return;
+
+    for (size_t edgeIdx = producerIdx;
+         edgeIdx < static_cast<size_t>(lastRequiredIdx); ++edgeIdx)
+      ensureLiveEdgeFIFO(value, edgeIdx);
+  };
+
+  int64_t firstSlot = slotOrder.front();
+  for (auto &[value, fifo] : inputFIFOs) {
+    if (!fifo)
+      continue;
+    createLivePath(value, 0);
+  }
+  for (auto &[value, reg] : block.scopeResources.inputValueRegs) {
+    if (!reg)
+      continue;
+    createLivePath(value, 0);
+  }
+
+  for (int64_t slot : slotOrder) {
+    for (Operation *op : slotMap[slot].ops) {
+      if (isRequestTokenProducer(op))
+        continue;
+      for (Value result : op->getResults()) {
+        if (!isa<mlir::IntegerType>(result.getType()))
+          continue;
+        createLivePath(result, slotIndexOf(slot));
       }
     }
-
-    if (!precedencePairs.empty()) {
-      mainModule->setPrecedence(precedencePairs);
-      llvm::dbgs() << "[BBHandler] Set precedence for " << precedencePairs.size()
-                   << " rule pairs (later slots have higher priority)\n";
-    }
   }
 
-  llvm::dbgs() << "[BBHandler] Successfully generated " << slotOrder.size() << " rules for basic block " << blockId << "\n";
+  for (int64_t slot : slotOrder) {
+    auto *rule =
+        mainModule->addRule(currentBlock->blockName + "_slot_" +
+                            std::to_string(slot) + "_rule");
+    rule->guard([&, slot](mlir::OpBuilder &b) {
+      auto loc = b.getUnknownLoc();
+      if (slot != firstSlot) {
+        auto it = llvm::find(slotOrder, slot);
+        if (it != slotOrder.begin()) {
+          int64_t prevSlot = *(it - 1);
+          if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot)) {
+            auto full = tokenFIFO->callValue("full", b);
+            if (!full.empty()) {
+              b.create<circt::cmt2::ReturnOp>(loc, full[0]);
+              return;
+            }
+          }
+        }
+      }
+      auto one = UInt::constant(1, 1, b, loc);
+      b.create<circt::cmt2::ReturnOp>(loc, one.getValue());
+    });
+
+    rule->body([&, slot](mlir::OpBuilder &b) {
+      auto loc = b.getUnknownLoc();
+      llvm::DenseMap<mlir::Value, mlir::Value> localMap;
+      size_t slotIdx = slotIndexOf(slot);
+
+      if (slot == firstSlot) {
+        if (blockInputTokenFIFO)
+          blockInputTokenFIFO->callMethod("deq", {}, b);
+
+        for (auto &[value, fifo] : inputFIFOs) {
+          if (!fifo)
+            continue;
+          auto dequeuedValue = fifo->callMethod("deq", {}, b);
+          if (dequeuedValue.empty())
+            continue;
+          localMap[value] = dequeuedValue[0];
+        }
+
+        for (auto &[value, reg] : block.scopeResources.inputValueRegs) {
+          if (!reg)
+            continue;
+          auto storedValue = reg->callValue("read", b);
+          if (!storedValue.empty())
+            localMap[value] = storedValue[0];
+        }
+      } else {
+        auto it = llvm::find(slotOrder, slot);
+        if (it != slotOrder.begin()) {
+          int64_t prevSlot = *(it - 1);
+          if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot))
+            tokenFIFO->callMethod("deq", {}, b);
+        }
+
+        if (slotIdx == 0)
+          llvm::report_fatal_error("non-first pipeline slot has index 0");
+        for (auto &[value, fifo] : liveEdgeFIFOs[slotIdx - 1]) {
+          if (!fifo)
+            continue;
+          auto dequeuedValue = fifo->callMethod("deq", {}, b);
+          if (!dequeuedValue.empty())
+            localMap[value] = dequeuedValue[0];
+        }
+      }
+
+      if (slot == 0) {
+        if (failed(handleRoCCCommandBundle(b, loc)))
+          return;
+      }
+
+      for (Operation *op : slotMap[slot].ops) {
+        if (failed(generateRuleForOperation(op, b, loc, slot, localMap))) {
+          llvm::dbgs() << "[BBHandler] Failed to process operation: " << *op
+                       << "\n";
+          return;
+        }
+      }
+
+      if (slotIdx + 1 < slotOrder.size()) {
+        for (auto &[value, fifo] : liveEdgeFIFOs[slotIdx]) {
+          auto valueIt = localMap.find(value);
+          if (valueIt == localMap.end()) {
+            llvm::errs() << "[BBHandler] Missing live-through value at slot "
+                         << slot << "\n";
+            llvm::report_fatal_error(
+                "pipeline live-through value is not available");
+          }
+          fifo->callMethod("enq", {valueIt->second}, b);
+        }
+      }
+
+      if (slot == slotOrder.back()) {
+        for (auto &[value, consumers] : outputFIFOs) {
+          auto valueIt = localMap.find(value);
+          if (valueIt == localMap.end())
+            continue;
+          for (const auto &[consumerBlock, outFIFO] : consumers) {
+            (void)consumerBlock;
+            if (outFIFO)
+              outFIFO->callMethod("enq", {valueIt->second}, b);
+          }
+        }
+      }
+
+      if (slot != slotOrder.back()) {
+        if (Instance *tokenFIFO = slotTokenFIFOs.lookup(slot)) {
+          auto outputToken = UInt::constant(1, 1, b, loc);
+          tokenFIFO->callMethod("enq", {outputToken.getValue()}, b);
+        }
+      } else if (blockOutputTokenFIFO) {
+        auto outputToken = UInt::constant(1, 1, b, loc);
+        blockOutputTokenFIFO->callMethod("enq", {outputToken.getValue()}, b);
+      }
+
+      b.create<circt::cmt2::ReturnOp>(loc);
+    });
+
+    rule->finalize();
+  }
+
+  llvm::dbgs() << "[BBHandler] Successfully generated " << slotOrder.size()
+               << " pipeline slot rules for basic block " << blockId << "\n";
+  addReverseSlotRulePrecedence();
   return success();
 }
 
@@ -959,34 +881,6 @@ FailureOr<mlir::Value> OperationGenerator::getValueInRule(mlir::Value v, Operati
   if (auto globalOp = v.getDefiningOp<memref::GetGlobalOp>()) {
     // Global symbols are handled separately via symbol resolution.
     return mlir::Value{};
-  }
-
-  // Check if this is a cross-slot FIFO read (only if operandIndex is valid)
-  if (operandIndex != static_cast<unsigned>(-1)) {
-    auto &crossSlotFIFOs = bbHandler->getCrossSlotFIFOs();
-    auto it = crossSlotFIFOs.find(v);
-    if (it != crossSlotFIFOs.end()) {
-      // Check all FIFOs for this value to find the right one for this consumer
-      for (CrossSlotFIFO *fifo : it->second) {
-        // Check if FIFO instance is valid (should have been created in generateSlotRules)
-        if (!fifo->fifoInstance) {
-          currentOp->emitError("cross-slot FIFO instance is null - FIFO not instantiated");
-          return failure();
-        }
-
-        for (auto [consumerOp, opIndex] : fifo->consumers) {
-          if (consumerOp == currentOp) {
-            llvm::dbgs() << "Index available: " << opIndex << '\n';
-          }
-          if (consumerOp == currentOp && opIndex == operandIndex) {
-            auto result = fifo->fifoInstance->callValue("deq", b);
-            assert(result.size() == 1);
-            localMap[v] = result[0];
-            return result[0];
-          }
-        }
-      }
-    }
   }
 
   currentOp->emitError("value is not available in this rule");

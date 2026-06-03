@@ -1,7 +1,7 @@
-//===- LoopHandler.h - Loop Handler for FIFO-based Block Coordination -*- C++ -*-===//
+//===- LoopHandler.h - Loop Handler for Block Coordination -*- C++ -*-===//
 //
 // This file declares the loop handler that processes loops first, then
-// delegates blocks to BBHandler using FIFO-based coordination
+// delegates blocks to BBHandler using token-based coordination.
 //
 //===----------------------------------------------------------------------===//
 
@@ -39,6 +39,7 @@ struct LoopInfo {
   Value lowerBound, upperBound, step;
   llvm::SmallVector<Value> iterArgs;
   llvm::SmallVector<Type> iterArgTypes;
+  bool isPipeline = false;
 
   // Loop body blocks (using standard BlockInfo from BlockHandler)
   llvm::SmallVector<BlockInfo, 4> blocks;
@@ -52,8 +53,11 @@ struct LoopInfo {
     Instance *next_to_exit;  // Next rule signals loop completion
   } token_fifos;
 
-  // State management FIFOs
-  Instance *loop_state_fifo;  // Carries (counter, bound, step, iter_args)
+  // State management registers
+  Instance *loop_state_reg;  // Holds (counter, bound, step, iter_args)
+  Instance *pipeline_issue_token_fifo = nullptr;
+  Instance *pipeline_done_reg = nullptr;
+  Instance *context_token_reg = nullptr;
   Instance *loop_result_fifo; // Final iter_args results
   llvm::SmallVector<Instance *, 4> iter_arg_fifos; // Individual iter_arg FIFOs
 
@@ -66,14 +70,21 @@ struct LoopInfo {
   // This hides the external input_fifos from the loop body subblocks
   llvm::DenseMap<Value, Instance *> loop_to_body_fifos;
 
+  // Structured scope resources for the hierarchical transfer model
+  LoopScopeResources scopeResources;
+
   LoopInfo() : loopName("uninitialized"),
         token_fifos{nullptr, nullptr, nullptr},
-        loop_state_fifo(nullptr), loop_result_fifo(nullptr) {}
+        loop_state_reg(nullptr), loop_result_fifo(nullptr) {}
 
   // Initialize with actual loop information
   void initialize(tor::ForOp forOp, const std::string &name) {
     this->forOp = forOp;
     this->loopName = name;
+    this->isPipeline = false;
+    this->pipeline_issue_token_fifo = nullptr;
+    this->pipeline_done_reg = nullptr;
+    this->context_token_reg = nullptr;
   }
 };
 
@@ -83,7 +94,7 @@ struct LoopInfo {
 
 /// Specialized loop handler that derives from BlockHandler
 /// Handles loop control structure (entry → body → next) while integrating
-/// with the unified block system and producer-responsible FIFO coordination
+/// with the unified block system and explicit token coordination
 class LoopHandler : public BlockHandler {
 public:
   LoopHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
@@ -103,6 +114,9 @@ public:
   /// Get the loop that this handler processes
   const LoopInfo &getLoop() const { return loop; }
 
+  /// Require a single invocation context token for this loop scope.
+  void setRequireContextToken(bool enabled) { requireContextToken = enabled; }
+
 protected:
   // Override processBlock to handle loop specialization
   LogicalResult processBlock(BlockInfo &block) override;
@@ -110,6 +124,7 @@ protected:
 private:
   // Single loop that this handler processes
   LoopInfo loop;
+  bool requireContextToken = false;
 
   //===--------------------------------------------------------------------===//
   // Rule Generation
@@ -118,14 +133,24 @@ private:
   /// Generate canonical loop rules following Blockgen.md (entry → body → next)
   LogicalResult generateCanonicalLoopRules(BlockInfo &loopBlock);
 
+  /// Generate II=1-attempt pipeline loop rules (entry → issue/retire).
+  LogicalResult generatePipelineLoopRules(BlockInfo &loopBlock);
+
   /// Helper: Generate loop entry rule (token coordination and state init)
   LogicalResult generateLoopEntryRule(BlockInfo &loopBlock);
 
   /// Helper: Generate loop next rule (termination check and state update)
   LogicalResult generateLoopNextRule(BlockInfo &loopBlock);
 
-  /// Create loop infrastructure (FIFOs for coordination)
-  LogicalResult createLoopInfrastructure();
+  LogicalResult generatePipelineLoopEntryRule(BlockInfo &loopBlock);
+  LogicalResult generatePipelineLoopIssueRule(BlockInfo &loopBlock);
+  LogicalResult generatePipelineLoopRetireRule(BlockInfo &loopBlock);
+
+  /// Emit loop-scope output values that are owned by the loop controller.
+  void emitLoopExitValues(mlir::OpBuilder &b, mlir::Location loc);
+
+  /// Create loop infrastructure (tokens, loop state, and body live-ins).
+  LogicalResult createLoopInfrastructure(BlockInfo &loopBlock);
 
   //===--------------------------------------------------------------------===//
   // Utility Methods
@@ -140,8 +165,12 @@ private:
   /// Check if a value is used in the loop body
   bool isValueUsedInLoopBody(Value value, Block *loopBody);
 
+  /// Check whether the loop has pipeline=true.
+  bool hasPipelineAttr(tor::ForOp forOp) const;
+
 private:
-  // Induction variable FIFO - created in infrastructure, used by entry rule
+  // Induction variable register - created in infrastructure, read by the loop body.
+  Instance *inductionVarReg = nullptr;
   Instance *inductionVarFIFO = nullptr;
 };
 

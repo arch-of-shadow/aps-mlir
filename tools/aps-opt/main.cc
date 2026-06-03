@@ -73,6 +73,7 @@ int main(int argc, char **argv) {
 
     // Add passes
     args.push_back("--place-readrf-at-entry");
+    args.push_back("--auto-burst-partition");
     args.push_back("--aps-memory-map");
     args.push_back("--normalize-scf-for-indices");
     args.push_back("--aps-mem-to-memref");

@@ -101,6 +101,9 @@ static matrix: [i32; 16];
 
 - [cadl-language.md](cadl-language.md) - CADL language reference
 - [aps-e2e-flow.md](aps-e2e-flow.md) - Current `aps-e2e` synthesis flow and refactor contract
+- [aps-to-cmt2-fifo-flow.md](aps-to-cmt2-fifo-flow.md) - Current implementation: code-level explanation of block, slot, and loop FIFO transfer in `aps-to-cmt2`
+- [aps-to-cmt2-scope-fifo-model.md](aps-to-cmt2-scope-fifo-model.md) - Target design note for non-pipeline block-owned boundaries and pipeline scope-owned FIFOs
+- [aps-to-cmt2-transfer-model.md](aps-to-cmt2-transfer-model.md) - Clean split between non-pipeline block-owned entry/exit and pipeline scope-owned FIFO bundles
 - [cadl-frontend-refactor.md](cadl-frontend-refactor.md) - CADL MLIR converter structure analysis and refactor checklist
 - [hls-passes.md](hls-passes.md) - HLS optimization passes
 - [scheduling.md](scheduling.md) - SDC scheduling algorithm

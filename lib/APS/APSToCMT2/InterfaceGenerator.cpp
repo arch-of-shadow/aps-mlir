@@ -341,21 +341,23 @@ Module *APSToCMT2Pass::generateMemoryAdapter(Circuit &circuit) {
     Signal cmdIsRead = respCmd == UInt::constant(0, 5, bodyBuilder, loc);
     Signal tagAddr = respTag; // Use tag as address for matching
 
-    // Read current newer_slot flag
-    auto newerSlotValues = newerSlotReg->callValue("read", bodyBuilder);
-    Signal newerSlot = Signal(newerSlotValues[0], &bodyBuilder, loc);
     Signal slot0Tag = Signal(slot0TagReg->callValue("read", bodyBuilder)[0],
                              &bodyBuilder, loc);
     Signal slot1Tag = Signal(slot1TagReg->callValue("read", bodyBuilder)[0],
                              &bodyBuilder, loc);
+    Signal slot0Txd = Signal(slot0TxdReg->callValue("read", bodyBuilder)[0],
+                             &bodyBuilder, loc);
+    Signal slot1Txd = Signal(slot1TxdReg->callValue("read", bodyBuilder)[0],
+                             &bodyBuilder, loc);
 
-    auto b0 = UInt::constant(0, 1, bodyBuilder, loc);
-    auto b1 = UInt::constant(1, 1, bodyBuilder, loc);
-    // Conditional logic following Rust pattern
+    // Only an allocated slot may accept a response.  Initial tags are zero, so
+    // matching on tag alone lets the first tag-0 response poison both slots.
     recvSlot0Wire->callMethod(
-        "write", {(cmdIsRead & (slot0Tag == tagAddr)).getValue()}, bodyBuilder);
+        "write", {(cmdIsRead & slot0Txd & (slot0Tag == tagAddr)).getValue()},
+        bodyBuilder);
     recvSlot1Wire->callMethod(
-        "write", {(cmdIsRead & (slot1Tag == tagAddr)).getValue()}, bodyBuilder);
+        "write", {(cmdIsRead & slot1Txd & (slot1Tag == tagAddr)).getValue()},
+        bodyBuilder);
     recvSlotData->callMethod("write", respData.getValue(), bodyBuilder);
     bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
   });

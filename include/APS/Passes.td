@@ -47,6 +47,23 @@ def MemRefToAPS : Pass<"memref-to-aps", "::mlir::func::FuncOp"> {
   let dependentDialects = ["aps::APSDialect", "::mlir::arith::ArithDialect"];
 }
 
+def AutoBurstPartition : Pass<"auto-burst-partition", "::mlir::ModuleOp"> {
+  let summary = "Add default cyclic partitioning for globals used by APS burst transfers";
+  let description = [{
+    This pass inspects aps.memburstload and aps.memburststore operations and
+    finds the global memrefs they transfer to or from. If a referenced global
+    has no user-provided partition attributes, the pass adds a cyclic
+    partition on dimension 0 with factor 64 / element_bitwidth. This gives the
+    later array partition pass enough banks to fill a 64-bit burst beat.
+
+    User-provided partition_dim_array, partition_factor_array, or
+    partition_cyclic_array attributes are treated as explicit decisions and
+    are never overwritten.
+  }];
+  let constructor = "mlir::createAutoBurstPartitionPass()";
+  let dependentDialects = ["aps::APSDialect", "memref::MemRefDialect"];
+}
+
 def APSMemoryMap : Pass<"aps-memory-map", "::mlir::ModuleOp"> {
   let summary = "Generate an APS memory map from global memrefs";
   let description = [{
