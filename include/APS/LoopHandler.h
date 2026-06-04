@@ -102,7 +102,7 @@ public:
               Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
               InterfaceDecl *csrItfc, Circuit &circuit, Clock mainClk,
               Reset mainRst,
-              unsigned long opcode, Instance *regRdInstance, Instance *input_token_fifo,
+              unsigned long instructionId, Instance *regRdInstance, Instance *input_token_fifo,
               Instance *output_token_fifo,
               llvm::DenseMap<Value, Instance *> &input_fifos,
               llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> &output_fifos,

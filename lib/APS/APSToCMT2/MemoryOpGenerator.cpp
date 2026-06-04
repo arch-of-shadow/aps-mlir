@@ -89,8 +89,7 @@ LogicalResult MemoryOpGenerator::generateGlobalMemStore(
   StringRef globalName = op.getGlobalName();
   auto glblRegName = std::string("glbl_reg_").append(globalName);
 
-  auto data = getValueInRule(op.getValue(), op.getOperation(), 0, b,
-                             localMap, loc);
+  auto data = getValueInRule(op.getValue(), op.getOperation(), b, localMap, loc);
   // Call the appropriate scratchpad pool bank read method
   b.create<circt::cmt2::CallOp>(
       loc, mlir::ValueRange{},
@@ -111,8 +110,7 @@ LogicalResult MemoryOpGenerator::generateSpmLoadReq(
     llvm::report_fatal_error("SPM load request requires address indices");
   }
 
-  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), 1, b,
-                             localMap, loc);
+  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), b, localMap, loc);
   if (failed(addr)) {
     op.emitError("Failed to get address for SPM load request");
     llvm::report_fatal_error("SPM load request address resolution failed");
@@ -232,16 +230,14 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   }
 
   // Get the value to store
-  auto value = getValueInRule(op.getValue(), op.getOperation(), 0, b,
-                              localMap, loc);
+  auto value = getValueInRule(op.getValue(), op.getOperation(), b, localMap, loc);
   if (failed(value)) {
     op.emitError("Failed to get value for memory store");
     llvm::report_fatal_error("Memory store value resolution failed");
   }
 
   // Get the address
-  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), 2, b,
-                             localMap, loc);
+  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), b, localMap, loc);
   if (failed(addr)) {
     op.emitError("Failed to get address for memory store");
     llvm::report_fatal_error("Memory store address resolution failed");
@@ -313,13 +309,6 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   llvm::dbgs() << start.getType();
   Value numOfElements = op.getLength();
 
-  // Calculate operand indices accounting for variadic memrefs
-  // BurstLoadReq: cpu_addr(0), memrefs(1..N), start(1+N), length(2+N)
-  unsigned numMemrefs = op.getMemrefs().size();
-  unsigned cpuAddrOperandId = 0;
-  unsigned startOperandId = 1 + numMemrefs;
-  unsigned lengthOperandId = 2 + numMemrefs;
-
   // Get the global memory reference name
   auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(memRef.getDefiningOp());
   if (!getGlobalOp) {
@@ -368,7 +357,7 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   auto baseAddrConst = UInt::constant(baseAddress, 32, b, loc);
 
   // Use getValueInRule to get start with proper FIRRTL conversion
-  auto startValue = getValueInRule(start, op.getOperation(), startOperandId, b, localMap, loc);
+  auto startValue = getValueInRule(start, op.getOperation(), b, localMap, loc);
   if (failed(startValue)) {
     op.emitError("Failed to get start for burst load");
     llvm::report_fatal_error("Burst load start resolution failed");
@@ -400,7 +389,8 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   auto realCpuLength = UInt::constant(tlSizeField, 32, b, loc);
 
   // Use getValueInRule to get cpuAddr with proper FIRRTL conversion
-  auto cpuAddrValue = getValueInRule(cpuAddr, op.getOperation(), cpuAddrOperandId, b, localMap, loc);
+  auto cpuAddrValue =
+      getValueInRule(cpuAddr, op.getOperation(), b, localMap, loc);
   if (failed(cpuAddrValue)) {
     op.emitError("Failed to get cpuAddr for burst load");
     llvm::report_fatal_error("Burst load cpuAddr resolution failed");
@@ -458,13 +448,6 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   Value start = op.getStart();
   Value numOfElements = op.getLength();
 
-  // Calculate operand indices accounting for variadic memrefs
-  // BurstStoreReq: memrefs(0..N-1), start(N), cpu_addr(N+1), length(N+2)
-  unsigned numMemrefs = op.getMemrefs().size();
-  unsigned startOperandId = numMemrefs;
-  unsigned cpuAddrOperandId = numMemrefs + 1;
-  unsigned lengthOperandId = numMemrefs + 2;
-
   // Get the global memory reference name
   auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(memRef.getDefiningOp());
   if (!getGlobalOp) {
@@ -510,7 +493,7 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   uint32_t baseAddress = targetMemEntry->baseAddress;
 
   // Use getValueInRule to get start with proper FIRRTL conversion
-  auto startValue = getValueInRule(start, op.getOperation(), startOperandId, b, localMap, loc);
+  auto startValue = getValueInRule(start, op.getOperation(), b, localMap, loc);
   if (failed(startValue)) {
     op.emitError("Failed to get start for burst store");
     llvm::report_fatal_error("Burst store start resolution failed");
@@ -544,7 +527,8 @@ LogicalResult MemoryOpGenerator::generateBurstStoreReq(
   auto realCpuLength = UInt::constant(tlSizeField, 32, b, loc);
 
   // Use getValueInRule to get cpuAddr with proper FIRRTL conversion
-  auto cpuAddrValue = getValueInRule(cpuAddr, op.getOperation(), cpuAddrOperandId, b, localMap, loc);
+  auto cpuAddrValue =
+      getValueInRule(cpuAddr, op.getOperation(), b, localMap, loc);
   if (failed(cpuAddrValue)) {
     op.emitError("Failed to get cpuAddr for burst store");
     llvm::report_fatal_error("Burst store cpuAddr resolution failed");

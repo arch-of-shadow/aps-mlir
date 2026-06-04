@@ -46,10 +46,8 @@ public:
             Instance *hellaMemInstance, Instance *regRdInstance,
             InterfaceDecl *dmaItfc, InterfaceDecl *csrItfc,
             Circuit &circuit, Clock mainClk, Reset mainRst,
-            unsigned long opcode);
+            unsigned long instructionId);
 
-  /// Main entry point - analyze and generate rules for all basic blocks
-  LogicalResult processBasicBlocks();
 
   /// Get the slot order after analysis
   const llvm::SmallVector<int64_t, 8> &getSlotOrder() const {
@@ -100,7 +98,7 @@ private:
   Circuit &circuit;
   Clock mainClk;
   Reset mainRst;
-  unsigned long opcode;
+  unsigned long instructionId;
 
   // Current block being processed (set by processBasicBlock)
   BlockInfo* currentBlock = nullptr;
@@ -127,17 +125,14 @@ private:
   // Analysis Phase
   //===--------------------------------------------------------------------===//
 
-  /// Collect operations by time slot from the function body
-  LogicalResult collectOperationsBySlot();
-
   /// Collect operations from a specific list by time slot (for single basic block)
-  LogicalResult collectOperationsFromList(llvm::SmallVector<Operation*> &operations);
+  void collectOperationsFromList(llvm::SmallVector<Operation*> &operations);
 
   /// Validate that all operations are supported
   LogicalResult validateOperations();
 
   /// Handle RoCC command bundle in slot 0
-  LogicalResult handleRoCCCommandBundle(mlir::OpBuilder &b, Location loc);
+  void handleRoCCCommandBundle(mlir::OpBuilder &b, Location loc);
 
   /// Add reverse slot rule precedence so later stages are scheduled before
   /// earlier stages when they fire in the same cycle.
@@ -148,7 +143,7 @@ private:
                            int64_t slot,
                            llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
-  LogicalResult processPipelineBasicBlock(BlockInfo &block);
+  void processPipelineBasicBlock(BlockInfo &block);
 
   //===--------------------------------------------------------------------===//
   // Utility Methods
@@ -194,8 +189,7 @@ protected:
 
   /// Helper to get value in current rule context
   virtual FailureOr<mlir::Value>
-  getValueInRule(mlir::Value v, Operation *currentOp, unsigned operandIndex,
-                 mlir::OpBuilder &b,
+  getValueInRule(mlir::Value v, Operation *currentOp, mlir::OpBuilder &b,
                  llvm::DenseMap<mlir::Value, mlir::Value> &localMap,
                  Location loc);
 };
@@ -216,10 +210,15 @@ public:
   bool canHandle(Operation *op) const override;
 
 private:
+  enum class ArithmeticKind { Add, Sub, Mul };
+  enum class ShiftKind { Shl, ShrU, ShrS };
+  enum class BitwiseKind { And, Or, Xor };
+
   /// Perform arithmetic operation using Signal abstraction
   LogicalResult
   performArithmeticOp(mlir::OpBuilder &b, Location loc, mlir::Value lhs,
-                      mlir::Value rhs, mlir::Value result, StringRef opName,
+                      mlir::Value rhs, mlir::Value result,
+                      ArithmeticKind kind,
                       llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Perform comparison operation using Signal abstraction
@@ -257,13 +256,13 @@ private:
   /// Perform shift operation using Signal abstraction (<<, >>, dshr)
   LogicalResult
   performShiftOp(mlir::OpBuilder &b, Location loc, mlir::Value lhs,
-                 mlir::Value rhs, mlir::Value result, StringRef opName,
+                 mlir::Value rhs, mlir::Value result, ShiftKind kind,
                  llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Perform bitwise operation using Signal abstraction (&, |, ^)
   LogicalResult
   performBitwiseOp(mlir::OpBuilder &b, Location loc, mlir::Value lhs,
-                   mlir::Value rhs, mlir::Value result, StringRef opName,
+                   mlir::Value rhs, mlir::Value result, BitwiseKind kind,
                    llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Perform signed extension operation using FIRRTL asSInt/pad/asUInt

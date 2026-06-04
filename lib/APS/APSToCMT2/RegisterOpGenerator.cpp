@@ -77,7 +77,7 @@ LogicalResult RegisterOpGenerator::generateCpuRfRead(aps::CpuRfRead op, mlir::Op
 LogicalResult RegisterOpGenerator::generateCpuRfWrite(aps::CpuRfWrite op, mlir::OpBuilder &b,
                                                     Location loc, int64_t slot,
                                                     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  auto rdvalue = getValueInRule(op.getValue(), op.getOperation(), 1, b, localMap, loc);
+  auto rdvalue = getValueInRule(op.getValue(), op.getOperation(), b, localMap, loc);
   if (failed(rdvalue))
     return failure();
 
@@ -129,8 +129,7 @@ LogicalResult RegisterOpGenerator::generateReadCSR(
 LogicalResult RegisterOpGenerator::generateWriteCSR(
     aps::WriteCSR op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  auto data = getValueInRule(op.getValue(), op.getOperation(), 0, b, localMap,
-                             loc);
+  auto data = getValueInRule(op.getValue(), op.getOperation(), b, localMap, loc);
   if (failed(data))
     return failure();
 

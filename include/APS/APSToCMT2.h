@@ -299,7 +299,7 @@ private:
 
   Module *
   generateRoCCAdapter(Circuit &circuit,
-                      const llvm::SmallVector<unsigned long, 4> &opcodes);
+                      const llvm::SmallVector<unsigned long, 4> &instructionIds);
 public:
   // Memory entry map for fast lookup by name
   llvm::DenseMap<llvm::StringRef, MemoryEntryInfo> memEntryMap;
@@ -317,7 +317,7 @@ public:
                                 InterfaceDecl *dmaItfc,
                                 InterfaceDecl *csrItfc, Circuit &circuit,
                                 Clock mainClk, Reset mainRst,
-                                unsigned long opcode);
+                                unsigned long instructionId);
 
   StringRef getArgument() const final { return "aps-to-cmt2"; }
   StringRef getDescription() const final {

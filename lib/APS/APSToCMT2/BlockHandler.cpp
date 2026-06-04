@@ -37,15 +37,15 @@ BlockHandler::BlockHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp 
                           Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
                           InterfaceDecl *csrItfc, Circuit &circuit,
                           Clock mainClk, Reset mainRst,
-                          unsigned long opcode, Instance *regRdInstance,
+                          unsigned long instructionId, Instance *regRdInstance,
                           Instance *inputTokenFIFO, Instance *outputTokenFIFO,
                           llvm::DenseMap<Value, Instance*> &input_fifos,
                           llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> &output_fifos,
                           const std::string &namePrefix)
     : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
       roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), regRdInstance(regRdInstance),
-      dmaItfc(dmaItfc), csrItfc(csrItfc), circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode),
-      namePrefix(namePrefix.empty() ? "op" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str() + "_" : namePrefix),
+      dmaItfc(dmaItfc), csrItfc(csrItfc), circuit(circuit), mainClk(mainClk), mainRst(mainRst), instructionId(instructionId),
+      namePrefix(namePrefix.empty() ? "op" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << instructionId).str() + "_" : namePrefix),
       inputTokenFIFO(inputTokenFIFO), outputTokenFIFO(outputTokenFIFO), input_fifos(input_fifos),
       output_fifos(output_fifos) {
 }
@@ -480,7 +480,7 @@ LogicalResult BlockHandler::processBlock(BlockInfo& block) {
     std::string loopPrefix = block.blockName + "_";
     LoopHandler loopHandler(pass, mainModule, funcOp, poolInstance,
                            roccInstance, hellaMemInstance, dmaItfc, csrItfc,
-                           circuit, mainClk, mainRst, opcode, regRdInstance,
+                           circuit, mainClk, mainRst, instructionId, regRdInstance,
                            block.input_token_fifo, block.output_token_fifo,
                            block.input_fifos, block.output_fifos, loopPrefix);
     loopHandler.setRequireContextToken(pipelineMode);
@@ -865,7 +865,7 @@ LogicalResult BlockHandler::processRegularBlockWithBBHandler(BlockInfo& block) {
 
   BBHandler bbHandler(pass, mainModule, funcOp, poolInstance, roccInstance,
                      hellaMemInstance, regRdInstance, dmaItfc, csrItfc,
-                     circuit, mainClk, mainRst, opcode);
+                     circuit, mainClk, mainRst, instructionId);
   bbHandler.setPipelineMode(pipelineMode);
 
   // Use the new BlockInfo interface for cleaner API and proper blockName access
@@ -963,7 +963,7 @@ std::string BlockHandler::generateBlockName(unsigned blockId, BlockType type, co
     return parentName + baseName;
   }
 
-  // Use namePrefix from constructor (includes opcode)
+  // Use namePrefix from constructor (includes instruction id)
   return namePrefix + baseName;
 }
 

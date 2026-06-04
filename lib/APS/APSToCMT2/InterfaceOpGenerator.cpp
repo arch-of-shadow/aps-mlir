@@ -64,7 +64,7 @@ LogicalResult InterfaceOpGenerator::generateItfcLoadReq(aps::ItfcLoadReq op, mli
     return failure();
   }
 
-  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), 1, b, localMap, loc);
+  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), b, localMap, loc);
   if (failed(addr)) {
     op.emitError("Failed to get address for interface load request");
     return failure();
@@ -124,8 +124,8 @@ LogicalResult InterfaceOpGenerator::generateItfcStoreReq(aps::ItfcStoreReq op, m
     return failure();
   }
 
-  auto value = getValueInRule(op.getValue(), op.getOperation(), 0, b, localMap, loc);
-  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), 2, b, localMap, loc);
+  auto value = getValueInRule(op.getValue(), op.getOperation(), b, localMap, loc);
+  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), b, localMap, loc);
   if (failed(value) || failed(addr)) {
     op.emitError("Failed to get value or address for interface store request");
     return failure();

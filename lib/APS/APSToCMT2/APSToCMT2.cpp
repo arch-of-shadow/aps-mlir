@@ -101,13 +101,13 @@ void APSToCMT2Pass::runOnOperation() {
   auto glblRegister = generateGlobalRegisterList(circuit, moduleOp, memoryMapOp);
 
   // Generate RoCC adapter module
-  llvm::SmallVector<unsigned long, 4> opcodes = {}; // Example opcodes
+  llvm::SmallVector<unsigned long, 4> instructionIds = {};
   moduleOp.walk([&](tor::FuncOp funcOp) {
-    auto opcode = funcOp->getAttrOfType<IntegerAttr>("opcode").getInt();
+    auto rawOpcode = funcOp->getAttrOfType<IntegerAttr>("opcode").getInt();
     auto funct7 = funcOp->getAttrOfType<IntegerAttr>("funct7").getInt();
-    opcodes.push_back((opcode << 8) + funct7);
+    instructionIds.push_back((rawOpcode << 8) + funct7);
   });
-  auto *roccAdapterModule = generateRoCCAdapter(circuit, opcodes);
+  auto *roccAdapterModule = generateRoCCAdapter(circuit, instructionIds);
 
   // // Generate memory translator module
   auto *memoryAdapterModule = generateMemoryAdapter(circuit);
@@ -190,16 +190,14 @@ MainModuleInstances APSToCMT2Pass::generateRuleBasedMainModule(
       {mainClk.getValue(), mainRst.getValue()}, {{"hella_cmd", "hella_cmd"}});
 
   // For each TOR function, generate rules
-  // Extract opcodes from the function or use defaults
-  // For scalar.mlir, we need to determine the appropriate opcode
   for (auto funcOp : torFuncs) {
-    auto opcode = funcOp->getAttrOfType<IntegerAttr>("opcode").getInt();
+    auto rawOpcode = funcOp->getAttrOfType<IntegerAttr>("opcode").getInt();
     auto funct7 = funcOp->getAttrOfType<IntegerAttr>("funct7").getInt();
+    unsigned long instructionId = (rawOpcode << 8) + funct7;
     generateRulesForFunction(mainModule, funcOp, poolInstance, roccInstance,
                              hellaMemInstance, burstControllerItfcDecl,
                              csrItfcDecl, circuit, mainClk, mainRst,
-                             (opcode << 8) + funct7);
-                             // we now use both opcode and funct7 to identify functions
+                             instructionId);
   }
 
   return {mainModule, poolInstance, roccInstance, hellaMemInstance};

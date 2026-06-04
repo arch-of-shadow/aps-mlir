@@ -722,19 +722,12 @@ Module *APSToCMT2Pass::generateMemoryAdapter(Circuit &circuit) {
 
   commitCmdRule->finalize();
 
-  // Add scheduling constraints (matching Rust schedule! calls)
-  // Rust: schedule!(resp_from_bus, commit_cmd) means resp_from_bus must fire
-  // before commit_cmd Rust: schedule!(resp_from_bus, resp_to_user) means
-  // resp_from_bus must fire before resp_to_user Note: In CMT2 C++, this would
-  // be handled by the scheduling system, but we document it here
+  // Schedule relationships:
+  // 1. resp_from_bus BEFORE commit_cmd
+  // 2. resp_from_bus BEFORE resp_to_user
   translatorModule->setPrecedence(
       {{"resp_from_bus", "commit_cmd"}, {"resp_from_bus", "resp_to_user"}});
-  // Schedule relationships:
-  // 1. resp_from_bus → commit_cmd (resp_from_bus must execute before
-  // commit_cmd)
-  // 2. resp_from_bus → resp_to_user (resp_from_bus must execute before
-  // resp_to_user)
-
+      
   return translatorModule;
 }
 
@@ -776,7 +769,7 @@ BundleType APSToCMT2Pass::getRoccRespBundleType(Builder &builder) {
 /// Generate RoCC Adapter module that bridges RoCC interface with accelerator
 /// execution units
 Module *APSToCMT2Pass::generateRoCCAdapter(
-    Circuit &circuit, const llvm::SmallVector<unsigned long, 4> &opcodes) {
+    Circuit &circuit, const llvm::SmallVector<unsigned long, 4> &instructionIds) {
   auto *roccAdapterModule = circuit.addModule("RoCCAdapter");
   auto &builder = roccAdapterModule->getBuilder();
   auto loc = roccAdapterModule->getLoc();
@@ -806,11 +799,11 @@ Module *APSToCMT2Pass::generateRoCCAdapter(
 
   builder.restoreInsertionPoint(savedIP);
 
-  // Create FIFO instances for each opcode
+  // Create FIFO instances for each instruction id.
   llvm::SmallVector<Instance *, 4> roccCmdFifos;
-  for (uint32_t opcode : opcodes) {
+  for (uint32_t instructionId : instructionIds) {
     auto *fifo = roccAdapterModule->addInstance(
-        "rocc_cmd_fifo_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str(), roccCmdFifoMod,
+        "rocc_cmd_fifo_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << instructionId).str(), roccCmdFifoMod,
         {clk.getValue(), rst.getValue()});
     roccCmdFifos.push_back(fifo);
   }
@@ -820,7 +813,7 @@ Module *APSToCMT2Pass::generateRoCCAdapter(
       "rocc_resp_fifo", roccRespFifoMod, {clk.getValue(), rst.getValue()});
 
   // Method: cmd_from_bus - receives RoCC commands from the bus and routes to
-  // appropriate opcode queues
+  // appropriate instruction queues
   llvm::SmallVector<std::pair<std::string, mlir::Type>, 1> cmdFromBusArgs;
   cmdFromBusArgs.push_back({"rocc_cmd_bus", roccCmdBundleType});
   auto *cmdFromBus =
@@ -861,19 +854,19 @@ Module *APSToCMT2Pass::generateRoCCAdapter(
                            .cat(rs1)
                            .cat(funct);
 
-    // Route command to appropriate queue based on opcode (following Rust
+    // Route command to appropriate queue based on opcode+funct7 (following Rust
     // pattern)
-    for (size_t i = 0; i < opcodes.size(); ++i) {
-      uint32_t targetOpcode = opcodes[i];
+    for (size_t i = 0; i < instructionIds.size(); ++i) {
+      uint32_t targetInstructionId = instructionIds[i];
       auto *fifo = roccCmdFifos[i];
 
-      // Check if this command's opcode matches the target
-      auto opcodeMatch =
-          opcode.cat(funct.pad(8)) == UInt::constant(targetOpcode, 16, bodyBuilder, loc);
+      // Check if this command's opcode+funct7 matches the target.
+      auto instructionMatch =
+          opcode.cat(funct.pad(8)) == UInt::constant(targetInstructionId, 16, bodyBuilder, loc);
 
       // Conditional enqueue (matching Rust if_! pattern)
       If(
-          opcodeMatch,
+          instructionMatch,
           [&](mlir::OpBuilder &innerBuilder) -> Signal {
             // Enqueue the packed 96-bit command to the appropriate FIFO
             fifo->callMethod("enq", {packedCmd.getValue()}, innerBuilder);
@@ -957,10 +950,10 @@ Module *APSToCMT2Pass::generateRoCCAdapter(
 
   commitRule->finalize();
 
-  // Add cmd_to_user methods for each opcode (following Rust pattern exactly)
-  for (size_t i = 0; i < opcodes.size(); ++i) {
-    uint32_t opcode = opcodes[i];
-    std::string methodName = "cmd_to_user_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str();
+  // Add cmd_to_user methods for each instruction id (following Rust pattern exactly)
+  for (size_t i = 0; i < instructionIds.size(); ++i) {
+    uint32_t instructionId = instructionIds[i];
+    std::string methodName = "cmd_to_user_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << instructionId).str();
 
     llvm::SmallVector<std::pair<std::string, mlir::Type>, 0> cmdToUserArgs;
     llvm::SmallVector<mlir::Type, 1> cmdToUserReturns = {roccCmdBundleType};

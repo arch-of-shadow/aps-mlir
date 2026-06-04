@@ -31,7 +31,7 @@ void APSToCMT2Pass::generateRulesForFunction(
     Module *mainModule, tor::FuncOp funcOp, Instance *poolInstance,
     Instance *roccInstance, Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
     InterfaceDecl *csrItfc, Circuit &circuit, Clock mainClk, Reset mainRst,
-    unsigned long opcode) {
+    unsigned long instructionId) {
 
   // First, check if function contains loops - if so, use LoopHandler
   bool hasLoops = false;
@@ -44,14 +44,14 @@ void APSToCMT2Pass::generateRulesForFunction(
   llvm::dbgs() << "[RuleGen] Function " << funcOp.getName()
                << " - using unified BlockHandler for all processing\n";
 
-  // Create reg_rd register instance (one per opcode, shared across all blocks)
+  // Create reg_rd register instance (one per instruction id, shared across all blocks)
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
   auto *regRdMod = STLLibrary::createRegModule(5, 0, circuit);
-  Instance *regRdInstance = mainModule->addInstance("reg_rd_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str(), regRdMod,
+  Instance *regRdInstance = mainModule->addInstance("reg_rd_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << instructionId).str(), regRdMod,
                                                     {mainClk.getValue(), mainRst.getValue()});
   builder.restoreInsertionPoint(savedIP);
-  llvm::dbgs() << "[RuleGen] Created shared reg_rd instance: reg_rd_" << opcode << "\n";
+  llvm::dbgs() << "[RuleGen] Created shared reg_rd instance: reg_rd_" << instructionId << "\n";
 
   // For top-level function processing, we don't have external FIFOs
   // Token FIFOs and value FIFOs will be created internally by BlockHandler
@@ -64,7 +64,7 @@ void APSToCMT2Pass::generateRulesForFunction(
   // BlockHandler will internally delegate to specialized handlers (LoopHandler, BBHandler) as needed
   BlockHandler blockHandler(this, mainModule, funcOp, poolInstance,
                            roccInstance, hellaMemInstance, dmaItfc, csrItfc,
-                           circuit, mainClk, mainRst, opcode, regRdInstance,
+                           circuit, mainClk, mainRst, instructionId, regRdInstance,
                            topLevelInputTokenFIFO, topLevelOutputTokenFIFO,
                            topLevelInputFIFOs, topLevelOutputFIFOs);
 

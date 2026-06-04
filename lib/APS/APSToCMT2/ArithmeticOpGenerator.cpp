@@ -21,93 +21,121 @@ using namespace circt::cmt2::ecmt2;
 using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
 
+static Signal fitToWidth(Signal value, unsigned requiredWidth) {
+  auto actualWidth = value.getWidth();
+  if (actualWidth > requiredWidth)
+    return value.bits(requiredWidth - 1, 0);
+  if (actualWidth < requiredWidth)
+    return value.pad(requiredWidth);
+  return value;
+}
+
+static void padToSameWidth(Signal &lhs, Signal &rhs) {
+  auto lhsWidth = lhs.getWidth();
+  auto rhsWidth = rhs.getWidth();
+  auto maxWidth = std::max(lhsWidth, rhsWidth);
+  if (lhsWidth < maxWidth)
+    lhs = lhs.pad(maxWidth);
+  if (rhsWidth < maxWidth)
+    rhs = rhs.pad(maxWidth);
+}
+
 LogicalResult ArithmeticOpGenerator::generateRule(Operation *op, mlir::OpBuilder &b,
                                                 Location loc, int64_t slot,
                                                 llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   if (auto addOp = dyn_cast<tor::AddIOp>(op)) {
-    auto lhs = getValueInRule(addOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(addOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(addOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(addOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
-    return performArithmeticOp(b, loc, *lhs, *rhs, addOp.getResult(), "add", localMap);
+    return performArithmeticOp(b, loc, *lhs, *rhs, addOp.getResult(),
+                               ArithmeticKind::Add, localMap);
   } else if (auto subOp = dyn_cast<tor::SubIOp>(op)) {
-    auto lhs = getValueInRule(subOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(subOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(subOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(subOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
-    return performArithmeticOp(b, loc, *lhs, *rhs, subOp.getResult(), "sub", localMap);
+    return performArithmeticOp(b, loc, *lhs, *rhs, subOp.getResult(),
+                               ArithmeticKind::Sub, localMap);
   } else if (auto mulOp = dyn_cast<tor::MulIOp>(op)) {
-    auto lhs = getValueInRule(mulOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(mulOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(mulOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(mulOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
-    return performArithmeticOp(b, loc, *lhs, *rhs, mulOp.getResult(), "mul", localMap);
+    return performArithmeticOp(b, loc, *lhs, *rhs, mulOp.getResult(),
+                               ArithmeticKind::Mul, localMap);
   } else if (auto cmpOp = dyn_cast<tor::CmpIOp>(op)) {
-    auto lhs = getValueInRule(cmpOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(cmpOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(cmpOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(cmpOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
     return performComparisonOp(b, loc, *lhs, *rhs, cmpOp.getResult(), cmpOp.getPredicate(), localMap);
   } else if (auto selectOp = dyn_cast<arith::SelectOp>(op)) {
-    auto condition = getValueInRule(selectOp.getCondition(), op, 0, b, localMap, loc);
-    auto trueValue = getValueInRule(selectOp.getTrueValue(), op, 1, b, localMap, loc);
-    auto falseValue = getValueInRule(selectOp.getFalseValue(), op, 2, b, localMap, loc);
+    auto condition = getValueInRule(selectOp.getCondition(), op, b, localMap, loc);
+    auto trueValue = getValueInRule(selectOp.getTrueValue(), op, b, localMap, loc);
+    auto falseValue = getValueInRule(selectOp.getFalseValue(), op, b, localMap, loc);
     if (failed(condition) || failed(trueValue) || failed(falseValue))
       return failure();
     return performSelectOp(b, loc, *condition, *trueValue, *falseValue, selectOp.getResult(), localMap);
   } else if (auto extuiOp = dyn_cast<arith::ExtUIOp>(op)) {
-    auto input = getValueInRule(extuiOp.getIn(), op, 0, b, localMap, loc);
+    auto input = getValueInRule(extuiOp.getIn(), op, b, localMap, loc);
     if (failed(input))
       return failure();
     return performExtUIOp(b, loc, *input, extuiOp.getResult(), localMap);
   } else if (auto trunciOp = dyn_cast<arith::TruncIOp>(op)) {
-    auto input = getValueInRule(trunciOp.getIn(), op, 0, b, localMap, loc);
+    auto input = getValueInRule(trunciOp.getIn(), op, b, localMap, loc);
     if (failed(input))
       return failure();
     return performTruncIOp(b, loc, *input, trunciOp.getResult(), localMap);
   } else if (auto extractOp = dyn_cast<circt::comb::ExtractOp>(op)) {
-    auto input = getValueInRule(extractOp.getInput(), op, 0, b, localMap, loc);
+    auto input = getValueInRule(extractOp.getInput(), op, b, localMap, loc);
     if (failed(input))
       return failure();
     return performExtractOp(b, loc, *input, extractOp.getLowBit(), extractOp.getResult(), localMap);
   } else if (auto shliOp = dyn_cast<arith::ShLIOp>(op)) {
-    auto lhs = getValueInRule(shliOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(shliOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(shliOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(shliOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
-    return performShiftOp(b, loc, *lhs, *rhs, shliOp.getResult(), "shl", localMap);
+    return performShiftOp(b, loc, *lhs, *rhs, shliOp.getResult(),
+                          ShiftKind::Shl, localMap);
   } else if (auto shruiOp = dyn_cast<arith::ShRUIOp>(op)) {
-    auto lhs = getValueInRule(shruiOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(shruiOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(shruiOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(shruiOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
-    return performShiftOp(b, loc, *lhs, *rhs, shruiOp.getResult(), "shrui", localMap);
+    return performShiftOp(b, loc, *lhs, *rhs, shruiOp.getResult(),
+                          ShiftKind::ShrU, localMap);
   } else if (auto shrsiOp = dyn_cast<arith::ShRSIOp>(op)) {
-    auto lhs = getValueInRule(shrsiOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(shrsiOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(shrsiOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(shrsiOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
-    return performShiftOp(b, loc, *lhs, *rhs, shrsiOp.getResult(), "shrsi", localMap);
+    return performShiftOp(b, loc, *lhs, *rhs, shrsiOp.getResult(),
+                          ShiftKind::ShrS, localMap);
   } else if (auto andiOp = dyn_cast<arith::AndIOp>(op)) {
-    auto lhs = getValueInRule(andiOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(andiOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(andiOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(andiOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
-    return performBitwiseOp(b, loc, *lhs, *rhs, andiOp.getResult(), "and", localMap);
+    return performBitwiseOp(b, loc, *lhs, *rhs, andiOp.getResult(),
+                            BitwiseKind::And, localMap);
   } else if (auto oriOp = dyn_cast<arith::OrIOp>(op)) {
-    auto lhs = getValueInRule(oriOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(oriOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(oriOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(oriOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
-    return performBitwiseOp(b, loc, *lhs, *rhs, oriOp.getResult(), "or", localMap);
+    return performBitwiseOp(b, loc, *lhs, *rhs, oriOp.getResult(),
+                            BitwiseKind::Or, localMap);
   } else if (auto xoriOp = dyn_cast<arith::XOrIOp>(op)) {
-    auto lhs = getValueInRule(xoriOp.getLhs(), op, 0, b, localMap, loc);
-    auto rhs = getValueInRule(xoriOp.getRhs(), op, 1, b, localMap, loc);
+    auto lhs = getValueInRule(xoriOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(xoriOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
       return failure();
-    return performBitwiseOp(b, loc, *lhs, *rhs, xoriOp.getResult(), "xor", localMap);
+    return performBitwiseOp(b, loc, *lhs, *rhs, xoriOp.getResult(),
+                            BitwiseKind::Xor, localMap);
   } else if (auto extsiOp = dyn_cast<arith::ExtSIOp>(op)) {
-    auto input = getValueInRule(extsiOp.getIn(), op, 0, b, localMap, loc);
+    auto input = getValueInRule(extsiOp.getIn(), op, b, localMap, loc);
     if (failed(input))
       return failure();
     return performExtSIOp(b, loc, *input, extsiOp.getResult(), localMap);
@@ -125,7 +153,8 @@ bool ArithmeticOpGenerator::canHandle(Operation *op) const {
 
 LogicalResult ArithmeticOpGenerator::performArithmeticOp(mlir::OpBuilder &b, Location loc,
                                                        mlir::Value lhs, mlir::Value rhs,
-                                                       mlir::Value result, StringRef opName,
+                                                       mlir::Value result,
+                                                       ArithmeticKind kind,
                                                        llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // Determine result width based on operation type
   auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
@@ -135,25 +164,19 @@ LogicalResult ArithmeticOpGenerator::performArithmeticOp(mlir::OpBuilder &b, Loc
   Signal rhsSignal(rhs, &b, loc);
 
   Signal resultSignal(lhs, &b, loc); // dummy init
-  if (opName == "add") {
+  switch (kind) {
+  case ArithmeticKind::Add:
     resultSignal = lhsSignal + rhsSignal;
-  } else if (opName == "sub") {
+    break;
+  case ArithmeticKind::Sub:
     resultSignal = lhsSignal - rhsSignal;
-  } else if (opName == "mul") {
+    break;
+  case ArithmeticKind::Mul:
     resultSignal = lhsSignal * rhsSignal;
-  } else {
-    return failure();
+    break;
   }
 
-  auto firrtlWidth = resultSignal.getWidth();
-  Signal resultSignalWidthFix = resultSignal;
-  if (firrtlWidth > requiredWidth) {
-    resultSignalWidthFix = resultSignal.bits(requiredWidth - 1, 0);
-  } else if (firrtlWidth < requiredWidth) {
-    resultSignalWidthFix = resultSignal.pad(requiredWidth);
-  }
-
-  localMap[result] = resultSignalWidthFix.getValue();
+  localMap[result] = fitToWidth(resultSignal, requiredWidth).getValue();
   return success();
 }
 
@@ -166,18 +189,8 @@ LogicalResult ArithmeticOpGenerator::performComparisonOp(mlir::OpBuilder &b, Loc
   Signal lhsSignal(lhs, &b, loc);
   Signal rhsSignal(rhs, &b, loc);
 
-  // Get operand widths from FIRRTL Signal
-  auto lhsWidth = lhsSignal.getWidth();
-  auto rhsWidth = rhsSignal.getWidth();
-
   // Match widths to the maximum (like arith.cmpi expects)
-  auto maxWidth = std::max(lhsWidth, rhsWidth);
-  if (lhsWidth < maxWidth) {
-    lhsSignal = lhsSignal.pad(maxWidth);
-  }
-  if (rhsWidth < maxWidth) {
-    rhsSignal = rhsSignal.pad(maxWidth);
-  }
+  padToSameWidth(lhsSignal, rhsSignal);
 
   Signal resultSignal(lhs, &b, loc); // dummy init
 
@@ -211,18 +224,8 @@ LogicalResult ArithmeticOpGenerator::performComparisonOp(mlir::OpBuilder &b, Loc
 
   // Get required result width from the TOR operation result type
   // The result type should be an integer type (typically i1 for comparisons)
-  auto requiredWidth = dyn_cast<IntegerType>(result.getType()).getWidth();
-
-  auto firrtlWidth = resultSignal.getWidth();
-
-  Signal resultSignalWidthFix = resultSignal;
-  if (firrtlWidth > requiredWidth) {
-    resultSignalWidthFix = resultSignal.bits(requiredWidth - 1, 0);
-  } else if (firrtlWidth < requiredWidth) {
-    resultSignalWidthFix = resultSignal.pad(requiredWidth);
-  }
-
-  localMap[result] = resultSignalWidthFix.getValue();
+  auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
+  localMap[result] = fitToWidth(resultSignal, requiredWidth).getValue();
   return success();
 }
 
@@ -235,18 +238,8 @@ LogicalResult ArithmeticOpGenerator::performSelectOp(mlir::OpBuilder &b, Locatio
   Signal trueSignal(trueValue, &b, loc);
   Signal falseSignal(falseValue, &b, loc);
 
-  // Get operand widths from FIRRTL Signal
-  auto trueWidth = trueSignal.getWidth();
-  auto falseWidth = falseSignal.getWidth();
-
   // Match widths to the maximum (ensure operands have same width for mux)
-  auto maxWidth = std::max(trueWidth, falseWidth);
-  if (trueWidth < maxWidth) {
-    trueSignal = trueSignal.pad(maxWidth);
-  }
-  if (falseWidth < maxWidth) {
-    falseSignal = falseSignal.pad(maxWidth);
-  }
+  padToSameWidth(trueSignal, falseSignal);
 
   // Perform mux operation: if condition is true, select trueSignal, else select falseSignal
   // Signal::mux signature is: condition.mux(trueVal, falseVal)
@@ -255,16 +248,7 @@ LogicalResult ArithmeticOpGenerator::performSelectOp(mlir::OpBuilder &b, Locatio
   // Get required result width from the operation result type
   auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
 
-  auto firrtlWidth = resultSignal.getWidth();
-
-  Signal resultSignalWidthFix = resultSignal;
-  if (firrtlWidth > requiredWidth) {
-    resultSignalWidthFix = resultSignal.bits(requiredWidth - 1, 0);
-  } else if (firrtlWidth < requiredWidth) {
-    resultSignalWidthFix = resultSignal.pad(requiredWidth);
-  }
-
-  localMap[result] = resultSignalWidthFix.getValue();
+  localMap[result] = fitToWidth(resultSignal, requiredWidth).getValue();
   return success();
 }
 
@@ -330,11 +314,9 @@ static std::optional<int64_t> getConstantValue(mlir::Value value) {
 
 LogicalResult ArithmeticOpGenerator::performShiftOp(mlir::OpBuilder &b, Location loc,
                                                      mlir::Value lhs, mlir::Value rhs,
-                                                     mlir::Value result, StringRef opName,
+                                                     mlir::Value result,
+                                                     ShiftKind kind,
                                                      llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  // Create Signal wrappers
-  Signal lhsSignal(lhs, &b, loc);
-
   // Get result width
   auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
 
@@ -348,97 +330,75 @@ LogicalResult ArithmeticOpGenerator::performShiftOp(mlir::OpBuilder &b, Location
     // Constant shift - use ShlPrimOp/ShrPrimOp
     int64_t shiftAmt = *constShiftAmount;
 
-    if (opName == "shl") {
+    switch (kind) {
+    case ShiftKind::Shl:
       // Constant left shift
       shiftResult = b.create<circt::firrtl::ShlPrimOp>(loc, lhs, shiftAmt);
-    } else if (opName == "shrui" || opName == "shrsi") {
+      break;
+    case ShiftKind::ShrU:
+    case ShiftKind::ShrS:
       // Constant right shift (both logical and arithmetic use ShrPrimOp)
       shiftResult = b.create<circt::firrtl::ShrPrimOp>(loc, lhs, shiftAmt);
-    } else {
-      return failure();
+      break;
     }
   } else {
     // Dynamic shift - use DShlPrimOp/DShrPrimOp
-    if (opName == "shl") {
+    switch (kind) {
+    case ShiftKind::Shl:
       // Dynamic left shift: dshl
       shiftResult = b.create<circt::firrtl::DShlPrimOp>(loc, lhs, rhs);
-    } else if (opName == "shrui") {
+      break;
+    case ShiftKind::ShrU:
       // Dynamic logical right shift: dshr
       shiftResult = b.create<circt::firrtl::DShrPrimOp>(loc, lhs, rhs);
-    } else if (opName == "shrsi") {
+      break;
+    case ShiftKind::ShrS:
       // Dynamic arithmetic right shift: for signed, we need to ensure proper sign extension
       // FIRRTL's dshr on signed values performs arithmetic shift
       shiftResult = b.create<circt::firrtl::DShrPrimOp>(loc, lhs, rhs);
-    } else {
-      return failure();
+      break;
     }
   }
 
   // Wrap result in Signal for width adjustment
   Signal resultSignal(shiftResult, &b, loc);
-  auto firrtlWidth = resultSignal.getWidth();
-  Signal resultSignalWidthFix = resultSignal;
-
-  if (firrtlWidth > requiredWidth) {
-    resultSignalWidthFix = resultSignal.bits(requiredWidth - 1, 0);
-  } else if (firrtlWidth < requiredWidth) {
-    resultSignalWidthFix = resultSignal.pad(requiredWidth);
-  }
-
-  localMap[result] = resultSignalWidthFix.getValue();
+  localMap[result] = fitToWidth(resultSignal, requiredWidth).getValue();
   return success();
 }
 
 LogicalResult ArithmeticOpGenerator::performBitwiseOp(mlir::OpBuilder &b, Location loc,
                                                        mlir::Value lhs, mlir::Value rhs,
-                                                       mlir::Value result, StringRef opName,
+                                                       mlir::Value result,
+                                                       BitwiseKind kind,
                                                        llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // Create Signal wrappers
   Signal lhsSignal(lhs, &b, loc);
   Signal rhsSignal(rhs, &b, loc);
 
-  // Get operand widths
-  auto lhsWidth = lhsSignal.getWidth();
-  auto rhsWidth = rhsSignal.getWidth();
-
   // Match widths to the maximum
-  auto maxWidth = std::max(lhsWidth, rhsWidth);
-  if (lhsWidth < maxWidth) {
-    lhsSignal = lhsSignal.pad(maxWidth);
-  }
-  if (rhsWidth < maxWidth) {
-    rhsSignal = rhsSignal.pad(maxWidth);
-  }
+  padToSameWidth(lhsSignal, rhsSignal);
 
   // Get result width
   auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
 
   Signal resultSignal(lhs, &b, loc); // dummy init
 
-  if (opName == "and") {
+  switch (kind) {
+  case BitwiseKind::And:
     // Bitwise AND
     resultSignal = lhsSignal & rhsSignal;
-  } else if (opName == "or") {
+    break;
+  case BitwiseKind::Or:
     // Bitwise OR
     resultSignal = lhsSignal | rhsSignal;
-  } else if (opName == "xor") {
+    break;
+  case BitwiseKind::Xor:
     // Bitwise XOR
     resultSignal = lhsSignal ^ rhsSignal;
-  } else {
-    return failure();
+    break;
   }
 
-  // Adjust width if needed
-  auto firrtlWidth = resultSignal.getWidth();
-  Signal resultSignalWidthFix = resultSignal;
-
-  if (firrtlWidth > requiredWidth) {
-    resultSignalWidthFix = resultSignal.bits(requiredWidth - 1, 0);
-  } else if (firrtlWidth < requiredWidth) {
-    resultSignalWidthFix = resultSignal.pad(requiredWidth);
-  }
-
-  localMap[result] = resultSignalWidthFix.getValue();
+  localMap[result] = fitToWidth(resultSignal, requiredWidth).getValue();
   return success();
 }
 

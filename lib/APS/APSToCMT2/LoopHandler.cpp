@@ -38,7 +38,7 @@ LoopHandler::LoopHandler(APSToCMT2Pass *pass, Module *mainModule,
                          Instance *roccInstance, Instance *hellaMemInstance,
                          InterfaceDecl *dmaItfc, InterfaceDecl *csrItfc,
                          Circuit &circuit,
-                         Clock mainClk, Reset mainRst, unsigned long opcode, Instance *regRdInstance,
+                         Clock mainClk, Reset mainRst, unsigned long instructionId, Instance *regRdInstance,
                          Instance *input_token_fifo,
                          Instance *output_token_fifo,
                          llvm::DenseMap<Value, Instance *> &input_fifos,
@@ -46,7 +46,7 @@ LoopHandler::LoopHandler(APSToCMT2Pass *pass, Module *mainModule,
                          const std::string &namePrefix)
     : BlockHandler(pass, mainModule, funcOp, poolInstance, roccInstance,
                    hellaMemInstance, dmaItfc, csrItfc, circuit, mainClk,
-                   mainRst, opcode, regRdInstance,
+                   mainRst, instructionId, regRdInstance,
                    input_token_fifo, output_token_fifo, input_fifos,
                    output_fifos, namePrefix) {}
 
@@ -1008,7 +1008,7 @@ LogicalResult LoopHandler::processLoopBodyOperations(tor::ForOp forOp, BlockInfo
   // This will handle block segmentation, dataflow analysis, and rule generation
   BlockHandler loopBodyHandler(
       pass, mainModule, funcOp, poolInstance, roccInstance,
-      hellaMemInstance, dmaItfc, csrItfc, circuit, mainClk, mainRst, opcode,
+      hellaMemInstance, dmaItfc, csrItfc, circuit, mainClk, mainRst, instructionId,
       regRdInstance,
       loop.scopeResources.bodyAdmitFIFO ? loop.scopeResources.bodyAdmitFIFO : loop.token_fifos.to_body,
       loop.scopeResources.bodyDoneTokenFIFO ? loop.scopeResources.bodyDoneTokenFIFO : loop.token_fifos.body_to_next,

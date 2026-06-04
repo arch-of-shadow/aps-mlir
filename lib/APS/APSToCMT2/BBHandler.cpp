@@ -1,4 +1,5 @@
-//===- BBHandler.cpp - Basic Block Handler Implementation ------------------===//
+//===- BBHandler.cpp - Basic Block Handler Implementation
+//------------------===//
 //
 // This file implements the object-oriented basic block handling for TOR
 // function rule generation
@@ -12,6 +13,8 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Format.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -27,16 +30,17 @@ using namespace circt::firrtl;
 // BBHandler Implementation
 //===----------------------------------------------------------------------===//
 
-BBHandler::BBHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp,
-                    Instance *poolInstance, Instance *roccInstance,
-                    Instance *hellaMemInstance, Instance *regRdInstance,
-                    InterfaceDecl *dmaItfc, InterfaceDecl *csrItfc,
-                    Circuit &circuit, Clock mainClk, Reset mainRst,
-                    unsigned long opcode)
-    : pass(pass), mainModule(mainModule), funcOp(funcOp), poolInstance(poolInstance),
-      roccInstance(roccInstance), hellaMemInstance(hellaMemInstance), dmaItfc(dmaItfc),
-      csrItfc(csrItfc),
-      circuit(circuit), mainClk(mainClk), mainRst(mainRst), opcode(opcode), regRdInstance(regRdInstance) {
+BBHandler::BBHandler(APSToCMT2Pass *pass, Module *mainModule,
+                     tor::FuncOp funcOp, Instance *poolInstance,
+                     Instance *roccInstance, Instance *hellaMemInstance,
+                     Instance *regRdInstance, InterfaceDecl *dmaItfc,
+                     InterfaceDecl *csrItfc, Circuit &circuit, Clock mainClk,
+                     Reset mainRst, unsigned long instructionId)
+    : pass(pass), mainModule(mainModule), funcOp(funcOp),
+      poolInstance(poolInstance), roccInstance(roccInstance),
+      hellaMemInstance(hellaMemInstance), dmaItfc(dmaItfc), csrItfc(csrItfc),
+      circuit(circuit), mainClk(mainClk), mainRst(mainRst), instructionId(instructionId),
+      regRdInstance(regRdInstance) {
 
   // Initialize operation generators
   arithmeticGen = std::make_unique<ArithmeticOpGenerator>(this);
@@ -44,7 +48,8 @@ BBHandler::BBHandler(APSToCMT2Pass *pass, Module *mainModule, tor::FuncOp funcOp
   interfaceGen = std::make_unique<InterfaceOpGenerator>(this);
   registerGen = std::make_unique<RegisterOpGenerator>(this);
 
-  // Set up register generator with required instances (shared across all blocks)
+  // Set up register generator with required instances (shared across all
+  // blocks)
   registerGen->setRegRdInstance(regRdInstance);
 }
 
@@ -52,15 +57,18 @@ void BBHandler::addReverseSlotRulePrecedence() {
   if (!currentBlock || slotOrder.size() < 2)
     return;
 
+  auto makeSlotRuleName = [&](int64_t slot) {
+    return llvm::formatv("{0}_slot_{1}_rule", currentBlock->blockName, slot)
+        .str();
+  };
+
   llvm::SmallVector<std::pair<std::string, std::string>, 16> pairs;
   for (size_t laterIdx = slotOrder.size(); laterIdx > 1; --laterIdx) {
     int64_t laterSlot = slotOrder[laterIdx - 1];
-    std::string laterRuleName = currentBlock->blockName + "_slot_" +
-                                std::to_string(laterSlot) + "_rule";
+    std::string laterRuleName = makeSlotRuleName(laterSlot);
     for (size_t earlierIdx = 0; earlierIdx < laterIdx - 1; ++earlierIdx) {
       int64_t earlierSlot = slotOrder[earlierIdx];
-      std::string earlierRuleName = currentBlock->blockName + "_slot_" +
-                                    std::to_string(earlierSlot) + "_rule";
+      std::string earlierRuleName = makeSlotRuleName(earlierSlot);
       pairs.push_back({laterRuleName, earlierRuleName});
     }
   }
@@ -73,152 +81,39 @@ void BBHandler::addReverseSlotRulePrecedence() {
   }
 }
 
-LogicalResult BBHandler::processBasicBlocks() {
-  if (!funcOp)
-    return failure();
-  return funcOp.emitError()
-         << "BBHandler::processBasicBlocks is disabled; use BlockHandler to "
-            "provide explicit non-pipeline block boundaries";
-}
-
-LogicalResult BBHandler::collectOperationsBySlot() {
-  // New approach: Identify basic blocks by control flow boundaries
-  // Operations within the same basic block can span multiple timeslots naturally
-  
-  llvm::dbgs() << "[BBHandler] Collecting operations by basic block (control-flow based)\n";
-  
-  // First, identify basic blocks based on control flow operations
-  llvm::SmallVector<llvm::SmallVector<Operation*, 8>> basicBlocks;
-  llvm::SmallVector<Operation*, 8> currentBlock;
-  
-  for (Operation &op : funcOp.getBody().getOps()) {
-    if (isa<tor::TimeGraphOp>(op) || isa<tor::ReturnOp>(op))
-      continue;
-      
-    if (isa<arith::ConstantOp>(op)) {
-      // Constants can be processed separately
-      continue;
-    }
-    
-    // Check if this operation starts a new basic block
-    if (isControlFlowBoundary(&op)) {
-      if (!currentBlock.empty()) {
-        basicBlocks.push_back(std::move(currentBlock));
-        currentBlock.clear();
-      }
-      // Control flow operations get their own block
-      currentBlock.push_back(&op);
-      basicBlocks.push_back(std::move(currentBlock));
-      currentBlock.clear();
-    } else {
-      // Regular operation - add to current block
-      currentBlock.push_back(&op);
-    }
-  }
-  
-  // Add final block if not empty
-  if (!currentBlock.empty()) {
-    basicBlocks.push_back(std::move(currentBlock));
-  }
-  
-  llvm::dbgs() << "[BBHandler] Identified " << basicBlocks.size() << " basic blocks\n";
-  
-  // Now organize operations by timeslot within each basic block
-  // For operations with explicit timeslots, use them; otherwise infer timing
-  for (auto &block : basicBlocks) {
-    for (Operation *op : block) {
-      if (auto startAttr = op->getAttrOfType<IntegerAttr>("starttime")) {
-        int64_t slot = startAttr.getInt();
-        slotMap[slot].ops.push_back(op);
-        llvm::dbgs() << "[BBHandler] Operation with explicit timeslot: slot " << slot << "\n";
-      } else {
-        // For operations without explicit timeslots, we need to infer timing
-        // This will be handled by the basic block's natural flow
-        llvm::dbgs() << "[BBHandler] Operation without explicit timeslot - will infer timing\n";
-        // For now, place in slot 0 - this will be refined later
-        slotMap[0].ops.push_back(op);
-      }
-    }
-  }
-  
-  // Populate sorted slot order
-  for (auto &kv : slotMap)
-    slotOrder.push_back(kv.first);
-  llvm::sort(slotOrder);
-  
-  if (slotOrder.empty() && !basicBlocks.empty()) {
-    // If no explicit timeslots, create a single slot for the basic block
-    slotOrder.push_back(0);
-  }
-
-  return success();
-}
-
-LogicalResult BBHandler::collectOperationsFromList(llvm::SmallVector<Operation*> &operations) {
+void BBHandler::collectOperationsFromList(
+    llvm::SmallVector<Operation *> &operations) {
   // Organize the provided operations by their time slots
-  llvm::dbgs() << "[BBHandler] Organizing " << operations.size() << " operations by time slots\n";
-  
   // Clear existing slot map and order
   slotMap.clear();
   slotOrder.clear();
-  
+
   // Process each operation and assign to appropriate slot
   for (Operation *op : operations) {
     if (auto startAttr = op->getAttrOfType<IntegerAttr>("starttime")) {
       int64_t slot = startAttr.getInt();
       slotMap[slot].ops.push_back(op);
-      llvm::dbgs() << "[BBHandler] Operation with explicit timeslot: slot " << slot << " - " << op->getName() << "\n";
     } else {
-      // For operations without explicit timeslots, place in slot 0
-      slotMap[0].ops.push_back(op);
-      llvm::dbgs() << "[BBHandler] Operation without explicit timeslot - placed in slot 0 - " << op->getName() << "\n";
+      llvm::report_fatal_error(
+          llvm::Twine("Operation missing required starttime attribute: ") +
+          op->getName().getStringRef());
     }
   }
-  
+
   // Populate sorted slot order
   for (auto &kv : slotMap)
     slotOrder.push_back(kv.first);
   llvm::sort(slotOrder);
-  
-  if (slotOrder.empty() && !operations.empty()) {
-    // If no explicit timeslots but we have operations, create a single slot
-    slotOrder.push_back(0);
-  }
-  
-  llvm::dbgs() << "[BBHandler] Organized operations into " << slotOrder.size() << " time slots\n";
-  for (int64_t slot : slotOrder) {
-    llvm::dbgs() << "[BBHandler]   Slot " << slot << " has " << slotMap[slot].ops.size() << " operations\n";
-  }
-  
-  return success();
 }
 
 LogicalResult BBHandler::validateOperations() {
   for (int64_t slot : slotOrder) {
     for (Operation *op : slotMap[slot].ops) {
-      if (isa<arith::ConstantOp, memref::GetGlobalOp>(op))
+      if (isa<arith::ConstantOp>(op) || isa<memref::GetGlobalOp>(op) ||
+          arithmeticGen->canHandle(op) || memoryGen->canHandle(op) ||
+          interfaceGen->canHandle(op) || registerGen->canHandle(op))
         continue;
-      if (isa<tor::AddIOp, tor::SubIOp, tor::MulIOp>(op))
-        continue;
-      if (isa<mlir::arith::AddIOp, mlir::arith::SubIOp, mlir::arith::MulIOp>(op))
-        continue;
-      if (isa<mlir::arith::AndIOp, mlir::arith::OrIOp, mlir::arith::XOrIOp>(op))
-        continue;
-      if (isa<mlir::arith::ShLIOp, mlir::arith::ShRSIOp, mlir::arith::ShRUIOp>(op))
-        continue;
-      if (isa<mlir::arith::CmpIOp>(op))
-        continue;
-      if (isa<aps::GlobalLoad, aps::GlobalStore, aps::ReadCSR,
-              aps::WriteCSR>(op)) {
-        continue;
-      }
-      if (isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq, aps::ItfcStoreReq,
-              aps::ItfcBurstLoadCollect, aps::ItfcBurstStoreCollect, aps::ItfcLoadCollect, aps::ItfcStoreCollect>(op)) {
-        continue;
-      }
-      if (isa<aps::SpmLoadReq, aps::SpmLoadCollect>(op)) {
-        continue;
-      }
+
       op->emitError("unsupported operation for rule generation");
       return failure();
     }
@@ -226,28 +121,27 @@ LogicalResult BBHandler::validateOperations() {
   return success();
 }
 
-LogicalResult BBHandler::handleRoCCCommandBundle(mlir::OpBuilder &b, Location loc) {
-  // Only handle RoCC commands if we have a function context
+void BBHandler::handleRoCCCommandBundle(mlir::OpBuilder &b, Location loc) {
   if (!funcOp) {
-    llvm::dbgs() << "[BBHandler] No function context, skipping RoCC command bundle\n";
-    return success();
+    llvm::report_fatal_error(
+        "handleRoCCCommandBundle requires a valid function context");
   }
-  
+
   // Call cmd_to_user once to get the RoCC command bundle
-  std::string cmdMethod = "cmd_to_user_" + (std::ostringstream() << std::hex << std::setw(4) << std::setfill('0') << opcode).str();
+  std::string cmdMethod =
+      llvm::formatv("cmd_to_user_{0}", llvm::format_hex_no_prefix(instructionId, 4))
+          .str();
   auto cmdResult = roccInstance->callMethod(cmdMethod, {}, b)[0];
-  cachedRoCCCmdBundle = cmdResult;
-  auto instruction = Bundle(cachedRoCCCmdBundle, &b, loc);
+  auto instruction = Bundle(cmdResult, &b, loc);
   regRdInstance->callMethod("write", {instruction["rd"].getValue()}, b);
 
   // Set the cached bundle in register generator
-  registerGen->setCachedRoCCCmdBundle(cachedRoCCCmdBundle);
-  return success();
+  registerGen->setCachedRoCCCmdBundle(cmdResult);
 }
 
-LogicalResult BBHandler::generateRuleForOperation(Operation *op, mlir::OpBuilder &b,
-                                                 Location loc, int64_t slot,
-                                                 llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+LogicalResult BBHandler::generateRuleForOperation(
+    Operation *op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // Try each operation generator in order
   if (arithmeticGen->canHandle(op)) {
     return arithmeticGen->generateRule(op, b, loc, slot, localMap);
@@ -269,79 +163,80 @@ std::optional<int64_t> BBHandler::getSlotForOp(Operation *op) {
   return {};
 }
 
-LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
-  llvm::dbgs() << "[BBHandler] Processing basic block " << block.blockId
-               << " (" << block.blockName << ") with "
+LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
+  llvm::dbgs() << "[BBHandler] Processing basic block " << block.blockId << " ("
+               << block.blockName << ") with "
                << block.mlirBlock->getOperations().size() << " operations\n";
 
   // Store block reference for use throughout the handler
   currentBlock = &block;
 
   unsigned blockId = block.blockId;
-  llvm::DenseMap<Value, Instance*> &inputFIFOs = block.input_fifos;
-  llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> &outputFIFOs = block.output_fifos;
+  llvm::DenseMap<Value, Instance *> &inputFIFOs = block.input_fifos;
+  llvm::DenseMap<Value,
+                 llvm::SmallVector<std::pair<BlockInfo *, Instance *>, 4>>
+      &outputFIFOs = block.output_fifos;
   Instance *block_input_token_fifo = block.input_token_fifo;
   Instance *block_output_token_fifo = block.output_token_fifo;
 
   // Use the operations specifically assigned to this block segment
   // BlockHandler has already filtered out control flow operations
-  llvm::SmallVector<Operation*> blockOperations;
+  llvm::SmallVector<Operation *> blockOperations;
 
   for (Operation *op : block.operations) {
     // Skip terminators and special operations
-    if (op->hasTrait<mlir::OpTrait::IsTerminator>()) {
+    if (op->hasTrait<mlir::OpTrait::IsTerminator>() ||
+        isa<tor::TimeGraphOp>(op) || isa<tor::ReturnOp>(op)) {
       continue;
     }
-
-    // Skip timegraph and return operations
-    if (isa<tor::TimeGraphOp>(op) || isa<tor::ReturnOp>(op)) {
-      continue;
-    }
-
     blockOperations.push_back(op);
   }
 
-  llvm::dbgs() << "[BBHandler] Collected " << blockOperations.size() << " operations from block segment (out of "
-               << block.operations.size() << " total in segment)\n";
-
   // PANIC: Empty blocks should not reach BBHandler
   if (blockOperations.empty()) {
-    llvm::report_fatal_error("BBHandler received empty block - this should have been handled by BlockHandler");
+    llvm::report_fatal_error("BBHandler received empty block");
   }
 
   // Phase 2: Organize operations by time slots
-  if (failed(collectOperationsFromList(blockOperations))) {
-    llvm::dbgs() << "[BBHandler] Failed to organize operations by slot\n";
+  collectOperationsFromList(blockOperations);
+
+  if (failed(validateOperations())) {
+    llvm::dbgs() << "[BBHandler] Unsupported operation found in basic block "
+                 << block.blockId << "\n";
     return failure();
   }
 
-  if (pipelineMode)
-    return processPipelineBasicBlock(block);
+  if (pipelineMode) {
+    processPipelineBasicBlock(block);
+    return success();
+  }
 
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
 
   llvm::DenseMap<int64_t, Instance *> slotTokenFIFOs;
+  auto makeTokenName = [&](int64_t slot) {
+    return llvm::formatv("{0}_s{1}tok", currentBlock->blockName, slot).str();
+  };
+  auto makeSlotRuleName = [&](int64_t slot) {
+    return llvm::formatv("{0}_slot{1}rule", currentBlock->blockName, slot)
+        .str();
+  };
+  auto makeRegName = [&](unsigned index) {
+    return llvm::formatv("{0}_reg{1}", currentBlock->blockName, index).str();
+  };
   for (size_t i = 0; i + 1 < slotOrder.size(); ++i) {
     int64_t slot = slotOrder[i];
     auto *tokenMod = STLLibrary::createFIFO1PushModule(1, circuit);
     builder.restoreInsertionPoint(savedIP);
-    std::string tokenName = currentBlock->blockName + "_s" +
-                            std::to_string(slot) + "tok";
+    std::string tokenName = makeTokenName(slot);
     slotTokenFIFOs[slot] = mainModule->addInstance(
         tokenName, tokenMod, {mainClk.getValue(), mainRst.getValue()});
   }
 
   auto isRequestTokenProducer = [](Operation *op) {
-    return isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq,
-               aps::ItfcLoadReq, aps::ItfcStoreReq, aps::SpmLoadReq>(op);
-  };
-
-  auto slotIndexOf = [&](int64_t slot) -> size_t {
-    auto it = llvm::find(slotOrder, slot);
-    if (it == slotOrder.end())
-      return slotOrder.size();
-    return static_cast<size_t>(std::distance(slotOrder.begin(), it));
+    return isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq,
+               aps::ItfcStoreReq, aps::SpmLoadReq>(op);
   };
 
   auto isOpInSlot = [&](Operation *candidate, int64_t slot) {
@@ -359,8 +254,9 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
     return false;
   };
 
-  auto isValueUsedAfterSlot = [&](Value value, int64_t producerSlot) {
-    size_t producerIdx = slotIndexOf(producerSlot);
+  auto isValueUsedAfterSlot = [&](Value value, size_t producerIdx) {
+    if (producerIdx >= slotOrder.size())
+      return false;
     for (size_t i = producerIdx + 1; i < slotOrder.size(); ++i) {
       if (isValueUsedInSlot(value, slotOrder[i]))
         return true;
@@ -387,8 +283,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
       bitWidth = intType.getWidth();
     auto *regMod = STLLibrary::createRegModule(bitWidth, 0, circuit);
     builder.restoreInsertionPoint(savedIP);
-    std::string regName = currentBlock->blockName + "_r" +
-                          std::to_string(localRegCounter++);
+    std::string regName = makeRegName(localRegCounter++);
     Instance *reg = mainModule->addInstance(
         regName, regMod, {mainClk.getValue(), mainRst.getValue()});
     localValueRegs[value] = reg;
@@ -396,47 +291,49 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
     return reg;
   };
 
-  for (int64_t slot : slotOrder) {
+  for (size_t slotIdx = 0; slotIdx < slotOrder.size(); ++slotIdx) {
+    int64_t slot = slotOrder[slotIdx];
     for (Operation *op : slotMap[slot].ops) {
       if (isRequestTokenProducer(op))
         continue;
       for (Value result : op->getResults()) {
-        if (isValueUsedAfterSlot(result, slot))
+        if (isValueUsedAfterSlot(result, slotIdx))
           ensureLocalValueReg(result);
       }
     }
   }
 
-  int64_t firstSlot = slotOrder.front();
   for (auto &[value, fifo] : inputFIFOs) {
-    if (!fifo)
-      continue;
-    if (isValueUsedAfterSlot(value, firstSlot))
+    if (isValueUsedAfterSlot(value, 0)) {
+      if (!fifo) {
+        llvm::report_fatal_error(
+            "BBHandler: expected live input FIFO for value used after slot 0");
+      }
       ensureLocalValueReg(value);
+    }
   }
   for (auto &[value, reg] : block.scopeResources.inputValueRegs) {
-    if (!reg)
-      continue;
-    if (isValueUsedAfterSlot(value, firstSlot))
+    if (isValueUsedAfterSlot(value, 0)) {
+      if (!reg) {
+        llvm::report_fatal_error("BBHandler: expected input value register for "
+                                 "value used after slot 0");
+      }
       ensureLocalValueReg(value);
+    }
   }
 
-  for (int64_t slot : slotOrder) {
-    auto *rule =
-        mainModule->addRule(currentBlock->blockName + "_slot_" +
-                            std::to_string(slot) + "_rule");
-    rule->guard([&, slot](mlir::OpBuilder &b) {
+  for (size_t slotIdx = 0; slotIdx < slotOrder.size(); ++slotIdx) {
+    int64_t slot = slotOrder[slotIdx];
+    auto *rule = mainModule->addRule(makeSlotRuleName(slot));
+    rule->guard([&, slotIdx](mlir::OpBuilder &b) {
       auto loc = b.getUnknownLoc();
-      if (slot != slotOrder.front()) {
-        auto it = llvm::find(slotOrder, slot);
-        if (it != slotOrder.begin()) {
-          int64_t prevSlot = *(it - 1);
-          if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot)) {
-            auto full = tokenFIFO->callValue("full", b);
-            if (!full.empty()) {
-              b.create<circt::cmt2::ReturnOp>(loc, full[0]);
-              return;
-            }
+      if (slotIdx != 0) {
+        int64_t prevSlot = slotOrder[slotIdx - 1];
+        if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot)) {
+          auto full = tokenFIFO->callValue("full", b);
+          if (!full.empty()) {
+            b.create<circt::cmt2::ReturnOp>(loc, full[0]);
+            return;
           }
         }
       }
@@ -444,16 +341,13 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
       b.create<circt::cmt2::ReturnOp>(loc, one.getValue());
     });
 
-    rule->body([&, slot](mlir::OpBuilder &b) {
+    rule->body([&, slot, slotIdx](mlir::OpBuilder &b) {
       auto loc = b.getUnknownLoc();
       llvm::DenseMap<mlir::Value, mlir::Value> localMap;
 
-      if (slot == slotOrder.front()) {
-        if (block_input_token_fifo) {
-          llvm::dbgs() << "[BBHandler] Dequeuing input token for block "
-                       << blockId << "\n";
+      if (slotIdx == 0) {
+        if (block_input_token_fifo)
           block_input_token_fifo->callMethod("deq", {}, b);
-        }
 
         for (auto &[value, fifo] : inputFIFOs) {
           if (!fifo)
@@ -479,12 +373,9 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
             localReg->callMethod("write", {storedValue[0]}, b);
         }
       } else {
-        auto it = llvm::find(slotOrder, slot);
-        if (it != slotOrder.begin()) {
-          int64_t prevSlot = *(it - 1);
-          if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot))
-            tokenFIFO->callMethod("deq", {}, b);
-        }
+        int64_t prevSlot = slotOrder[slotIdx - 1];
+        if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot))
+          tokenFIFO->callMethod("deq", {}, b);
 
         for (Operation *op : slotMap[slot].ops) {
           for (Value operand : op->getOperands()) {
@@ -499,16 +390,16 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
         }
       }
 
-      if (slot == 0) {
-        if (failed(handleRoCCCommandBundle(b, loc)))
-          return;
+      if (slotIdx == 0) {
+        handleRoCCCommandBundle(b, loc);
       }
 
       for (Operation *op : slotMap[slot].ops) {
         if (failed(generateRuleForOperation(op, b, loc, slot, localMap))) {
-          llvm::dbgs() << "[BBHandler] Failed to process operation: " << *op
-                       << "\n";
-          return;
+          llvm::report_fatal_error(
+              llvm::Twine("BBHandler: failed to process operation in "
+                          "non-pipeline rule: ") +
+              op->getName().getStringRef());
         }
       }
 
@@ -571,10 +462,11 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo& block) {
   return success();
 }
 
-LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
+void BBHandler::processPipelineBasicBlock(BlockInfo &block) {
   unsigned blockId = block.blockId;
   llvm::DenseMap<Value, Instance *> &inputFIFOs = block.input_fifos;
-  llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo *, Instance *>, 4>>
+  llvm::DenseMap<Value,
+                 llvm::SmallVector<std::pair<BlockInfo *, Instance *>, 4>>
       &outputFIFOs = block.output_fifos;
   Instance *blockInputTokenFIFO = block.input_token_fifo;
   Instance *blockOutputTokenFIFO = block.output_token_fifo;
@@ -583,26 +475,31 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
   auto savedIP = builder.saveInsertionPoint();
 
   llvm::DenseMap<int64_t, Instance *> slotTokenFIFOs;
+  auto makeTokenName = [&](int64_t slot) {
+    return llvm::formatv("{0}_s{1}tok", currentBlock->blockName, slot).str();
+  };
+  auto makeSlotRuleName = [&](int64_t slot) {
+    return llvm::formatv("{0}_slot_{1}_rule", currentBlock->blockName, slot)
+        .str();
+  };
+  auto makeLiveEdgeName = [&](size_t edgeIdx, unsigned fifoCounter) {
+    return llvm::formatv("{0}_s{1}v{2}s{3}", currentBlock->blockName,
+                         slotOrder[edgeIdx], fifoCounter,
+                         slotOrder[edgeIdx + 1])
+        .str();
+  };
   for (size_t i = 0; i + 1 < slotOrder.size(); ++i) {
     int64_t slot = slotOrder[i];
     auto *tokenMod = STLLibrary::createFIFO1PushModule(1, circuit);
     builder.restoreInsertionPoint(savedIP);
-    std::string tokenName = currentBlock->blockName + "_s" +
-                            std::to_string(slot) + "tok";
+    std::string tokenName = makeTokenName(slot);
     slotTokenFIFOs[slot] = mainModule->addInstance(
         tokenName, tokenMod, {mainClk.getValue(), mainRst.getValue()});
   }
 
   auto isRequestTokenProducer = [](Operation *op) {
-    return isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq,
-               aps::ItfcLoadReq, aps::ItfcStoreReq, aps::SpmLoadReq>(op);
-  };
-
-  auto slotIndexOf = [&](int64_t slot) -> size_t {
-    auto it = llvm::find(slotOrder, slot);
-    if (it == slotOrder.end())
-      return slotOrder.size();
-    return static_cast<size_t>(std::distance(slotOrder.begin(), it));
+    return isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq,
+               aps::ItfcStoreReq, aps::SpmLoadReq>(op);
   };
 
   auto isOpInSlot = [&](Operation *candidate, int64_t slot) {
@@ -650,10 +547,7 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
     unsigned bitWidth = dyn_cast<mlir::IntegerType>(value.getType()).getWidth();
     auto *fifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
     builder.restoreInsertionPoint(savedIP);
-    std::string fifoName = currentBlock->blockName + "_s" +
-                           std::to_string(slotOrder[edgeIdx]) + "v" +
-                           std::to_string(dataFifoCounter++) + "s" +
-                           std::to_string(slotOrder[edgeIdx + 1]);
+    std::string fifoName = makeLiveEdgeName(edgeIdx, dataFifoCounter++);
     Instance *fifo = mainModule->addInstance(
         fifoName, fifoMod, {mainClk.getValue(), mainRst.getValue()});
     liveEdgeFIFOs[edgeIdx][value] = fifo;
@@ -666,9 +560,8 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
 
     int64_t lastRequiredIdx = lastUseIndex(value);
     if (needsBlockOutput(value))
-      lastRequiredIdx =
-          std::max<int64_t>(lastRequiredIdx,
-                            static_cast<int64_t>(slotOrder.size() - 1));
+      lastRequiredIdx = std::max<int64_t>(
+          lastRequiredIdx, static_cast<int64_t>(slotOrder.size() - 1));
     if (lastRequiredIdx <= static_cast<int64_t>(producerIdx))
       return;
 
@@ -677,7 +570,6 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
       ensureLiveEdgeFIFO(value, edgeIdx);
   };
 
-  int64_t firstSlot = slotOrder.front();
   for (auto &[value, fifo] : inputFIFOs) {
     if (!fifo)
       continue;
@@ -689,34 +581,31 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
     createLivePath(value, 0);
   }
 
-  for (int64_t slot : slotOrder) {
+  for (size_t producerIdx = 0; producerIdx < slotOrder.size(); ++producerIdx) {
+    int64_t slot = slotOrder[producerIdx];
     for (Operation *op : slotMap[slot].ops) {
       if (isRequestTokenProducer(op))
         continue;
       for (Value result : op->getResults()) {
         if (!isa<mlir::IntegerType>(result.getType()))
           continue;
-        createLivePath(result, slotIndexOf(slot));
+        createLivePath(result, producerIdx);
       }
     }
   }
 
-  for (int64_t slot : slotOrder) {
-    auto *rule =
-        mainModule->addRule(currentBlock->blockName + "_slot_" +
-                            std::to_string(slot) + "_rule");
-    rule->guard([&, slot](mlir::OpBuilder &b) {
+  for (size_t slotIdx = 0; slotIdx < slotOrder.size(); ++slotIdx) {
+    int64_t slot = slotOrder[slotIdx];
+    auto *rule = mainModule->addRule(makeSlotRuleName(slot));
+    rule->guard([&, slotIdx](mlir::OpBuilder &b) {
       auto loc = b.getUnknownLoc();
-      if (slot != firstSlot) {
-        auto it = llvm::find(slotOrder, slot);
-        if (it != slotOrder.begin()) {
-          int64_t prevSlot = *(it - 1);
-          if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot)) {
-            auto full = tokenFIFO->callValue("full", b);
-            if (!full.empty()) {
-              b.create<circt::cmt2::ReturnOp>(loc, full[0]);
-              return;
-            }
+      if (slotIdx != 0) {
+        int64_t prevSlot = slotOrder[slotIdx - 1];
+        if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot)) {
+          auto full = tokenFIFO->callValue("full", b);
+          if (!full.empty()) {
+            b.create<circt::cmt2::ReturnOp>(loc, full[0]);
+            return;
           }
         }
       }
@@ -724,12 +613,11 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
       b.create<circt::cmt2::ReturnOp>(loc, one.getValue());
     });
 
-    rule->body([&, slot](mlir::OpBuilder &b) {
+    rule->body([&, slot, slotIdx](mlir::OpBuilder &b) {
       auto loc = b.getUnknownLoc();
       llvm::DenseMap<mlir::Value, mlir::Value> localMap;
-      size_t slotIdx = slotIndexOf(slot);
 
-      if (slot == firstSlot) {
+      if (slotIdx == 0) {
         if (blockInputTokenFIFO)
           blockInputTokenFIFO->callMethod("deq", {}, b);
 
@@ -750,15 +638,10 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
             localMap[value] = storedValue[0];
         }
       } else {
-        auto it = llvm::find(slotOrder, slot);
-        if (it != slotOrder.begin()) {
-          int64_t prevSlot = *(it - 1);
-          if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot))
-            tokenFIFO->callMethod("deq", {}, b);
-        }
+        int64_t prevSlot = slotOrder[slotIdx - 1];
+        if (Instance *tokenFIFO = slotTokenFIFOs.lookup(prevSlot))
+          tokenFIFO->callMethod("deq", {}, b);
 
-        if (slotIdx == 0)
-          llvm::report_fatal_error("non-first pipeline slot has index 0");
         for (auto &[value, fifo] : liveEdgeFIFOs[slotIdx - 1]) {
           if (!fifo)
             continue;
@@ -768,16 +651,16 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
         }
       }
 
-      if (slot == 0) {
-        if (failed(handleRoCCCommandBundle(b, loc)))
-          return;
+      if (slotIdx == 0) {
+        handleRoCCCommandBundle(b, loc);
       }
 
       for (Operation *op : slotMap[slot].ops) {
         if (failed(generateRuleForOperation(op, b, loc, slot, localMap))) {
-          llvm::dbgs() << "[BBHandler] Failed to process operation: " << *op
-                       << "\n";
-          return;
+          llvm::report_fatal_error(
+              llvm::Twine(
+                  "BBHandler: failed to process operation in pipeline rule: ") +
+              op->getName().getStringRef());
         }
       }
 
@@ -794,7 +677,7 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
         }
       }
 
-      if (slot == slotOrder.back()) {
+      if (slotIdx == slotOrder.size() - 1) {
         for (auto &[value, consumers] : outputFIFOs) {
           auto valueIt = localMap.find(value);
           if (valueIt == localMap.end())
@@ -807,7 +690,7 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
         }
       }
 
-      if (slot != slotOrder.back()) {
+      if (slotIdx + 1 < slotOrder.size()) {
         if (Instance *tokenFIFO = slotTokenFIFOs.lookup(slot)) {
           auto outputToken = UInt::constant(1, 1, b, loc);
           tokenFIFO->callMethod("enq", {outputToken.getValue()}, b);
@@ -826,7 +709,6 @@ LogicalResult BBHandler::processPipelineBasicBlock(BlockInfo &block) {
   llvm::dbgs() << "[BBHandler] Successfully generated " << slotOrder.size()
                << " pipeline slot rules for basic block " << blockId << "\n";
   addReverseSlotRulePrecedence();
-  return success();
 }
 
 // Implementation of missing BBHandler methods
@@ -842,7 +724,8 @@ mlir::Type BBHandler::toFirrtlType(mlir::Type type, mlir::MLIRContext *ctx) {
 }
 
 unsigned int BBHandler::roundUpToPowerOf2(unsigned int n) {
-  if (n == 0) return 1;
+  if (n == 0)
+    return 1;
   n--;
   n |= n >> 1;
   n |= n >> 2;
@@ -854,7 +737,8 @@ unsigned int BBHandler::roundUpToPowerOf2(unsigned int n) {
 }
 
 unsigned int BBHandler::log2Floor(unsigned int n) {
-  if (n == 0) return 0;
+  if (n == 0)
+    return 0;
   unsigned int log = 0;
   while (n > 1) {
     n >>= 1;
@@ -863,17 +747,18 @@ unsigned int BBHandler::log2Floor(unsigned int n) {
   return log;
 }
 
-FailureOr<mlir::Value> OperationGenerator::getValueInRule(mlir::Value v, Operation *currentOp,
-                                                          unsigned operandIndex, mlir::OpBuilder &b,
-                                                          llvm::DenseMap<mlir::Value, mlir::Value> &localMap,
-                                                          Location loc) {
+FailureOr<mlir::Value> OperationGenerator::getValueInRule(
+    mlir::Value v, Operation *currentOp, mlir::OpBuilder &b,
+    llvm::DenseMap<mlir::Value, mlir::Value> &localMap, Location loc) {
   if (auto it = localMap.find(v); it != localMap.end())
     return it->second;
 
   if (auto constOp = v.getDefiningOp<arith::ConstantOp>()) {
     auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
     unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
-    auto constant = UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
+    auto constant =
+        UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc)
+            .getValue();
     localMap[v] = constant;
     return constant;
   }

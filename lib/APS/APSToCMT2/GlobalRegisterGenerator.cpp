@@ -1,5 +1,6 @@
 #include "APS/APSToCMT2.h"
 #include "TOR/TORTypes.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "aps-to-cmt2"
@@ -47,9 +48,7 @@ SmallVector<std::tuple<std::string, int8_t>, 8> APSToCMT2Pass::generateGlobalReg
           StringRef bankSymbolName = firstBankSymAttr.getValue();
           auto globalOp = getGlobalMemRef(moduleOp, bankSymbolName);
           if (!globalOp) {
-            llvm::errs() << "Error: Could not find memref.global for bank "
-                         << bankSymbolName << "\n";
-            continue;
+            llvm::report_fatal_error("Could not find memref.global for " + bankSymbolName);
           }
           auto memrefType = globalOp.getType();
           if (memrefType.getRank() == 0) {

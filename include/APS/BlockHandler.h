@@ -97,7 +97,7 @@ public:
                Instance *hellaMemInstance, InterfaceDecl *dmaItfc,
                InterfaceDecl *csrItfc, Circuit &circuit, Clock mainClk,
                Reset mainRst,
-               unsigned long opcode, Instance *regRdInstance,
+               unsigned long instructionId, Instance *regRdInstance,
                Instance *inputTokenFIFO, Instance *outputTokenFIFO,
               llvm::DenseMap<Value, Instance*> &input_fifos,
               llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> &output_fifos,
@@ -138,9 +138,10 @@ protected:
   Circuit &circuit;
   Clock mainClk;
   Reset mainRst;
-  unsigned long opcode;
+  unsigned long instructionId;
 
-  // Name prefix for hierarchical naming (e.g., "43_" for opcode, "43_loop_1_" for nested)
+  // Name prefix for hierarchical naming (e.g., "0b28_" for instruction id,
+  // "0b28_loop_1_" for nested).
   std::string namePrefix;
 
   bool pipelineMode = false;
