@@ -539,38 +539,6 @@ int buildTimeGraph(TimeGraph &tg, mlir::Block &block, int prev, bool isPipeline,
   return currentNode;
 }
 
-mlir::LogicalResult removeExtraEdges(mlir::tor::FuncOp funcOp, TimeGraph *tg) {
-  std::vector<int> newId;
-  tg->canonicalize(newId);
-  if (funcOp
-          .walk([&](mlir::Operation *op) {
-            if (op->getDialect()->getNamespace() !=
-                mlir::tor::TORDialect::getDialectNamespace())
-              return mlir::WalkResult::skip();
-            if (auto starttime =
-                    op->getAttrOfType<mlir::IntegerAttr>("starttime")) {
-              auto t = starttime.getInt();
-              op->setAttr("starttime",
-                          mlir::IntegerAttr::get(
-                              mlir::IntegerType::get(funcOp.getContext(), 32),
-                              newId[t]));
-            }
-            if (auto endtime =
-                    op->getAttrOfType<mlir::IntegerAttr>("endttime")) {
-              auto t = endtime.getInt();
-              op->setAttr("endtime",
-                          mlir::IntegerAttr::get(
-                              mlir::IntegerType::get(funcOp.getContext(), 32),
-                              newId[t]));
-            }
-
-            return mlir::WalkResult::advance();
-          })
-          .wasInterrupted())
-    return mlir::failure();
-  return mlir::success();
-}
-
 bool isMultiCycleOp(mlir::Operation* op) {
   if (llvm::isa<arith::SIToFPOp, arith::FPToSIOp, arith::ExtFOp, arith::TruncFOp,
                 math::PowFOp, math::CeilOp, math::FloorOp, math::RoundOp,
@@ -686,11 +654,6 @@ void setReferenceAttr(mlir::Operation *op, std::pair<int, int> intv) {
   op->setAttr("ref_endtime", endAttr);
   op->setAttr("starttime", startAttr);
   op->setAttr("endtime", endAttr);
-}
-
-void queryAndSetReferenceAttr(mlir::Operation * op, scheduling::ScheduleBase *scheduler) {
-  auto intv = scheduler->queryOp(op);
-  setReferenceAttr(op, intv);
 }
 
 void updateIntv(std::pair<int, int>& intv, std::pair<int, int> queryIntv) {
@@ -865,7 +828,8 @@ struct TORSchedulePass : public TORScheduleBase<TORSchedulePass> {
     patterns.add<FuncOpsLowering>(&getContext());
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-    if (failed(applyOpPatternsAndFold(designOp.getOperation(), std::move(patterns), config))) {
+    config.enableFolding();
+    if (failed(applyOpPatternsGreedily(designOp.getOperation(), std::move(patterns), config))) {
       signalPassFailure();
     }
     auto scheduleRes = designOp->getAttrOfType<mlir::BoolAttr>("schedule");

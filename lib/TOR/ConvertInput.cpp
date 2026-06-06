@@ -18,6 +18,7 @@
 #include "mlir/Transforms/InliningUtils.h"
 
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Regex.h"
 
 #include "TOR/TORDialect.h"
@@ -291,9 +292,9 @@ namespace {
             auto shape = op.getType().getShape();
             int64_t mul = size;
             for (auto dim : shape) mul *= dim;
-            if (rawData.size() != mul) {
+            if (static_cast<int64_t>(rawData.size()) != mul) {
                 assert((int64_t) rawData.size() == size && "size not match");
-                for (int i = rawData.size(); i < mul; i += size) {
+                for (int64_t i = rawData.size(); i < mul; i += size) {
                     for (int j = size - 1; j >= 0; --j) {
                         auto data = 0;
                         char high = (data >> 4) & 0x0F;
@@ -619,14 +620,15 @@ namespace {
         //     saveOldArgAttrWithName(alloc, op, "num_read_outstanding", oldIdx);
         //     saveOldArgAttrWithName(alloc, op, "num_write_outstanding", oldIdx);
         //     arg.replaceAllUsesWith(alloc.getResult());
-        //     (void)funcOp.eraseArgument(idx);
+        //     if (failed(funcOp.eraseArgument(idx)))
+        //       return failure();
         //   } else {
         //     idx += 1;
         //   }
         //   oldIdx += 1;
         // }
         static int func_num = 0;
-        funcOp.walk([&](CallOp call) {
+        if (funcOp.walk([&](CallOp call) {
             // bool hasMem = false;
             // for (auto arg_type: call.getCalleeType().getInputs()) {
             //     if (isa<tor::MemRefType, MemRefType, tor::StreamType>(arg_type)) {
@@ -644,36 +646,39 @@ namespace {
                         new_func.setSymName(new_func.getSymName().str() + "_" + std::to_string(++func_num));
                         SmallVector<Value, 8> new_operands;
                         unsigned idx = 0;
-                        for (auto &operand: call->getOpOperands()) {
-                            if (isa<tor::MemRefType, MemRefType, tor::StreamType>(operand.get().getType())) {
-                                new_func.getArgument(idx).replaceAllUsesWith(operand.get());
-                                (void)new_func.eraseArgument(idx);
-                            } else {
-                                new_operands.push_back(operand.get());
-                                idx += 1;
-                            }
+	                        for (auto &operand: call->getOpOperands()) {
+	                            if (isa<tor::MemRefType, MemRefType, tor::StreamType>(operand.get().getType())) {
+	                                new_func.getArgument(idx).replaceAllUsesWith(operand.get());
+	                                if (failed(new_func.eraseArgument(idx)))
+	                                    return WalkResult::interrupt();
+	                            } else {
+	                                new_operands.push_back(operand.get());
+	                                idx += 1;
+	                            }
                         }
                         rewriter.setInsertionPoint(call);
-                        rewriter.replaceOpWithNewOp<tor::CallOp>(call, call.getResultTypes(),
-                                                                 new_func.getSymName(), 0, 0, new_operands);
-                        solve(new_func, resource, clock, rewriter);
-                        return;
-                    }
-                }
-            } else {
+	                        rewriter.replaceOpWithNewOp<tor::CallOp>(call, call.getResultTypes(),
+	                                                                 new_func.getSymName(), 0, 0, new_operands);
+	                        solve(new_func, resource, clock, rewriter);
+	                        return WalkResult::advance();
+	                    }
+	                }
+	            } else {
                 rewriter.setInsertionPoint(call);
                 auto newOp = rewriter.create<tor::CallOp>(call.getLoc(), call.getResultTypes(),
                                                           call.getCallee(), 0, 0, call->getOperands());
                 rewriter.replaceOp(call, newOp.getResults());
                 auto design = dyn_cast<tor::DesignOp>(funcOp->getParentOp());
-                for (auto func: design.getOps<func::FuncOp>()) {
-                    if (func.getSymName() == call.getCallee()) {
-                        solve(func, resource, clock, rewriter);
-                        return;
-                    }
-                }
-            }
-        });
+	                for (auto func: design.getOps<func::FuncOp>()) {
+	                    if (func.getSymName() == call.getCallee()) {
+	                        solve(func, resource, clock, rewriter);
+	                        return WalkResult::advance();
+	                    }
+	                }
+	            }
+	            return WalkResult::advance();
+		        }).wasInterrupted())
+		            llvm::report_fatal_error("failed to erase cloned function argument");
 
         rewriter.eraseOp(op);
     }
@@ -731,6 +736,18 @@ namespace {
 
 
     struct ConvertInputPass : ConvertInputBase<ConvertInputPass> {
+        ConvertInputPass() = default;
+        ConvertInputPass(double clockValue, llvm::StringRef resourcePath)
+            : ConvertInputPass(clockValue, resourcePath, {}) {}
+        ConvertInputPass(double clockValue, llvm::StringRef resourcePath,
+                         llvm::StringRef outputPath) {
+            clock = clockValue;
+            resource = resourcePath.str();
+            output_path = outputPath.empty()
+                              ? std::filesystem::temp_directory_path().string()
+                              : outputPath.str();
+        }
+
         void runOnOperation() override {
             auto moduleOp = getOperation();
             
@@ -742,6 +759,7 @@ namespace {
             
             // NEW WAY: Use default config (simplest approach)
             GreedyRewriteConfig config;
+            config.enableFolding();
             // Most settings have sensible defaults now
             
             // Huang Ruibo comments on this line of code to preserve the 
@@ -753,7 +771,7 @@ namespace {
                 moduleOp.walk([&](func::FuncOp op) {
                     RewritePatternSet Patterns(op.getContext());
                     Patterns.add<MulIOpConversion>(op.getContext());
-                    if (failed(applyPatternsAndFoldGreedily(op.getOperation(), std::move(Patterns), config)))
+                    if (failed(applyPatternsGreedily(op.getOperation(), std::move(Patterns), config)))
                         signalPassFailure();
                 });
             }
@@ -830,7 +848,11 @@ namespace {
                 RewritePatternSet Patterns(&getContext());
                 Patterns.add<MoveWhileOp>(&getContext());
                 GreedyRewriteConfig config;  // Local config for this scope
-                if (failed(applyPatternsAndFoldGreedily(moduleOp.getOperation(), std::move(Patterns), config)));
+                config.enableFolding();
+                if (failed(applyPatternsGreedily(moduleOp.getOperation(), std::move(Patterns), config))) {
+                    signalPassFailure();
+                    return;
+                }
             }
 
             {
@@ -853,7 +875,6 @@ namespace {
 
                 // Convert functions in each design
                 for (auto &pair : designsWithFuncs) {
-                    auto designOp = pair.first;
                     auto &funcsInDesign = pair.second;
 
                     // llvm::errs() << "    Found " << funcsInDesign.size() << " functions in design: "
@@ -881,7 +902,7 @@ namespace {
                 RewritePatternSet Patterns(&getContext());
                 Patterns.add<FlattenArray>(&getContext());
 
-                if (failed(applyPatternsAndFoldGreedily(moduleOp.getOperation(), std::move(Patterns), config))) {
+                if (failed(applyPatternsGreedily(moduleOp.getOperation(), std::move(Patterns), config))) {
                     signalPassFailure();
                 }
             }
@@ -890,7 +911,7 @@ namespace {
                 RewritePatternSet Patterns(&getContext());
                 Patterns.add<WriteMemrefGlobal>(&getContext(), output_path);
 
-                if (failed(applyPatternsAndFoldGreedily(moduleOp.getOperation(), std::move(Patterns), config))) {
+                if (failed(applyPatternsGreedily(moduleOp.getOperation(), std::move(Patterns), config))) {
                     signalPassFailure();
                 }
             }
@@ -905,6 +926,16 @@ namespace mlir {
 
     std::unique_ptr<OperationPass<mlir::ModuleOp>> createConvertInputPass() {
         return std::make_unique<ConvertInputPass>();
+    }
+
+    std::unique_ptr<OperationPass<mlir::ModuleOp>> createConvertInputPass(
+        double clock, llvm::StringRef resource) {
+        return std::make_unique<ConvertInputPass>(clock, resource);
+    }
+
+    std::unique_ptr<OperationPass<mlir::ModuleOp>> createConvertInputPass(
+        double clock, llvm::StringRef resource, llvm::StringRef outputPath) {
+        return std::make_unique<ConvertInputPass>(clock, resource, outputPath);
     }
 
 } // namespace mlir

@@ -74,7 +74,8 @@ struct PromoteSingletonMemRefToGlobalPass : PromoteSingletonMemRefToGlobalBase<P
         &getContext());
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-    if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns), config))) {
+    config.enableFolding();
+    if (failed(applyPatternsGreedily(op, std::move(patterns), config))) {
       signalPassFailure();
     }
   }

@@ -846,9 +846,8 @@ LogicalResult LoopHandler::generatePipelineLoopRetireRule(BlockInfo &loopBlock) 
   return success();
 }
 
-void LoopHandler::emitLoopExitValues(mlir::OpBuilder &b, mlir::Location loc,
+void LoopHandler::emitLoopExitValues(mlir::OpBuilder &b, mlir::Location,
                                      llvm::ArrayRef<mlir::Value> resultValues) {
-  (void)loc;
   for (auto pair : llvm::enumerate(loop.forOp.getResults())) {
     unsigned resultIndex = pair.index();
     Value result = pair.value();
@@ -858,8 +857,7 @@ void LoopHandler::emitLoopExitValues(mlir::OpBuilder &b, mlir::Location loc,
 
     auto consumersIt = output_fifos.find(result);
     if (consumersIt != output_fifos.end()) {
-      for (const auto &[consumerBlock, outFIFO] : consumersIt->second) {
-        (void)consumerBlock;
+      for (const auto &[_, outFIFO] : consumersIt->second) {
         if (outFIFO)
           outFIFO->callMethod("enq", {resultPayload}, b);
       }
@@ -1081,8 +1079,7 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
   ensureLoopLiveInStorage(loop.step, true);
   for (Value iterInit : loop.iterInitValues)
     ensureLoopLiveInStorage(iterInit, true);
-  for (auto &[value, consumers] : output_fifos) {
-    (void)consumers;
+  for (auto &[value, _] : output_fifos) {
     ensureLoopLiveInStorage(value);
   }
   for (auto &[value, reg] : loopBlock.scopeResources.inputValueRegs) {

@@ -160,7 +160,7 @@ void piplineForFailLog(Operation *forOp) {
   llvm::errs() << ", because inner code include loop\n";
 }
 
-template <typename S, typename T> void unrollInnerLoop(S op) {
+template <typename S, typename T> LogicalResult unrollInnerLoop(S op) {
   SmallVector<T, 4> innerLoops;
   op.walk([&](T innerLoop) {
     if (op != innerLoop) {
@@ -169,21 +169,26 @@ template <typename S, typename T> void unrollInnerLoop(S op) {
   });
   for (auto innerLoop : innerLoops) {
     if constexpr (std::is_same_v<AffineForOp, T>) {
-      (void)loopUnrollFull(innerLoop);
+      if (failed(loopUnrollFull(innerLoop)))
+        return failure();
     } else if constexpr (std::is_same_v<scf::ForOp, T>) {
       if (unsigned factor = getSCFConstantTripCount(innerLoop)) {
-        (void)loopUnrollByFactor(innerLoop, factor);
+        if (failed(loopUnrollByFactor(innerLoop, factor)))
+          return failure();
       }
     }
   }
+  return success();
 }
 
 template <typename S, typename T>
-void unrollPipelineInnerLoop(ModuleOp moduleOp, SmallVector<S, 4> &ops) {
+LogicalResult unrollPipelineInnerLoop(ModuleOp moduleOp,
+                                      SmallVector<S, 4> &ops) {
   ops.clear();
   filterTypeAttrVector(moduleOp, ops, "pipeline");
   for (auto op : ops) {
-    unrollInnerLoop<S, T>(op);
+    if (failed(unrollInnerLoop<S, T>(op)))
+      return failure();
   }
 
   auto hasInnerLoop = [&](S op) -> bool {
@@ -208,6 +213,7 @@ void unrollPipelineInnerLoop(ModuleOp moduleOp, SmallVector<S, 4> &ops) {
       op->removeAttr("II");
     }
   }
+  return success();
 }
 
 struct HlsUnrollPass : HlsUnrollBase<HlsUnrollPass> {
@@ -247,10 +253,16 @@ struct HlsUnrollPass : HlsUnrollBase<HlsUnrollPass> {
 
     SmallVector<func::FuncOp, 4> funcOps;
 
-    unrollPipelineInnerLoop<AffineForOp, AffineForOp>(getOperation(), loops);
-    unrollPipelineInnerLoop<scf::ForOp, scf::ForOp>(getOperation(), scfLoops);
-    unrollPipelineInnerLoop<func::FuncOp, AffineForOp>(getOperation(), funcOps);
-    unrollPipelineInnerLoop<func::FuncOp, scf::ForOp>(getOperation(), funcOps);
+    if (failed(unrollPipelineInnerLoop<AffineForOp, AffineForOp>(
+            getOperation(), loops)) ||
+        failed(unrollPipelineInnerLoop<scf::ForOp, scf::ForOp>(
+            getOperation(), scfLoops)) ||
+        failed(unrollPipelineInnerLoop<func::FuncOp, AffineForOp>(
+            getOperation(), funcOps)) ||
+        failed(unrollPipelineInnerLoop<func::FuncOp, scf::ForOp>(
+            getOperation(), funcOps))) {
+      signalPassFailure();
+    }
   }
 };
 } // namespace

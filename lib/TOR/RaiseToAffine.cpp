@@ -1023,7 +1023,8 @@ void RaiseSCFToAffine::runOnOperation() {
   patterns.insert<ForOpRaising, ParallelOpRaising>(&getContext());
 
   GreedyRewriteConfig config;
-  (void)applyPatternsGreedily(getOperation(), std::move(patterns), config);
+  if (failed(applyPatternsGreedily(getOperation(), std::move(patterns), config)))
+    signalPassFailure();
 }
 
 namespace mlir {

@@ -9,6 +9,7 @@
 #include "TOR/PassDetail.h"
 #include "TOR/Passes.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstddef>
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -46,14 +47,15 @@ namespace {
     };
     
 
-    struct MinMaxToCmpSelectPass : public MinMaxToCmpSlectBase<MinMaxToCmpSelectPass> {
+    struct MinMaxToCmpSelectPass : public MinMaxToCmpSelectBase<MinMaxToCmpSelectPass> {
         void runOnOperation() override {
             auto op = getOperation().getOperation();
             RewritePatternSet patterns(&getContext());
             patterns.add<MinMaxConvPattern>(&getContext());
             GreedyRewriteConfig config;
             config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-            if (failed(applyOpPatternsAndFold(op, std::move(patterns), config))) {
+            config.enableFolding();
+            if (failed(applyOpPatternsGreedily(op, std::move(patterns), config))) {
                 signalPassFailure();
             }
         }
@@ -69,5 +71,3 @@ namespace mlir {
     }
 
 } // namespace mlir
-
-

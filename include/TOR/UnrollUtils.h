@@ -164,8 +164,9 @@ static LogicalResult hlsGenerateCleanupLoopForUnroll(AffineForOp forOp,
   cleanupForOp.setLowerBound(cleanupOperands, cleanupMap);
   // Promote the loop body up if this has turned into a single iteration loop.
   // Don't need, loopUnroll can get the result
-  // (void)promoteIfSingleIteration(cleanupForOp);
-  (void)loopUnrollFull(cleanupForOp);
+  // promoteIfSingleIteration(cleanupForOp);
+  if (failed(loopUnrollFull(cleanupForOp)))
+    return failure();
   // Adjust upper bound of the original loop; this is the same as the lower
   // bound of the cleanup loop.
   forOp.setUpperBound(cleanupOperands, cleanupMap);
@@ -226,7 +227,8 @@ LogicalResult hlsLoopUnrollByFactor(AffineForOp forOp, uint64_t unrollFactor) {
       /*iterArgs=*/iterArgs, /*yieldedValues=*/yieldedValues);
 
   // Promote the loop body up if this has turned into a single iteration loop.
-  (void)promoteIfSingleIteration(forOp);
+  if (failed(promoteIfSingleIteration(forOp)))
+    return failure();
   return success();
 }
 

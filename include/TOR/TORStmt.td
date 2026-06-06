@@ -393,7 +393,7 @@ def CallOp : TOROp<"call", [CallOpInterface, DeclareOpInterfaceMethods<SymbolUse
     }
 
     void setCalleeFromCallable(::mlir::CallInterfaceCallable callee) {
-      (*this)->setAttr("callee", callee.get<SymbolRefAttr>());
+      (*this)->setAttr("callee", llvm::cast<SymbolRefAttr>(callee));
     }
     mlir::ArrayAttr getArgAttrsAttr() { return nullptr; }
     mlir::ArrayAttr getResAttrsAttr() { return nullptr; }

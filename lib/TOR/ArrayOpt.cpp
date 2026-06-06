@@ -21,6 +21,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #define DEBUG_TYPE "array-opt"
 
@@ -206,11 +207,14 @@ struct FuncOpPattern : OpRewritePattern<FuncOp> {
       if (!isa<mlir::MemRefType>(arg.getType()) || !isPromotable(arg)) {
         continue;
       }
-      op.insertArgument(i + 1, getNewMemref(arg.getType()), {}, op.getLoc());
+      if (failed(
+              op.insertArgument(i + 1, getNewMemref(arg.getType()), {}, op.getLoc())))
+        return failure();
       SmallVector<bool> optDimArray;
       getOptDimArray(arg.getType(), optDimArray);
       replaceMemrefAccess(arg, op.getArgument(i + 1), optDimArray, rewriter);
-      op.eraseArgument(i);
+      if (failed(op.eraseArgument(i)))
+        return failure();
     }
     return success();
   }
@@ -265,20 +269,23 @@ struct ArrayOptPass : ArrayOptBase<ArrayOptPass> {
     SmallVector<Operation *> optArrays;
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::ExistingOps);
+    config.enableFolding();
     moduleOp.walk([&](memref::AllocaOp AI) {
       if (isPromotable(AI)) {
         optArrays.push_back(AI);
         RewritePatternSet patterns(&getContext());
         patterns.insert<AllocaOptPattern>(&getContext());
-        (void)applyOpPatternsAndFold(AI.getOperation(), std::move(patterns),
-                                     config);
+        if (failed(applyOpPatternsGreedily(AI.getOperation(),
+                                           std::move(patterns), config)))
+          signalPassFailure();
       }
     });
     moduleOp.walk([&](FuncOp func) {
       RewritePatternSet patterns(&getContext());
       patterns.insert<FuncOpPattern>(&getContext());
-      (void)applyOpPatternsAndFold(func.getOperation(), std::move(patterns),
-                                   config);
+      if (failed(applyOpPatternsGreedily(func.getOperation(),
+                                         std::move(patterns), config)))
+        signalPassFailure();
     });
     DenseMap<StringRef, SmallVector<memref::GetGlobalOp>> newGetGlobalOpMap;
     moduleOp.walk([&](memref::GetGlobalOp getGlobalOp) {
@@ -292,8 +299,9 @@ struct ArrayOptPass : ArrayOptBase<ArrayOptPass> {
       if (isPromotableUseType(globalOp.getType())) {
         RewritePatternSet patterns(&getContext());
         patterns.insert<GlobalOpPattern>(&getContext(), newGetGlobalOpMap);
-        (void)applyOpPatternsAndFold(globalOp.getOperation(),
-                                     std::move(patterns), config);
+        if (failed(applyOpPatternsGreedily(globalOp.getOperation(),
+                                           std::move(patterns), config)))
+          signalPassFailure();
       }
     });
   }

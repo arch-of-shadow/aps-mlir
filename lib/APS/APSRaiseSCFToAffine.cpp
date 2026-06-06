@@ -175,7 +175,8 @@ struct APSRaiseSCFToAffinePass
 
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::ExistingAndNewOps);
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns),
+    config.enableFolding();
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
                                             config))) {
       signalPassFailure();
     }

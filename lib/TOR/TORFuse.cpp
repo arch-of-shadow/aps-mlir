@@ -110,17 +110,18 @@ namespace {
             auto op = getOperation().getOperation();
             GreedyRewriteConfig config;
             config.setStrictness(GreedyRewriteStrictness::ExistingOps);
+            config.enableFolding();
             {
                 RewritePatternSet Patterns(&getContext());
                 Patterns.add<GenerateMac>(&getContext());
-                if (failed(applyOpPatternsAndFold(op, std::move(Patterns), config))) {
+                if (failed(applyOpPatternsGreedily(op, std::move(Patterns), config))) {
                     signalPassFailure();
                 }
             }
             {
                 RewritePatternSet Patterns(&getContext());
                 Patterns.add<GenMulInt8>(&getContext());
-                if (failed(applyOpPatternsAndFold(op, std::move(Patterns), config))) {
+                if (failed(applyOpPatternsGreedily(op, std::move(Patterns), config))) {
                     signalPassFailure();
                 }
             }

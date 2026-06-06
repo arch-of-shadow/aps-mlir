@@ -465,8 +465,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
           }
           if (!payload)
             continue;
-          for (const auto &[consumerBlock, fifo] : consumers) {
-            (void)consumerBlock;
+          for (const auto &[_, fifo] : consumers) {
             if (fifo)
               fifo->callMethod("enq", {payload}, b);
           }
@@ -716,8 +715,7 @@ void BBHandler::processPipelineBasicBlock(BlockInfo &block) {
           auto valueIt = localMap.find(value);
           if (valueIt == localMap.end())
             continue;
-          for (const auto &[consumerBlock, outFIFO] : consumers) {
-            (void)consumerBlock;
+          for (const auto &[_, outFIFO] : consumers) {
             if (outFIFO)
               outFIFO->callMethod("enq", {valueIt->second}, b);
           }

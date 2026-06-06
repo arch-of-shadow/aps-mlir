@@ -90,7 +90,8 @@ struct NormalizeSCFForIndicesPass : NormalizeSCFForIndicesBase<NormalizeSCFForIn
     patterns.add<NormalizeSCFForIndicesPattern>(&getContext());
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::AnyOp);
-    if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns), config))) {
+    config.enableFolding();
+    if (failed(applyPatternsGreedily(op, std::move(patterns), config))) {
       signalPassFailure();
     }
   }

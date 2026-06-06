@@ -23,6 +23,8 @@
 #include "TOR/TORDialect.h"
 #include "TOR/Utils.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <iostream>
 #include <set>
@@ -148,13 +150,14 @@ template <typename SourceOp>
 struct IndexTypeConversionPattern : public OpConversionPattern<SourceOp> {
   using OpConversionPattern<SourceOp>::OpConversionPattern;
 
-  SmallVector<Value>
+  FailureOr<SmallVector<Value>>
   prepareOperands(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const {
     auto operands = adaptor.getOperands();
     SmallVector<Type> newOperandTypes;
     auto converter = this->getTypeConverter();
-    (void)converter->convertTypes(op->getOperandTypes(), newOperandTypes);
+    if (failed(converter->convertTypes(op->getOperandTypes(), newOperandTypes)))
+      return failure();
     return llvm::to_vector(
         llvm::map_range(llvm::zip(operands, newOperandTypes), [&](auto it) {
           auto [operand, tpe] = it;
@@ -176,7 +179,9 @@ struct YieldOpConversion : public IndexTypeConversionPattern<scf::YieldOp> {
     if (isa<scf::ForOp>(op->getParentOp()))
       return failure();
     auto operands = this->prepareOperands(op, adaptor, rewriter);
-    auto newOp = rewriter.replaceOpWithNewOp<tor::YieldOp>(op, operands);
+    if (failed(operands))
+      return failure();
+    rewriter.replaceOpWithNewOp<tor::YieldOp>(op, *operands);
     return success();
   }
 };
@@ -190,8 +195,10 @@ struct CondOpConversion : public IndexTypeConversionPattern<scf::ConditionOp> {
                   typename scf::ConditionOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto operands = this->prepareOperands(op, adaptor, rewriter);
-    auto newOp = rewriter.replaceOpWithNewOp<tor::ConditionOp>(
-        op, operands[0], ValueRange(operands).drop_front(1));
+    if (failed(operands))
+      return failure();
+    rewriter.replaceOpWithNewOp<tor::ConditionOp>(
+        op, (*operands)[0], ValueRange(*operands).drop_front(1));
     return success();
   }
 };
@@ -204,11 +211,13 @@ struct BinOpConversionPattern : public IndexTypeConversionPattern<SourceOp> {
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto operands = this->prepareOperands(op, adaptor, rewriter);
+    if (failed(operands))
+      return failure();
     auto resType =
         this->getTypeConverter()->convertType(op->getResult(0).getType());
 
-    auto newOp = rewriter.replaceOpWithNewOp<TargetOp>(op, resType, operands[0],
-                                                       operands[1], 0, 0);
+    auto newOp = rewriter.replaceOpWithNewOp<TargetOp>(
+        op, resType, (*operands)[0], (*operands)[1], 0, 0);
     if (!op->hasAttr("dump")) {
       op->setAttr("dump", StringAttr::get(rewriter.getContext(),
                                           get_tmp_attr().c_str()));
@@ -242,10 +251,13 @@ struct SimpleOpConversion : public IndexTypeConversionPattern<SourceOp> {
                       [](auto tpe) { return isa<IndexType>(tpe); }))
       return failure();
     auto operands = this->prepareOperands(op, adaptor, rewriter);
+    if (failed(operands))
+      return failure();
     SmallVector<Type> resultTypes;
-    (void)this->getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                 resultTypes);
-    rewriter.replaceOpWithNewOp<SourceOp>(op, resultTypes, operands,
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes)))
+      return failure();
+    rewriter.replaceOpWithNewOp<SourceOp>(op, resultTypes, *operands,
                                           op->getAttrs());
     return success();
   }
@@ -733,13 +745,16 @@ struct CmpIOpConversion : public IndexTypeConversionPattern<CmpIOp> {
   matchAndRewrite(CmpIOp op, CmpIOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto operands = this->prepareOperands(op, adaptor, rewriter);
-    assert(operands.size() == 2 && "addi has two operand");
+    if (failed(operands))
+      return failure();
+    assert(operands->size() == 2 && "addi has two operand");
 
     rewriter.setInsertionPoint(op);
     auto predicate = static_cast<mlir::tor::CmpIPredicate>(op.getPredicate());
     auto newOp =
         rewriter.create<tor::CmpIOp>(op.getLoc(), op.getResult().getType(),
-                                     predicate, operands[0], operands[1], 0, 0);
+                                     predicate, (*operands)[0], (*operands)[1],
+                                     0, 0);
     if (!op->hasAttr("dump")) {
       op->setAttr("dump", StringAttr::get(rewriter.getContext(),
                                           get_tmp_attr().c_str()));
@@ -905,7 +920,7 @@ struct CovertAllocToAxiCreate : public OpRewritePattern<tor::DesignOp> {
           auto axiWriteOp = rewriter.create<tor::AXIWriteOp>(
               guardStoreOp->getLoc(), guardStoreOp->getResultTypes(), operands,
               guardStoreOp->getAttrs());
-          auto yieldOp = rewriter.create<tor::YieldOp>(guardStoreOp->getLoc());
+          rewriter.create<tor::YieldOp>(guardStoreOp->getLoc());
           user->replaceAllUsesWith(axiWriteOp->getResults());
         } else {
           llvm::dbgs() << *user << "\n";
@@ -1267,16 +1282,20 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
       Patterns.add<GenerateGuardedStore>(&getContext());
       GreedyRewriteConfig config;
       config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-      if (failed(applyOpPatternsAndFold(designOp.getOperation(),
-                                        std::move(Patterns), config)))
-        ;
+      config.enableFolding();
+      if (failed(applyOpPatternsGreedily(designOp.getOperation(),
+                                         std::move(Patterns), config))) {
+        signalPassFailure();
+        return;
+      }
     }
     {
       RewritePatternSet Patterns(&getContext());
       Patterns.add<ResidualForOpConversion>(&getContext(), pipeline);
       GreedyRewriteConfig config;
       config.setStrictness(GreedyRewriteStrictness::ExistingAndNewOps);
-      if (failed(applyPatternsAndFoldGreedily(designOp.getOperation(),
+      config.enableFolding();
+      if (failed(applyPatternsGreedily(designOp.getOperation(),
                                               std::move(Patterns), config))) {
         signalPassFailure();
         return;
@@ -1388,9 +1407,12 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
       Patterns.add<CovertAllocToAxiCreate>(&getContext());
       GreedyRewriteConfig config;
       config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-      if (failed(applyOpPatternsAndFold(designOp.getOperation(),
-                                        std::move(Patterns), config)))
-        ;
+      config.enableFolding();
+      if (failed(applyOpPatternsGreedily(designOp.getOperation(),
+                                         std::move(Patterns), config))) {
+        signalPassFailure();
+        return;
+      }
     }
 
     {
@@ -1398,9 +1420,12 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
       // Patterns.add<MoveWhileOp>(&getContext());
       GreedyRewriteConfig config;
       config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-      if (failed(applyOpPatternsAndFold(designOp.getOperation(),
-                                        std::move(Patterns), config)))
-        ;
+      config.enableFolding();
+      if (failed(applyOpPatternsGreedily(designOp.getOperation(),
+                                         std::move(Patterns), config))) {
+        signalPassFailure();
+        return;
+      }
     }
 
     // comment out because of negative impact on unroll pipeline
@@ -1409,7 +1434,7 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
     //     Patterns.add<ConvertMuliToMulConst>(&getContext());
     //     GreedyRewriteConfig config;
     //     config.strictMode = GreedyRewriteStrictness::ExistingOps;
-    //     if (failed(applyOpPatternsAndFold(designOp.getOperation(),
+    //     if (failed(applyOpPatternsGreedily(designOp.getOperation(),
     //     std::move(Patterns), config))) {
     //         llvm::errs() << "ConvertMuliToMulConst fail\n";
     //     }
@@ -1420,9 +1445,12 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
       Patterns.add<HoistConstCondIfOp>(&getContext());
       GreedyRewriteConfig config;
       config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-      if (failed(applyOpPatternsAndFold(designOp.getOperation(),
-                                        std::move(Patterns), config)))
-        ;
+      config.enableFolding();
+      if (failed(applyOpPatternsGreedily(designOp.getOperation(),
+                                         std::move(Patterns), config))) {
+        signalPassFailure();
+        return;
+      }
     }
 
     {
@@ -1449,8 +1477,12 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
           &getContext());
       GreedyRewriteConfig config;
       config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-      (void)applyPatternsAndFoldGreedily(designOp.getOperation(),
-                                         std::move(Patterns), config);
+      config.enableFolding();
+      if (failed(applyPatternsGreedily(designOp.getOperation(),
+                                       std::move(Patterns), config))) {
+        signalPassFailure();
+        return;
+      }
     }
   }
 };

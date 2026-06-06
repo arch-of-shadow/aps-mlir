@@ -79,7 +79,7 @@ namespace
         void AddIterargs(tor::DesignOp designOp){
             designOp.walk([&](scf::ForOp forOp){
                 std::vector<mlir::Value> newiter;
-                llvm::DenseMap<Operation*,unsigned> stor;
+                llvm::DenseMap<Operation *, int> stor;
                 llvm::DenseMap<mlir::Value, llvm::DenseMap<mlir::Value,Operation*> > mt;
                 llvm::DenseMap<mlir::Value, llvm::DenseMap<mlir::Value,unsigned> > cnt;
                 llvm::DenseMap<mlir::Value, llvm::DenseMap<mlir::Value,unsigned> > ppl;
@@ -98,7 +98,7 @@ namespace
                 });
                 arg[forOp] = 1;
                 Operation *yieop;
-                for(int i = 0;i < ves.size(); i++){
+                for(size_t i = 0;i < ves.size(); i++){
                     auto &x = ves[i];
                     arg[x] = 1;
                     for(auto re : x->getResults()){
@@ -188,7 +188,7 @@ namespace
                             }
                         }
                         
-                        for(int i = 0;i < ves.size() ;i++){
+                        for(size_t i = 0; i < ves.size() ;i++){
                             for(auto x : ves[i]->getOperands()){
                                 auto k = x.getDefiningOp();
                                 if(k == nullptr){
@@ -199,8 +199,8 @@ namespace
                                 }
                             }
                         }
-                        for(int i = ves.size() - 1;i >= 0;i--){
-                            ves[i]->moveBefore(forOp);
+                        for (Operation *opToMove : llvm::reverse(ves)){
+                            opToMove->moveBefore(forOp);
                         }
                             builder.setInsertionPoint(forOp);
                             auto newOp = builder.create<tor::LoadOp>(forOp.getLoc(),op.getOperands());
@@ -242,9 +242,7 @@ namespace
                     }
                 std::vector<std::pair<tor::StoreOp,int> > store;
                 forOp.walk([&](Operation* op){ 
-                    if(auto loadop = dyn_cast<tor::LoadOp>(op)){
-                        auto mem = loadop.getMemref();
-                        auto pl = loadop.getOperand(1);
+                        if(auto loadop = dyn_cast<tor::LoadOp>(op)){
                         if(arg[op]){
                             std::vector<std::pair<Operation *,int> > temp;
                             for(auto &xs : op->getUses()){
@@ -325,14 +323,13 @@ namespace
                         builder.create<scf::YieldOp>(newforop.getLoc());
                     }
                     if(store.size()){
-                        auto results = newforop.getResults();
                         l = 0;            
                         auto cmps = [&](std::pair<tor::StoreOp,int> a, std::pair<tor::StoreOp,int> b) {
                             return a.second < b.second;
                         };
                         builder.setInsertionPointAfter(newforop);
                         std::sort(store.begin(),store.end(),cmps);
-                        for(int i = 0;i < store.size();i++){
+                        for(size_t i = 0; i < store.size(); i++){
                             store[i].first.setOperand(0,newforop.getResult(i));
                         }
                     }

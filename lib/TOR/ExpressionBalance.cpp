@@ -85,10 +85,7 @@ namespace
                                           auto sop = sec.getDefiningOp();
                                           if (fop->getBlock() == sop->getBlock() && ct[sop] + 1 < ct[fop])
                                           {
-                                              int cnt = 0;
-                                              for(auto &x : fop->getResult(0).getUses()){
-                                                cnt++;
-                                              }
+                                              unsigned cnt = fop->getResult(0).getNumUses();
                                               if (cnt == 1 && fop->getOperand(0).getDefiningOp() != nullptr && fop->getOperand(1).getDefiningOp() != nullptr)
                                               {
                                                   if (fop->getOperand(0).getDefiningOp()->getBlock() == op->getBlock() && fop->getOperand(1).getDefiningOp()->getBlock() == op->getBlock())
@@ -123,10 +120,7 @@ namespace
                                       if (fir.getDefiningOp() != nullptr)
                                       {
                                           auto fop = fir.getDefiningOp();
-                                          int cnt = 0;
-                                              for(auto &x : sop->getResult(0).getUses()){
-                                                cnt++;
-                                            }
+                                              unsigned cnt = sop->getResult(0).getNumUses();
                                           if (cnt == 1 && fop->getBlock() == sop->getBlock() && ct[fop] + 1 < ct[sop])
                                           {
                                               if (sop->getOperand(0).getDefiningOp() != nullptr && sop->getOperand(1).getDefiningOp() != nullptr)

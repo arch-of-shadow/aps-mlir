@@ -12,7 +12,6 @@
 #include "TOR/Passes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/raw_ostream.h"
 #include <cstddef>
 #include "TOR/DialectCreater.h"
 
@@ -45,7 +44,6 @@ namespace {
                 Value source = afterOp->getOperand(0);
                 MemRefType copyMemRefType = dyn_cast<MemRefType>(afterOp->getOperandTypes().front());
                 auto copyShape =  copyMemRefType.getShape();
-                auto create = OpCreater(rewriter, loc);
                 SmallVector<Value, 4> loopIvs;
                 SmallVector<int64_t, 4> offsetV;
                 size_t start_i = 0;
@@ -83,7 +81,7 @@ namespace {
                 
                 auto affineStoreMap = AffineMap::get( dimCount, 0, storeResults, rewriter.getContext());
                 
-                auto storedValue = rewriter.create<affine::AffineStoreOp>(loc, loadedValue, reinterpretCastOp->getOperand(0), affineStoreMap, newIndices);
+                rewriter.create<affine::AffineStoreOp>(loc, loadedValue, reinterpretCastOp->getOperand(0), affineStoreMap, newIndices);
 
                 rewriter.eraseOp(reinterpretCastOp);
                 rewriter.eraseOp(afterOp);
@@ -122,8 +120,6 @@ namespace {
 
                     auto sourceShape = dyn_cast<MemRefType>(sourceOp.getType()).getShape();
                     auto targetShape = dyn_cast<MemRefType>(targetOp.getType()).getShape();
-                    auto create = OpCreater(rewriter, loc);
-
                     rewriter.setInsertionPoint(op);
                     SmallVector<Value, 4> loopIvs;
                     for (size_t i = 0; i <  sourceShape.size(); ++i) {
@@ -159,7 +155,7 @@ namespace {
                     auto loadedValue = rewriter.create<affine::AffineLoadOp>(loc, sourceOp, affineLoadMap, oldIndices);
                     
                     auto affineStoreMap = AffineMap::get( targetShape.size(), 0, storeResults, rewriter.getContext());
-                    auto storedValue = rewriter.create<affine::AffineStoreOp>(loc, loadedValue, targetOp, affineStoreMap, newIndices);
+                    rewriter.create<affine::AffineStoreOp>(loc, loadedValue, targetOp, affineStoreMap, newIndices);
 
                     rewriter.eraseOp(op);
                 }
@@ -195,5 +191,4 @@ namespace mlir {
         return std::make_unique<ReinterpretCastPassLower>();
     }
 } // namespace mlir
-
 

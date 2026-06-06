@@ -20,6 +20,7 @@
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include "TOR/AffineModSimplify.h"
 #include "TOR/PassDetail.h"
@@ -598,8 +599,9 @@ void createNewArray(Operation *op, SmallVector<Value> &newArray,
   if (rank == memref.getRank()) {
     auto newMemref = MemRefType::get(newShape, memref.getElementType());
     if (auto funcOp = dyn_cast<FuncOp>(op)) {
-      funcOp.insertArgument(funcOp.getNumArguments(), newMemref, {},
-                            funcOp.getLoc());
+      if (failed(funcOp.insertArgument(funcOp.getNumArguments(), newMemref, {},
+                                       funcOp.getLoc())))
+        llvm::report_fatal_error("failed to insert partitioned function argument");
       newArray.push_back(funcOp.getArgument(funcOp.getNumArguments() - 1));
     } else if (auto allocOp = dyn_cast<memref::AllocaOp>(op)) {
       auto newAllocOp =
@@ -1480,7 +1482,8 @@ struct FuncOpPattern : OpRewritePattern<FuncOp> {
         continue;
       }
       partitionFunc(op, partition, memref, factorMap, cyclicMap, rewriter, arg);
-      op.eraseArgument(i);
+      if (failed(op.eraseArgument(i)))
+        return failure();
       op->removeAttr(stringAddNumber("partition_dim_array_", i));
       op->removeAttr(stringAddNumber("partition_factor_array_", i));
       op->removeAttr(stringAddNumber("partition_cyclic_array_", i));
@@ -1884,6 +1887,7 @@ struct NewArrayPartitionPass : NewArrayPartitionBase<NewArrayPartitionPass> {
     colorAndCheckCallGraph(moduleOp);
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::ExistingOps);
+    config.enableFolding();
     DenseMap<StringRef, SmallVector<memref::GetGlobalOp>> newGetGlobalOpMap;
     moduleOp.walk([&](memref::GetGlobalOp getGlobalOp) {
       if (!newGetGlobalOpMap.count(getGlobalOp.getName())) {
@@ -1897,8 +1901,9 @@ struct NewArrayPartitionPass : NewArrayPartitionBase<NewArrayPartitionPass> {
       RewritePatternSet patterns(&getContext());
       patterns.insert<GlobalOpPattern>(&getContext(), newGetGlobalOpMap,
                                        accessOpsToErase);
-      (void)applyOpPatternsAndFold(globalOp.getOperation(), std::move(patterns),
-                                   config);
+      if (failed(applyOpPatternsGreedily(globalOp.getOperation(),
+                                         std::move(patterns), config)))
+        signalPassFailure();
     });
     for (auto op : accessOpsToErase) {
       op->erase();
@@ -1906,8 +1911,9 @@ struct NewArrayPartitionPass : NewArrayPartitionBase<NewArrayPartitionPass> {
     moduleOp.walk([&](FuncOp func) {
       RewritePatternSet patterns(&getContext());
       patterns.insert<FuncOpPattern>(&getContext());
-      (void)applyOpPatternsAndFold(func.getOperation(), std::move(patterns),
-                                   config);
+      if (failed(applyOpPatternsGreedily(func.getOperation(),
+                                         std::move(patterns), config)))
+        signalPassFailure();
       func->removeAttr("array-partition");
     });
     SmallVector<Operation *> allocaOps;
@@ -1915,7 +1921,8 @@ struct NewArrayPartitionPass : NewArrayPartitionBase<NewArrayPartitionPass> {
     for (auto op : allocaOps) {
       RewritePatternSet patterns(&getContext());
       patterns.insert<AllocaOpPattern>(&getContext());
-      (void)applyOpPatternsAndFold(op, std::move(patterns), config);
+      if (failed(applyOpPatternsGreedily(op, std::move(patterns), config)))
+        signalPassFailure();
     }
   }
 };

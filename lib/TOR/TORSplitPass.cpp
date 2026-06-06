@@ -768,11 +768,12 @@ bind_operation(sop.getStarttime(), sop.getEndtime(), op);
             mlir::ModuleOp m = getOperation();
             GreedyRewriteConfig config;
             config.setStrictness(GreedyRewriteStrictness::ExistingOps);
+            config.enableFolding();
             if (m.walk([&](tor::FuncOp op) {
                         mlir::RewritePatternSet patterns(&getContext());
                         patterns.insert<split::SplitSchedule>(op.getContext());
 
-                        if (failed(applyOpPatternsAndFold(op.getOperation(), std::move(patterns), config)))
+                        if (failed(applyOpPatternsGreedily(op.getOperation(), std::move(patterns), config)))
                             return WalkResult::advance();
 
                         return WalkResult::advance();

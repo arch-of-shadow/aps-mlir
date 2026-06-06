@@ -1,10 +1,10 @@
 add_executable(aps-e2e
         main.cc
-        aps_opt_driver.cc
 )
 
+target_compile_options(aps-e2e PRIVATE -fno-rtti)
+
 target_link_libraries(aps-e2e PRIVATE
-        MLIROptLib
         MLIRTOR
         TORSCHEDULE
         APS
@@ -62,8 +62,9 @@ target_link_libraries(aps-e2e PRIVATE
 
 add_executable(aps-opt
         aps_opt.cc
-        aps_opt_driver.cc
 )
+
+target_compile_options(aps-opt PRIVATE -fno-rtti)
 
 target_link_libraries(aps-opt PRIVATE
         MLIROptLib
@@ -73,6 +74,7 @@ target_link_libraries(aps-opt PRIVATE
         CIRCTComb
         CIRCTECMT2
         CIRCTCmt2
+        CIRCTCmt2ToFIRRTL
         CIRCTFIRRTL
         
         ${LP_SOLVE_LIB}

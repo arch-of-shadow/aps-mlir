@@ -528,8 +528,7 @@ LogicalResult IfHandler::generateYieldOnlyBranchRule(StringRef branchName,
       }
       if (!payload)
         return;
-      for (auto &[consumerBlock, fifo] : consumers) {
-        (void)consumerBlock;
+      for (auto &[_, fifo] : consumers) {
         if (fifo)
           fifo->callMethod("enq", {payload}, builder);
       }
@@ -545,9 +544,8 @@ LogicalResult IfHandler::generateYieldOnlyBranchRule(StringRef branchName,
 }
 
 void IfHandler::emitBranchInputs(
-    OpBuilder &builder, Location loc, llvm::DenseMap<Value, Value> &capturedValues,
+    OpBuilder &builder, Location, llvm::DenseMap<Value, Value> &capturedValues,
     llvm::DenseMap<Value, Instance *> &branchFIFOs) {
-  (void)loc;
   for (auto &[value, fifo] : branchFIFOs) {
     if (!fifo)
       continue;
@@ -565,8 +563,7 @@ void IfHandler::emitBranchInputs(
   }
 }
 
-void IfHandler::emitLiveThroughOutputs(OpBuilder &builder, Location loc) {
-  (void)loc;
+void IfHandler::emitLiveThroughOutputs(OpBuilder &builder, Location) {
   for (auto &[value, consumers] : output_fifos) {
     Instance *stateReg = inputStateRegs.lookup(value);
     if (!stateReg)
@@ -574,17 +571,15 @@ void IfHandler::emitLiveThroughOutputs(OpBuilder &builder, Location loc) {
     auto values = stateReg->callValue("read", builder);
     if (values.empty())
       continue;
-    for (auto &[consumerBlock, fifo] : consumers) {
-      (void)consumerBlock;
+    for (auto &[_, fifo] : consumers) {
       if (fifo)
         fifo->callMethod("enq", {values[0]}, builder);
     }
   }
 }
 
-void IfHandler::emitResultOutputs(OpBuilder &builder, Location loc,
+void IfHandler::emitResultOutputs(OpBuilder &builder, Location,
                                   ArrayRef<Instance *> resultFIFOs) {
-  (void)loc;
   for (auto result : llvm::enumerate(ifOp.getResults())) {
     if (result.index() >= resultFIFOs.size())
       continue;
@@ -611,8 +606,7 @@ void IfHandler::emitResultOutputs(OpBuilder &builder, Location loc,
     }
 
     if (consumersIt != output_fifos.end()) {
-      for (auto &[consumerBlock, fifo] : consumersIt->second) {
-        (void)consumerBlock;
+      for (auto &[_, fifo] : consumersIt->second) {
         if (fifo)
           fifo->callMethod("enq", {payloadValues[0]}, builder);
       }
