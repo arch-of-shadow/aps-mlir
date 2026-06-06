@@ -586,14 +586,55 @@ bool isMultiCycleOp(mlir::Operation* op) {
   return false;
 }
 
-void calculateFuncOpResourceUsage(mlir::tor::FuncOp funcOp, scheduling::ResourceDB &RDB) {
+static IntegerAttr getScheduleStartAttr(Operation *op) {
+  if (auto attr = op->getAttrOfType<IntegerAttr>("ref_starttime"))
+    return attr;
+  return op->getAttrOfType<IntegerAttr>("starttime");
+}
+
+static IntegerAttr getScheduleEndAttr(Operation *op) {
+  if (auto attr = op->getAttrOfType<IntegerAttr>("ref_endtime"))
+    return attr;
+  return op->getAttrOfType<IntegerAttr>("endtime");
+}
+
+static LogicalResult verifyResourceOpsHaveScheduleInfo(tor::FuncOp funcOp) {
+  if (funcOp
+          .walk([&](Operation *op) {
+            if (!isMultiCycleOp(op))
+              return WalkResult::advance();
+            if (getScheduleStartAttr(op) && getScheduleEndAttr(op))
+              return WalkResult::advance();
+
+            op->emitError()
+                << "multi-cycle operation missing scheduling info after "
+                   "schedule attribution; this usually means the operation is "
+                   "nested under a control-flow op not handled by schedule-tor";
+            return WalkResult::interrupt();
+          })
+          .wasInterrupted())
+    return failure();
+  return success();
+}
+
+LogicalResult calculateFuncOpResourceUsage(mlir::tor::FuncOp funcOp,
+                                           scheduling::ResourceDB &RDB) {
   auto designOp = llvm::dyn_cast<tor::DesignOp>(funcOp->getParentOp());
   std::vector<std::unordered_map<int, int>> usageCnts(RDB.getNumResource());
   std::vector<int> usages(RDB.getNumResource(), 0);
   llvm::SmallSet<mlir::tor::FuncOp, 4> callFuncOps;
-  funcOp.walk([&](mlir::Operation* op) {
+  if (funcOp
+          .walk([&](mlir::Operation *op) {
     if (isMultiCycleOp(op)) {
-      int startTime = op->getAttrOfType<IntegerAttr>("ref_starttime").getInt();
+      auto startAttr = getScheduleStartAttr(op);
+      int startTime = 0;
+      if (startAttr) {
+        startTime = startAttr.getInt();
+      } else {
+        op->emitError()
+            << "missing scheduling info before resource usage calculation";
+        return WalkResult::interrupt();
+      }
       int rcsId = RDB.getResourceID(op);
       ++usageCnts[rcsId][startTime];
       if (usages[rcsId] < usageCnts[rcsId][startTime]) {
@@ -603,7 +644,9 @@ void calculateFuncOpResourceUsage(mlir::tor::FuncOp funcOp, scheduling::Resource
       auto callFuncOp = designOp.lookupSymbol<tor::FuncOp>(callOp.getCallee());
       callFuncOps.insert(callFuncOp);
     }
-  });
+    return WalkResult::advance();
+  }).wasInterrupted())
+    return failure();
 
   for (auto callFuncOp: callFuncOps) {
     const auto &callOpUsages = RDB.getUsage(callFuncOp);
@@ -612,6 +655,7 @@ void calculateFuncOpResourceUsage(mlir::tor::FuncOp funcOp, scheduling::Resource
     }
   }
   RDB.addUsage(funcOp, usages);
+  return success();
 }
 
 bool isDataflowRegionResourceConstraintSatisfied(mlir::tor::FuncOp funcOp,
@@ -633,17 +677,15 @@ bool isDataflowRegionResourceConstraintSatisfied(mlir::tor::FuncOp funcOp,
 }
 
 void setReferenceAttr(mlir::Operation *op, std::pair<int, int> intv) {
-  op->setAttr("ref_starttime",
-              mlir::IntegerAttr::get(
-                  mlir::IntegerType::get(op->getContext(), 32,
-                                         mlir::IntegerType::Signless),
-                  intv.first));
+  auto i32 = mlir::IntegerType::get(op->getContext(), 32,
+                                    mlir::IntegerType::Signless);
+  auto startAttr = mlir::IntegerAttr::get(i32, intv.first);
+  auto endAttr = mlir::IntegerAttr::get(i32, intv.second);
 
-  op->setAttr("ref_endtime",
-              mlir::IntegerAttr::get(
-                  mlir::IntegerType::get(op->getContext(), 32,
-                                         mlir::IntegerType::Signless),
-                  intv.second));
+  op->setAttr("ref_starttime", startAttr);
+  op->setAttr("ref_endtime", endAttr);
+  op->setAttr("starttime", startAttr);
+  op->setAttr("endtime", endAttr);
 }
 
 void queryAndSetReferenceAttr(mlir::Operation * op, scheduling::ScheduleBase *scheduler) {
@@ -773,7 +815,11 @@ mlir::LogicalResult scheduleOps(mlir::tor::FuncOp funcOp,
   // Mark function as scheduled so time graph pass knows to process it
   funcOp->setAttr("scheduled", BoolAttr::get(funcOp.getContext(), true));
 
-  calculateFuncOpResourceUsage(funcOp, RDB);
+  if (failed(verifyResourceOpsHaveScheduleInfo(funcOp)))
+    return failure();
+
+  if (failed(calculateFuncOpResourceUsage(funcOp, RDB)))
+    return failure();
   return mlir::success();
 }
 

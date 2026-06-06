@@ -10,6 +10,7 @@
 namespace mlir {
 
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createNormalizeSCFForIndicesPass();
+std::unique_ptr<Pass> createAPSRaiseSCFToAffinePass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAPSMemToMemRefPass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createAffineMemToAPSPass();
 std::unique_ptr<OperationPass<mlir::func::FuncOp>> createMemRefToAPSPass();

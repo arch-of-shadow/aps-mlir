@@ -179,6 +179,35 @@ class MLIRCheck:
             f"{_raw_op(op).name} region block ops mismatch: {actual} != {expected}\n{self.text}"
         )
 
+    def assert_region_terminator_operand_producers(
+        self,
+        op,
+        expected: list[list[str | None]],
+        *,
+        terminator_name: str = "scf.yield",
+    ) -> None:
+        blocks = self.region_blocks(op)
+        actual = []
+        for block in blocks:
+            operations = list(block.operations)
+            assert operations, (
+                f"{_raw_op(op).name} has an empty region block\n{self.text}"
+            )
+            terminator = operations[-1]
+            assert terminator.name == terminator_name, (
+                f"Expected region block terminator {terminator_name}, "
+                f"found {terminator.name}\n{self.text}"
+            )
+            producers = []
+            for i, _ in enumerate(terminator.operands):
+                producer = self.producer_of_operand(terminator, i)
+                producers.append(getattr(producer, "name", None))
+            actual.append(producers)
+        assert actual == expected, (
+            f"{_raw_op(op).name} terminator operand producers mismatch: "
+            f"{actual} != {expected}\n{self.text}"
+        )
+
     def producer_of_operand(self, op, operand_index: int):
         operands = list(_raw_op(op).operands)
         assert len(operands) > operand_index, (

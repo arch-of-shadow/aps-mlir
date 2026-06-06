@@ -16,19 +16,23 @@ using namespace mlir;
 std::pair<int, int> getRefTimePair(Operation *op) {
   auto startAttr = op->getAttrOfType<IntegerAttr>("ref_starttime");
   auto endAttr = op->getAttrOfType<IntegerAttr>("ref_endtime");
+  assert(startAttr && endAttr &&
+         "memory operation must have ref scheduling info");
 
-  assert(startAttr && endAttr && "memory operation must be scheduled first");
-
-  return {startAttr.getInt(), endAttr.getInt()};
+  int startTime = startAttr.getInt();
+  int endTime = std::max<int>(startTime + 1, endAttr.getInt());
+  return {startTime, endTime};
 }
 
 LogicalResult requireRefTimePair(Operation *op) {
-  if (op->hasAttr("ref_starttime") && op->hasAttr("ref_endtime"))
+  bool hasRefTime = op->hasAttr("ref_starttime") && op->hasAttr("ref_endtime");
+  bool hasTorTime = op->hasAttr("starttime") && op->hasAttr("endtime");
+  if (hasRefTime && hasTorTime)
     return success();
 
   return op->emitOpError()
-         << "missing ref_starttime/ref_endtime; run scheduling before "
-            "lower-aps-mem-to-req-collect";
+         << "missing paired ref_starttime/ref_endtime and starttime/endtime; "
+            "run scheduling before lower-aps-mem-to-req-collect";
 }
 
 void setRefTimePair(Operation *op, int startTime, int endTime) {
@@ -36,6 +40,10 @@ void setRefTimePair(Operation *op, int startTime, int endTime) {
   op->setAttr("ref_starttime",
               IntegerAttr::get(IntegerType::get(ctx, 32), startTime));
   op->setAttr("ref_endtime",
+              IntegerAttr::get(IntegerType::get(ctx, 32), endTime));
+  op->setAttr("starttime",
+              IntegerAttr::get(IntegerType::get(ctx, 32), startTime));
+  op->setAttr("endtime",
               IntegerAttr::get(IntegerType::get(ctx, 32), endTime));
 }
 

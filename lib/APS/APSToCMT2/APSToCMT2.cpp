@@ -75,16 +75,19 @@ void APSToCMT2Pass::runOnOperation() {
     // Load the manifest
     if (mlir::failed(library.loadManifest(manifestPath))) {
       llvm::dbgs() << "DEBUG: Failed to load module library manifest\n";
-      moduleOp.emitWarning()
+      moduleOp.emitError()
           << "Failed to load module library manifest from " << manifestPath;
+      signalPassFailure();
       return;
     }
     llvm::dbgs() << "DEBUG: Successfully loaded module library manifest\n";
   } else {
     llvm::dbgs() << "DEBUG: Module library manifest not found at "
                  << manifestPath << "\n";
-    moduleOp.emitWarning() << "Module library manifest not found. "
-                           << "External FIRRTL modules may not work correctly.";
+    moduleOp.emitError() << "Module library manifest not found at "
+                         << manifestPath
+                         << ". External FIRRTL modules may not work correctly.";
+    signalPassFailure();
     return;
   }
 
@@ -129,6 +132,7 @@ void APSToCMT2Pass::runOnOperation() {
   auto generatedModule = circuit.generateMLIR();
   if (!generatedModule) {
     moduleOp.emitError() << "failed to materialize MLIR";
+    signalPassFailure();
     return;
   }
 

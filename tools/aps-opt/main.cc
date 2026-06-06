@@ -75,10 +75,7 @@ int main(int argc, char **argv) {
     args.push_back("--place-readrf-at-entry");
     args.push_back("--auto-burst-partition");
     args.push_back("--aps-memory-map");
-    args.push_back("--normalize-scf-for-indices");
-    args.push_back("--aps-mem-to-memref");
-    args.push_back("--canonicalize");
-    args.push_back("--raise-scf-to-affine");
+    args.push_back("--aps-raise-scf-to-affine");
     args.push_back("--canonicalize");
     args.push_back("--affine-raise-from-memref");
     args.push_back("--raise-memref-to-affine");
@@ -97,6 +94,8 @@ int main(int argc, char **argv) {
     args.push_back("--canonicalize");
     // Lower affine to SCF
     args.push_back("--lower-affine-for");
+    args.push_back("--canonicalize");
+    args.push_back("--arith-muldiv-to-shift");
     args.push_back("--canonicalize");
     args.push_back("--expression-balance");
 

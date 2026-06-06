@@ -336,3 +336,250 @@ outer loop scope
 - 还是支持 pipeline
 
 然后再决定 FIFO 归属，不要把两种模型混在同一套结构里。
+
+## `tor.if` Scope Lowering Model
+
+`scf.if` is expected to be converted to `tor.if` before APSToCMT2.  The
+APSToCMT2 lowering therefore targets `tor.if` directly.  `tor.if` preserves the
+important SCF semantics: a single `i1` condition operand, one single-block then
+region, an optional else region, variadic results, and `tor.yield` terminators
+for branch result values.
+
+### Non-pipeline `tor.if`
+
+For the non-pipeline model, the parent block treats a `tor.if` segment as an
+atomic child scope, analogous to how a non-pipeline `tor.for` is handled.  The
+if scope owns its internal branch admission and join tokens, while the parent
+only observes the scope entry token and scope exit token.
+
+Required token resources:
+
+- `ifEntryTokenFIFO`: inherited from the parent block boundary.
+- `thenEntryTokenFIFO`: admits the then region.
+- `elseEntryTokenFIFO`: admits the else region when the else region exists.
+- `ifJoinTokenFIFO`: receives completion from the dynamically selected branch.
+- `ifExitTokenFIFO`: inherited from the parent block boundary.
+
+The generated rules are:
+
+1. `if_dispatch_rule`
+
+   This rule consumes `ifEntryTokenFIFO`, reads or captures the `tor.if`
+   condition, and conditionally enqueues exactly one token:
+
+   - condition true: enqueue `thenEntryTokenFIFO`.
+   - condition false with an else region: enqueue `elseEntryTokenFIFO`.
+   - condition false without an else region: enqueue `ifJoinTokenFIFO`
+     directly, because the false path has no body.
+
+2. Then-region block hierarchy
+
+   The then region is processed by a nested `BlockHandler`.  Its parent entry
+   token is `thenEntryTokenFIFO`, and its parent exit token is
+   `ifJoinTokenFIFO`.  This preserves the existing block-level entry-token
+   gating for the first sub-block in the branch.
+
+3. Else-region block hierarchy
+
+   If the `tor.if` has a non-empty else region, the else region is processed by
+   another nested `BlockHandler`.  Its parent entry token is
+   `elseEntryTokenFIFO`, and its parent exit token is `ifJoinTokenFIFO`.
+
+4. `if_join_rule`
+
+   This rule consumes one token from `ifJoinTokenFIFO` and enqueues one token to
+   `ifExitTokenFIFO`.  Because dispatch admits exactly one branch per if-entry,
+   a single shared join FIFO is sufficient for the non-pipeline model.
+
+This gives the parent scope the same contract as a regular block or a
+non-pipeline loop: one input token enters the scope, and one output token leaves
+the scope after the selected branch has completed.
+
+### Condition value handling
+
+The condition is consumed by `if_dispatch_rule`, not by the branch body.  The
+condition source follows the existing block live-in rules:
+
+- If the condition is produced by an earlier sub-block in the same parent scope,
+  it should already be available through the parent block's non-pipeline
+  cross-block value register.
+- If the condition is an inherited parent live-in register, the dispatch rule
+  reads that register.
+- If the condition is an inherited parent live-in FIFO, the dispatch rule
+  dequeues it once at if entry.
+
+If a branch body also uses the same condition value, the dispatch rule must
+capture the dequeued condition into an if-scope register and pass that register
+to the nested branch `BlockHandler`s as an inherited input register.  This avoids
+multiple consumers racing on the same parent FIFO.
+
+### Parent live-ins used by branches
+
+Parent live-ins used only inside branches should be forwarded to both nested
+branch handlers.  This is safe in the non-pipeline model because only one branch
+is admitted for each if-entry token, so only the selected branch can dequeue its
+live-in FIFO values.
+
+If a parent live-in is consumed by both the dispatch rule and a branch body, it
+must be captured into an if-scope register before branch admission, following
+the same rule as the condition value above.
+
+### `tor.if` results and `tor.yield`
+
+`tor.if` can produce SSA results, matching `scf.if` result semantics.  The full
+lowering requires an explicit merge point:
+
+1. Create one if-result register per `tor.if` result.
+2. In each branch's final block, before enqueueing `ifJoinTokenFIFO`, write the
+   values from that branch's `tor.yield` operands into the corresponding
+   if-result registers.
+3. In `if_join_rule`, after consuming `ifJoinTokenFIFO`, publish the if-result
+   registers to the parent scope's normal live-out mechanism and then enqueue
+   `ifExitTokenFIFO`.
+
+When `tor.if` has results, the else region must exist and must yield the same
+number and types of values as the then region.  This mirrors the SCF contract.
+
+A minimal first implementation may reject `tor.if` with results and support only
+side-effecting/no-result `tor.if`.  That rejection must be explicit via
+`emitError`; it must not fall back to regular basic-block lowering.
+
+### Pipeline interaction
+
+Pipeline `tor.if` is not required for the first implementation.  If the parent
+scope is in pipeline mode, the lowering should reject `tor.if` explicitly unless
+a re-entry-safe context-token protocol is implemented.
+
+The future pipeline-safe model needs a capacity-one context token or equivalent
+credit so that a non-pipeline if scope cannot be re-entered before its selected
+branch reaches `if_join_rule`.  Without that gate, multiple dynamic instances of
+the same if scope could alias condition/result registers and violate the
+single-context non-pipeline assumption.
+
+### Required APSToCMT2 integration points
+
+The block segmenter should keep `tor.if` as a single control-flow segment and
+mark it as a conditional block.  `BlockHandler::processBlock` must dispatch that
+segment to an if-specific handler rather than `BBHandler`.
+
+The if-specific handler should:
+
+- Locate the single `tor::IfOp` in the segment.
+- Reject unsupported pipeline mode explicitly.
+- Reject `tor.if` results until result-register merge is implemented.
+- Create branch-entry and join token FIFOs.
+- Generate the dispatch and join rules.
+- Process then/else regions with nested `BlockHandler`s using branch entry
+  tokens and the shared join token.
+- Preserve the parent block boundary contract by consuming the inherited entry
+  token exactly once and producing the inherited exit token exactly once.
+
+### Branch context lifetime
+
+The condition value and the selected branch identity must remain valid from
+`if_dispatch_rule` until `if_join_rule`.  The join rule must not observe a
+condition/result context that was overwritten by a later dynamic execution of
+the same `tor.if` scope.
+
+For the non-pipeline first implementation, this is enforced by the scope token
+contract:
+
+- `if_dispatch_rule` consumes one parent entry token and admits exactly one
+  branch.
+- No second parent entry token may enter the same non-pipeline if scope before
+  the selected branch has reached `if_join_rule` and the join rule has emitted
+  the parent exit token.
+- The if scope may therefore use single-entry condition/result context
+  registers, because there is at most one live dynamic instance of the scope.
+
+If the condition is needed after dispatch, for example to select branch-specific
+publish logic or to debug/check the branch path at join, dispatch must write it
+into an if-scope condition register before admitting the branch.  The join rule
+then reads that register.  The register is single-context only and is correct
+only under the non-reentry guarantee above.
+
+A stronger and more explicit representation is to make the branch completion
+FIFO carry a branch tag instead of a bare one-bit done token:
+
+- `then` completion enqueues tag `1` to `ifJoinTokenFIFO`.
+- `else` completion enqueues tag `0` to `ifJoinTokenFIFO`.
+- The no-else false path enqueues tag `0` directly from dispatch to join.
+
+With this form, `ifJoinTokenFIFO` is a one-bit payload FIFO whose value is the
+selected branch tag.  The join rule dequeues the tag and can use it to guard any
+branch-dependent result publishing or diagnostics.  For simple result-register
+merge, the tag is not needed to choose the value because the selected branch has
+already written the merge registers, but carrying the tag makes the dynamic path
+explicit and avoids relying on an implicit side condition.
+
+Pipeline support cannot reuse these single-context registers.  It must either
+carry the branch tag and result payload through FIFOs, or allocate per-context
+storage indexed by a tag/credit protocol.  Otherwise a later if instance may
+overwrite the condition/result context before an earlier instance reaches join.
+
+### Single-block branch finalization
+
+A branch region with only one generated block does not need a separate final
+rule.  That single block is both the branch entry block and the branch final
+block:
+
+- It consumes `thenEntryTokenFIFO` or `elseEntryTokenFIFO` at the beginning.
+- It emits all operations in the branch body.
+- If the `tor.if` has results, it writes the branch `tor.yield` operands to the
+  if-result merge registers before completing.
+- It enqueues the branch tag to `ifJoinTokenFIFO` as its branch completion.
+
+For multi-block branch regions, the same finalization logic belongs only to the
+last generated sub-block.  Intermediate branch blocks use ordinary block-to-block
+tokens within the nested branch `BlockHandler`.
+
+## Pipeline Parent Live-through Rule
+
+When a parent scope is pipelined, values must move through the same ordered
+block/scope path as the control tokens.  A value must not bypass an intermediate
+block or child scope just because that intermediate scope does not use the value.
+
+For example, in a pipelined outer loop body:
+
+```text
+A_b0: xxx_before produces %v
+A_b1: non-pipeline child scope, e.g. tor.for or tor.if
+A_b2: xxx_after consumes %v
+```
+
+The correct pipeline data path is block-by-block:
+
+```text
+control token: A_b0 -> A_b1 -> A_b2
+data %v:       A_b0 -> A_b1 -> A_b2
+```
+
+The incorrect path is a direct bypass:
+
+```text
+control token: A_b0 -> A_b1 -> A_b2
+data %v:       A_b0 --------> A_b2
+```
+
+The bypass form makes the correspondence between a dynamic token instance and
+its data payload implicit.  This is especially unsafe when the intermediate
+scope has variable latency, such as a non-pipeline nested loop or conditional.
+
+Therefore, a child scope in a pipelined parent must support live-through values:
+
+1. The child entry side dequeues/captures every parent pipeline value that is
+   live across the child scope, even if the child body does not use it.
+2. The child keeps the value in single-context storage if the child is
+   non-pipeline and protected by a context token.
+3. The child exit side re-emits the value to the next parent block before or
+   together with emitting the child exit token.
+
+For a non-pipeline nested `tor.for` inside a pipelined parent, the loop entry
+rule captures live-through inputs into loop-owned state registers, and the loop
+exit path re-emits those values to the parent pipeline output FIFOs.  Values used
+by the loop body may additionally be forwarded to loop-body FIFOs, but body use
+is not required for live-through preservation.
+
+For a non-pipeline nested `tor.if` inside a pipelined parent, the if dispatch
+rule captures live-through inputs into if-owned state registers, and the if join
+rule re-emits those values after the selected branch completes.

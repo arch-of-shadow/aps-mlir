@@ -33,7 +33,8 @@ LogicalResult RegisterOpGenerator::generateRule(Operation *op, mlir::OpBuilder &
     return generateWriteCSR(writeCSR, b, loc, slot, localMap);
   }
 
-  return failure();
+  return op->emitError(
+      "internal error: unsupported op reached register generator");
 }
 
 bool RegisterOpGenerator::canHandle(Operation *op) const {

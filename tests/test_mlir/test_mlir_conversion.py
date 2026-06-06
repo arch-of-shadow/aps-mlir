@@ -430,6 +430,70 @@ class TestControlFlowMLIR:
         mlir.assert_op_count("arith.muli", exactly=1)
         mlir.assert_op_count("arith.shli", exactly=1)
 
+    def test_if_statement_merges_outer_assignment(self):
+        mlir = verify_mlir("""
+        rtype test(a: u32, b: u32, rd: u5) {
+            let x: u32 = a;
+            if a > b {
+                x = a + 1;
+            } else {
+                x = b + 1;
+            }
+            _irf[rd] = x;
+        }
+        """)
+        mlir.assert_op_count("scf.if", exactly=1)
+        mlir.assert_op_count("scf.yield", exactly=2)
+        mlir.assert_result_types("scf.if", ["i32"])
+        if_op = mlir.single_op("scf.if")
+        mlir.assert_operand_producer(if_op, 0, "arith.cmpi")
+        mlir.assert_region_terminator_operand_producers(
+            if_op, [["arith.addi"], ["arith.addi"]]
+        )
+        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "scf.if")
+
+    def test_if_statement_without_else_yields_original_value(self):
+        mlir = verify_mlir("""
+        rtype test(a: u32, b: u32, rd: u5) {
+            let x: u32 = a;
+            if a > b {
+                x = x + 1;
+            }
+            _irf[rd] = x;
+        }
+        """)
+        mlir.assert_op_count("scf.if", exactly=1)
+        mlir.assert_op_count("scf.yield", exactly=2)
+        mlir.assert_result_types("scf.if", ["i32"])
+
+        if_op = mlir.single_op("scf.if")
+        mlir.assert_operand_producer(if_op, 0, "arith.cmpi")
+        mlir.assert_region_block_ops(
+            if_op,
+            [["arith.constant", "arith.addi", "scf.yield"], ["scf.yield"]],
+        )
+        mlir.assert_region_terminator_operand_producers(
+            if_op, [["arith.addi"], [None]]
+        )
+        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "scf.if")
+
+    def test_if_statement_side_effects_do_not_create_results(self):
+        mlir = verify_mlir("""
+        rtype test(a: u32, b: u32, rd: u5) {
+            if a > b {
+                _irf[rd] = a;
+            } else {
+                _irf[rd] = b;
+            }
+        }
+        """)
+        mlir.assert_op_count("scf.if", exactly=1)
+        mlir.assert_op_count("aps.writerf", exactly=2)
+        mlir.assert_result_types("scf.if", [])
+        if_op = mlir.single_op("scf.if")
+        mlir.assert_operand_producer(if_op, 0, "arith.cmpi")
+        mlir.assert_region_terminator_operand_producers(if_op, [[], []])
+
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
 class TestLoopMLIR:
@@ -466,9 +530,9 @@ class TestLoopMLIR:
         mlir.assert_operand_producer(loop, 3, "aps.readrf")
         mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "scf.for")
 
-    def test_dynamic_bound_do_while_lowers_to_scf_while(self):
+    def test_dynamic_bound_do_while_lowers_to_scf_for(self):
         mlir = verify_mlir("""
-        rtype loop_while(rs1: u5, rs2: u5, rd: u5) {
+        rtype loop_for_dynamic(rs1: u5, rs2: u5, rd: u5) {
             let sum0: u32 = _irf[rs1];
             let i0: u32 = 0;
             let n0: u32 = _irf[rs2];
@@ -486,27 +550,26 @@ class TestLoopMLIR:
             _irf[rd] = sum;
         }
         """)
-        mlir.assert_func("flow_loop_while", function_type="(i5, i5, i5) -> ()")
-        mlir.assert_op_count("scf.while", exactly=1)
-        mlir.assert_no_op("scf.for")
-        mlir.assert_op_count("scf.condition", exactly=1)
+        mlir.assert_func("flow_loop_for_dynamic", function_type="(i5, i5, i5) -> ()")
+        mlir.assert_op_count("scf.for", exactly=1)
+        mlir.assert_no_op("scf.while")
+        mlir.assert_no_op("scf.condition")
         mlir.assert_op_count("scf.yield", exactly=1)
-        mlir.assert_op_count("arith.cmpi", exactly=1)
 
-        loop = mlir.single_op("scf.while")
-        mlir.assert_operand_types("scf.while", ["i32", "i32", "i32", "i1"])
-        mlir.assert_result_types("scf.while", ["i32", "i32", "i32", "i1"])
-        mlir.assert_region_block_arg_types(loop, [["i32", "i32", "i32", "i1"],
-                                                 ["i32", "i32", "i32", "i1"]])
-        mlir.assert_region_block_ops(loop, [["scf.condition"],
-                                           ["arith.constant", "arith.constant", "arith.cmpi",
-                                            "arith.addi", "arith.addi", "scf.yield"]])
+        loop = mlir.single_op("scf.for")
+        mlir.assert_operand_types("scf.for", ["i32", "i32", "i32", "i32", "i32"])
+        mlir.assert_result_types("scf.for", ["i32", "i32"])
+        mlir.assert_region_block_arg_types(loop, [["i32", "i32", "i32"]])
+        mlir.assert_region_block_ops(
+            loop, [["arith.constant", "arith.addi", "scf.yield"]]
+        )
 
         mlir.assert_operand_producer(loop, 0, "arith.constant")
         mlir.assert_operand_producer(loop, 1, "aps.readrf")
-        mlir.assert_operand_producer(loop, 2, "aps.readrf")
-        mlir.assert_operand_producer(loop, 3, "arith.constant")
-        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "scf.while")
+        mlir.assert_operand_producer(loop, 2, "arith.constant")
+        mlir.assert_operand_producer(loop, 3, "aps.readrf")
+        mlir.assert_operand_producer(loop, 4, "aps.readrf")
+        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "scf.for")
 
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")

@@ -11,6 +11,43 @@ using namespace circt::cmt2::ecmt2;
 using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
 
+static bool isPowerOfTwo(uint32_t value) {
+  return value != 0 && (value & (value - 1)) == 0;
+}
+
+static unsigned log2PowerOfTwo(uint32_t value) {
+  return llvm::Log2_32(value);
+}
+
+static Signal unsignedDivByConstant(const Signal &value, uint32_t divisor,
+                                    mlir::OpBuilder &builder,
+                                    Location loc) {
+  if (isPowerOfTwo(divisor)) {
+    unsigned amount = log2PowerOfTwo(divisor);
+    if (amount == 0)
+      return value;
+    return value.shr(amount).pad(value.getWidth());
+  }
+
+  auto divisorConst = UInt::constant(divisor, value.getWidth(), builder, loc);
+  return value / divisorConst;
+}
+
+static Signal unsignedRemByConstant(const Signal &value, uint32_t divisor,
+                                    mlir::OpBuilder &builder,
+                                    Location loc) {
+  if (divisor == 1)
+    return UInt::constant(0, value.getWidth(), builder, loc);
+
+  if (isPowerOfTwo(divisor)) {
+    auto mask = UInt::constant(divisor - 1, value.getWidth(), builder, loc);
+    return value & mask;
+  }
+
+  auto divisorConst = UInt::constant(divisor, value.getWidth(), builder, loc);
+  return value % divisorConst;
+}
+
 /// Extract data width and address width from a memref type
 bool APSToCMT2Pass::extractMemoryParameters(memref::GlobalOp globalOp,
                                                int &dataWidth, int &addrWidth,
@@ -118,27 +155,28 @@ Module *APSToCMT2Pass::generateBankWrapperModule(
                          llvm::ArrayRef<mlir::BlockArgument> args) {
       auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
 
-      auto elementSizeConst =
-          UInt::constant(entryInfo.dataWidth / 8, 32, bodyBuilder,
-                         wrapper->getLoc()); // Element size in bytes
       auto numBanksConst = UInt::constant(entryInfo.numBanks, 32, bodyBuilder,
                                           wrapper->getLoc());
       auto myBankConst =
           UInt::constant(bankIdx, 32, bodyBuilder, wrapper->getLoc());
 
       // element_idx = addr / element_size
-      auto elementIdx = addr / elementSizeConst;
+      auto elementIdx = unsignedDivByConstant(addr, entryInfo.dataWidth / 8,
+                                              bodyBuilder, wrapper->getLoc());
       // start_bank_idx = element_idx % num_banks
-      auto startBankIdx = elementIdx % numBanksConst;
+      auto startBankIdx = unsignedRemByConstant(
+          elementIdx, entryInfo.numBanks, bodyBuilder, wrapper->getLoc());
 
       // position = (my_bank - start_bank_idx + num_banks) % num_banks
-      auto position =
-          (myBankConst - startBankIdx + numBanksConst) % numBanksConst;
+      auto position = unsignedRemByConstant(
+          myBankConst - startBankIdx + numBanksConst, entryInfo.numBanks,
+          bodyBuilder, wrapper->getLoc());
 
       // Calculate local address: my_element_idx = element_idx + position;
       // local_addr = my_element_idx / num_banks
       auto myElementIdx = elementIdx + position;
-      auto localAddr = myElementIdx / numBanksConst;
+      auto localAddr = unsignedDivByConstant(
+          myElementIdx, entryInfo.numBanks, bodyBuilder, wrapper->getLoc());
       auto localAddrTrunc = localAddr.bits(entryInfo.addrWidth - 1, 0);
 
       // Call rd0 to initiate read
@@ -163,9 +201,6 @@ Module *APSToCMT2Pass::generateBankWrapperModule(
                          llvm::ArrayRef<mlir::BlockArgument> args) {
       auto addr = Signal(args[0], &bodyBuilder, wrapper->getLoc());
 
-      auto elementSizeConst =
-          UInt::constant(entryInfo.dataWidth / 8, 32, bodyBuilder,
-                         wrapper->getLoc()); // Element size in bytes
       auto numBanksConst = UInt::constant(entryInfo.numBanks, 32, bodyBuilder,
                                           wrapper->getLoc());
       auto myBankConst =
@@ -175,13 +210,16 @@ Module *APSToCMT2Pass::generateBankWrapperModule(
 
       // Recalculate position and isMine from addr
       // element_idx = addr / element_size
-      auto elementIdx = addr / elementSizeConst;
+      auto elementIdx = unsignedDivByConstant(addr, entryInfo.dataWidth / 8,
+                                              bodyBuilder, wrapper->getLoc());
       // start_bank_idx = element_idx % num_banks
-      auto startBankIdx = elementIdx % numBanksConst;
+      auto startBankIdx = unsignedRemByConstant(
+          elementIdx, entryInfo.numBanks, bodyBuilder, wrapper->getLoc());
 
       // position = (my_bank - start_bank_idx + num_banks) % num_banks
-      auto position =
-          (myBankConst - startBankIdx + numBanksConst) % numBanksConst;
+      auto position = unsignedRemByConstant(
+          myBankConst - startBankIdx + numBanksConst, entryInfo.numBanks,
+          bodyBuilder, wrapper->getLoc());
       auto isMine = position < elementsPerBurstConst;
 
       // Get data from rd1
@@ -258,9 +296,6 @@ Module *APSToCMT2Pass::generateBankWrapperModule(
       auto data = Signal(args[1], &bodyBuilder, wrapper->getLoc());
 
       // Helper: Create constants using Signal (32-bit for address calculations)
-      auto elementSizeConst =
-          UInt::constant(entryInfo.dataWidth / 8, 32, bodyBuilder,
-                         wrapper->getLoc()); // Element size in bytes
       auto numBanksConst = UInt::constant(entryInfo.numBanks, 32, bodyBuilder,
                                           wrapper->getLoc());
       auto myBankConst =
@@ -269,19 +304,23 @@ Module *APSToCMT2Pass::generateBankWrapperModule(
           UInt::constant(elementsPerBurst, 32, bodyBuilder, wrapper->getLoc());
 
       // Helper 1: element_idx = addr / element_size
-      auto elementIdx = addr / elementSizeConst;
+      auto elementIdx = unsignedDivByConstant(addr, entryInfo.dataWidth / 8,
+                                              bodyBuilder, wrapper->getLoc());
 
       // Helper 2: start_bank_idx = element_idx % num_banks
-      auto startBankIdx = elementIdx % numBanksConst;
+      auto startBankIdx = unsignedRemByConstant(
+          elementIdx, entryInfo.numBanks, bodyBuilder, wrapper->getLoc());
 
       // Helper 3: Calculate position and check participation
-      auto position =
-          ((myBankConst - startBankIdx + numBanksConst) % numBanksConst);
+      auto position = unsignedRemByConstant(
+          myBankConst - startBankIdx + numBanksConst, entryInfo.numBanks,
+          bodyBuilder, wrapper->getLoc());
       auto isMine = position < elementsPerBurstConst;
 
       // Helper 4: Calculate local address
       auto myElementIdx = elementIdx + position;
-      auto localAddr = myElementIdx / numBanksConst;
+      auto localAddr = unsignedDivByConstant(
+          myElementIdx, entryInfo.numBanks, bodyBuilder, wrapper->getLoc());
       auto localAddrTrunc = localAddr.bits(entryInfo.addrWidth - 1, 0);
 
       // Helper 5: Calculate data slice position

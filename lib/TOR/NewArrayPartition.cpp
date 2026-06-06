@@ -21,11 +21,11 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 
+#include "TOR/AffineModSimplify.h"
 #include "TOR/PassDetail.h"
 #include "TOR/Passes.h"
 #include "TOR/TORDialect.h"
 #include "TOR/Utils.h"
-#include "TOR/AffineModSimplify.h"
 
 #include <iostream>
 #include <map>
@@ -100,10 +100,40 @@ std::string exprToString(AffineExpr expr) {
   return str;
 }
 
-// Compute all possible bank values for expression of form: d_i * coeff (+ offset)
-// Only handles single dimension linear patterns - rejects complex cases
+SmallVector<Value> materializeIndexOperands(PatternRewriter &rewriter,
+                                            Location loc, ValueRange operands) {
+  SmallVector<Value> indexOperands;
+  indexOperands.reserve(operands.size());
+  for (Value operand : operands) {
+    if (operand.getType().isIndex()) {
+      indexOperands.push_back(operand);
+      continue;
+    }
+    indexOperands.push_back(rewriter.create<arith::IndexCastOp>(
+        loc, rewriter.getIndexType(), operand));
+  }
+  return indexOperands;
+}
+
+AffineExpr buildRuntimeBankExpr(AffineExpr expr, int64_t factor,
+                                unsigned numDims, unsigned numSyms) {
+  AffineExpr simplified = tor::simplifyMod(expr, factor, numDims, numSyms);
+  if (!simplified)
+    return nullptr;
+
+  // simplifyMod removes terms divisible by factor, but intentionally returns
+  // the remaining expression without wrapping it in modulo. Runtime bank
+  // comparisons must still compare a normalized bank index. For example,
+  // (d0 + 1) with factor 4 must become (d0 + 1) mod 4, otherwise banks are
+  // only selected while the unrolled index is in [0, 3].
+  return simplified % factor;
+}
+
+// Compute all possible bank values for expression of form: d_i * coeff (+
+// offset) Only handles single dimension linear patterns - rejects complex cases
 SmallVector<int64_t> getPossibleBankValues(AffineExpr expr, AffineMap map,
-                                            ArrayRef<Value> operands, int factor) {
+                                           ArrayRef<Value> operands,
+                                           int factor) {
   SmallVector<int64_t> result;
   unsigned numDims = map.getNumDims();
   unsigned numSyms = map.getNumSymbols();
@@ -114,8 +144,9 @@ SmallVector<int64_t> getPossibleBankValues(AffineExpr expr, AffineMap map,
     return result; // Not linear - reject
   }
 
-  LLVM_DEBUG(llvm::dbgs() << "  simplifyMod: " << exprToString(expr)
-                          << " % " << factor << " -> " << exprToString(simplified) << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "  simplifyMod: " << exprToString(expr) << " % "
+                          << factor << " -> " << exprToString(simplified)
+                          << "\n");
 
   // Reject if any symbol remains
   for (unsigned i = 0; i < numSyms; ++i) {
@@ -149,7 +180,8 @@ SmallVector<int64_t> getPossibleBankValues(AffineExpr expr, AffineMap map,
   // Get loop bounds for this dimension
   Value operand = operands[relevantDim];
   auto blockArg = dyn_cast<BlockArgument>(operand);
-  if (!blockArg) return result;
+  if (!blockArg)
+    return result;
 
   auto forOp = dyn_cast<AffineForOp>(blockArg.getOwner()->getParentOp());
   if (!forOp || forOp.getInductionVar() != blockArg ||
@@ -159,18 +191,22 @@ SmallVector<int64_t> getPossibleBankValues(AffineExpr expr, AffineMap map,
 
   int64_t lb = forOp.getConstantLowerBound();
   int64_t ub = forOp.getConstantUpperBound();
-  if (ub - lb > 64) return result;
+  if (ub - lb > 64)
+    return result;
 
   // Enumerate: substitute d_i with each value and evaluate
   std::set<int64_t> uniqueValues;
   auto *ctx = simplified.getContext();
 
   for (int64_t v = lb; v < ub; ++v) {
-    SmallVector<AffineExpr> dimReplacements(numDims, getAffineConstantExpr(0, ctx));
+    SmallVector<AffineExpr> dimReplacements(numDims,
+                                            getAffineConstantExpr(0, ctx));
     dimReplacements[relevantDim] = getAffineConstantExpr(v, ctx);
-    SmallVector<AffineExpr> symReplacements(numSyms, getAffineConstantExpr(0, ctx));
+    SmallVector<AffineExpr> symReplacements(numSyms,
+                                            getAffineConstantExpr(0, ctx));
 
-    AffineExpr evaluated = simplified.replaceDimsAndSymbols(dimReplacements, symReplacements);
+    AffineExpr evaluated =
+        simplified.replaceDimsAndSymbols(dimReplacements, symReplacements);
     evaluated = simplifyAffineExpr(evaluated, 0, 0);
 
     if (auto constE = dyn_cast<AffineConstantExpr>(evaluated)) {
@@ -191,37 +227,45 @@ SmallVector<int64_t> getPossibleBankValues(AffineExpr expr, AffineMap map,
   return result;
 }
 
-
 // Check if an access can be partitioned (bank may be runtime-computed)
-// Apply mod first to eliminate symbolic terms with coefficients divisible by factor
-// e.g., (symbol * 64) % 8 = 0, so the symbol doesn't affect bank selection
-// For loads (isLoad=true), we allow dynamic bank selection with mux if possible banks can be enumerated
+// Apply mod first to eliminate symbolic terms with coefficients divisible by
+// factor e.g., (symbol * 64) % 8 = 0, so the symbol doesn't affect bank
+// selection For loads (isLoad=true), we allow dynamic bank selection with mux
+// if possible banks can be enumerated
 bool canBankPartition(AffineMap map, int rank, MLIRContext *ctx, int factor,
                       bool cyclic, Operation *op = nullptr, bool isLoad = false,
                       SmallVector<int64_t> *possibleBanksOut = nullptr) {
   auto expr = map.getResult(rank);
   if (!expr) {
-    if (op) op->emitWarning() << "array partition failed: no expression for rank " << rank;
+    if (op)
+      op->emitWarning() << "array partition failed: no expression for rank "
+                        << rank;
     return false;
   }
   auto origExpr = expr;
   unsigned numDims = map.getNumDims();
   unsigned numSyms = map.getNumSymbols();
 
-  // Use custom simplifyMod to eliminate terms with coefficients divisible by factor
+  // Use custom simplifyMod to eliminate terms with coefficients divisible by
+  // factor
   AffineExpr simplified = tor::simplifyMod(origExpr, factor, numDims, numSyms);
   if (!simplified) {
-    if (op) op->emitWarning() << "array partition failed for rank " << rank << ": "
-                              << "expression is not linear";
+    if (op)
+      op->emitWarning() << "array partition failed for rank " << rank << ": "
+                        << "expression is not linear";
     return false;
   }
 
   // Check if simplified result still has symbols - reject if so
   for (unsigned i = 0; i < numSyms; ++i) {
     if (simplified.isFunctionOfSymbol(i)) {
-      if (op) op->emitWarning() << "array partition failed for rank " << rank << ": "
-                                << "after simplification, symbol s" << i << " still affects bank selection "
-                                << "(original: " << exprToString(origExpr) << ", simplified: " << exprToString(simplified) << ")";
+      if (op)
+        op->emitWarning() << "array partition failed for rank " << rank << ": "
+                          << "after simplification, symbol s" << i
+                          << " still affects bank selection "
+                          << "(original: " << exprToString(origExpr)
+                          << ", simplified: " << exprToString(simplified)
+                          << ")";
       return false;
     }
   }
@@ -236,9 +280,10 @@ bool canBankPartition(AffineMap map, int rank, MLIRContext *ctx, int factor,
 
   // If more than one dimension, reject (too complex)
   if (numRelevantDims > 1) {
-    if (op) op->emitWarning() << "array partition failed for rank " << rank << ": "
-                              << "multiple dimensions affect bank selection "
-                              << "(simplified: " << exprToString(simplified) << ")";
+    if (op)
+      op->emitWarning() << "array partition failed for rank " << rank << ": "
+                        << "multiple dimensions affect bank selection "
+                        << "(simplified: " << exprToString(simplified) << ")";
     return false;
   }
 
@@ -258,9 +303,11 @@ bool canBankPartition(AffineMap map, int rank, MLIRContext *ctx, int factor,
   if (isLoad && op) {
     SmallVector<Value> operands;
     if (auto load = dyn_cast<AffineLoadOp>(op)) {
-      operands.assign(load.getMapOperands().begin(), load.getMapOperands().end());
+      operands.assign(load.getMapOperands().begin(),
+                      load.getMapOperands().end());
     } else if (auto store = dyn_cast<AffineStoreOp>(op)) {
-      operands.assign(store.getMapOperands().begin(), store.getMapOperands().end());
+      operands.assign(store.getMapOperands().begin(),
+                      store.getMapOperands().end());
     }
     auto possibleBanks = getPossibleBankValues(origExpr, map, operands, factor);
     if (!possibleBanks.empty()) {
@@ -271,23 +318,24 @@ bool canBankPartition(AffineMap map, int rank, MLIRContext *ctx, int factor,
       bool isStore = isa<AffineStoreOp>(op);
       op->emitWarning() << "array partition: using dynamic bank "
                         << (isStore ? "read-modify-write" : "mux")
-                        << " for rank " << rank << ", possible banks: {"
-                        << [&]() {
-                             std::string s;
-                             for (size_t i = 0; i < possibleBanks.size(); ++i) {
-                               if (i > 0) s += ",";
-                               s += std::to_string(possibleBanks[i]);
-                             }
-                             return s;
-                           }()
-                        << "}";
+                        << " for rank " << rank << ", possible banks: {" <<
+          [&]() {
+            std::string s;
+            for (size_t i = 0; i < possibleBanks.size(); ++i) {
+              if (i > 0)
+                s += ",";
+              s += std::to_string(possibleBanks[i]);
+            }
+            return s;
+          }() << "}";
       return true; // Allow with dynamic mux/read-modify-write
     }
   }
 
   if (op) {
-    op->emitWarning() << "array partition failed for rank " << rank << ": "
-                      << "bank depends on loop indices and cannot enumerate possible values";
+    op->emitWarning()
+        << "array partition failed for rank " << rank << ": "
+        << "bank depends on loop indices and cannot enumerate possible values";
   }
   return false;
 }
@@ -296,24 +344,28 @@ int getMemBank(AffineMap map, int rank, MLIRContext *ctx, int factor,
                bool cyclic, Operation *op = nullptr) {
   auto expr = map.getResult(rank);
   if (!expr) {
-    if (op) op->emitWarning() << "getMemBank failed: no expression for rank " << rank;
+    if (op)
+      op->emitWarning() << "getMemBank failed: no expression for rank " << rank;
     return -1;
   }
   auto origExpr = expr;
-  // Apply mod/div first - this simplifies (symbol * k) % factor to 0 when k % factor == 0
+  // Apply mod/div first - this simplifies (symbol * k) % factor to 0 when k %
+  // factor == 0
   if (cyclic) {
     expr = expr % factor;
   } else {
     expr = expr.floorDiv(factor);
   }
-  auto compose_map = AffineMap::get(map.getNumDims(), map.getNumSymbols(), expr, ctx);
+  auto compose_map =
+      AffineMap::get(map.getNumDims(), map.getNumSymbols(), expr, ctx);
   if (compose_map.isConstant()) {
     return compose_map.getConstantResults()[0];
   }
   if (op) {
     op->emitWarning() << "getMemBank failed for rank " << rank << ": "
-                      << "original expr '" << exprToString(origExpr) << "' after "
-                      << (cyclic ? "mod" : "floorDiv") << " " << factor << " = '" << exprToString(expr) << "', "
+                      << "original expr '" << exprToString(origExpr)
+                      << "' after " << (cyclic ? "mod" : "floorDiv") << " "
+                      << factor << " = '" << exprToString(expr) << "', "
                       << "result is not constant (depends on loop indices)";
   }
   return -1;
@@ -400,7 +452,8 @@ bool canFormAffineExpr(Value index) {
 
   // Check if this is an arithmetic operation on affine-compatible values
   if (auto addOp = index.getDefiningOp<arith::AddIOp>())
-    return canFormAffineExpr(addOp.getLhs()) && canFormAffineExpr(addOp.getRhs());
+    return canFormAffineExpr(addOp.getLhs()) &&
+           canFormAffineExpr(addOp.getRhs());
 
   if (auto mulOp = index.getDefiningOp<arith::MulIOp>()) {
     // For mul, one operand must be constant
@@ -426,24 +479,30 @@ bool rankCanBePartition(Value arg, size_t rank, unsigned bank_factor,
   for (auto *op : arg.getUsers()) {
     if (auto load = dyn_cast<AffineLoadOp>(op)) {
       // For loads, allow dynamic bank selection with mux (isLoad=true)
-      if (!canBankPartition(load.getAffineMap(), rank, ctx, bank_factor, cyclic, op, /*isLoad=*/true)) {
+      if (!canBankPartition(load.getAffineMap(), rank, ctx, bank_factor, cyclic,
+                            op, /*isLoad=*/true)) {
         return false;
       }
     } else if (auto store = dyn_cast<AffineStoreOp>(op)) {
       // For stores, also allow dynamic bank (will use read-modify-write)
-      if (!canBankPartition(store.getAffineMap(), rank, ctx, bank_factor, cyclic, op, /*isLoad=*/true)) {
+      if (!canBankPartition(store.getAffineMap(), rank, ctx, bank_factor,
+                            cyclic, op, /*isLoad=*/true)) {
         return false;
       }
     } else if (auto load = dyn_cast<memref::LoadOp>(op)) {
       // Check if memref.load indices can form affine expressions
-      if (load.getIndices().size() != 1 || !canFormAffineExpr(load.getIndices()[0])) {
-        op->emitWarning() << "array partition failed: memref.load has non-affine index";
+      if (load.getIndices().size() != 1 ||
+          !canFormAffineExpr(load.getIndices()[0])) {
+        op->emitWarning()
+            << "array partition failed: memref.load has non-affine index";
         return false;
       }
     } else if (auto store = dyn_cast<memref::StoreOp>(op)) {
       // Check if memref.store indices can form affine expressions
-      if (store.getIndices().size() != 1 || !canFormAffineExpr(store.getIndices()[0])) {
-        op->emitWarning() << "array partition failed: memref.store has non-affine index";
+      if (store.getIndices().size() != 1 ||
+          !canFormAffineExpr(store.getIndices()[0])) {
+        op->emitWarning()
+            << "array partition failed: memref.store has non-affine index";
         return false;
       }
     }
@@ -681,8 +740,10 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
                              SmallVector<bool> partition,
                              SmallVector<Value> newArray) {
   SmallVector<Partition> new_part;
-  SmallVector<AffineLoadOp> loadsToErase; // For dynamic bank loads that get replaced
-  SmallVector<AffineStoreOp> storesToErase; // For dynamic bank stores that get replaced
+  SmallVector<AffineLoadOp>
+      loadsToErase; // For dynamic bank loads that get replaced
+  SmallVector<AffineStoreOp>
+      storesToErase; // For dynamic bank stores that get replaced
   for (auto &use : llvm::make_early_inc_range(arg.getUses())) {
     auto op = use.getOwner();
     if (auto load = dyn_cast<AffineLoadOp>(op)) {
@@ -704,13 +765,14 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       }
 
       if (hasDynamicBank) {
-        // Dynamic bank selection: generate loads from all possible banks and mux
-        // Find the rank with dynamic bank and enumerate possible values
+        // Dynamic bank selection: generate loads from all possible banks and
+        // mux Find the rank with dynamic bank and enumerate possible values
         auto *ctx = rewriter.getContext();
         auto map = load.getAffineMap();
 
-        // Calculate possible banks for the whole access (considering all partitioned ranks)
-        // For simplicity, we assume single-rank partition for dynamic case
+        // Calculate possible banks for the whole access (considering all
+        // partitioned ranks) For simplicity, we assume single-rank partition
+        // for dynamic case
         SmallVector<int64_t> possibleBanks;
         int dynamicRank = -1;
         int factor = 1;
@@ -720,11 +782,12 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
           if (partition[rank]) {
             factor = factorMap[rank];
             cyclic = cyclicMap[rank];
-            unsigned bank_factor = cyclic ? factor : memref.getShape()[rank] / factor;
+            unsigned bank_factor =
+                cyclic ? factor : memref.getShape()[rank] / factor;
             SmallVector<Value> operands(load.getMapOperands().begin(),
-                                         load.getMapOperands().end());
+                                        load.getMapOperands().end());
             possibleBanks = getPossibleBankValues(map.getResult(rank), map,
-                                                   operands, bank_factor);
+                                                  operands, bank_factor);
             if (!possibleBanks.empty()) {
               dynamicRank = rank;
               break;
@@ -733,8 +796,10 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
         }
 
         if (possibleBanks.empty() || dynamicRank < 0) {
-          // Cannot enumerate possible banks, this should have been caught earlier
-          load->emitError() << "Cannot enumerate possible banks for dynamic bank selection";
+          // Cannot enumerate possible banks, this should have been caught
+          // earlier
+          load->emitError()
+              << "Cannot enumerate possible banks for dynamic bank selection";
           continue;
         }
 
@@ -743,16 +808,20 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
                    llvm::dbgs() << "}\n");
 
         rewriter.setInsertionPoint(load);
+        SmallVector<Value> indexOperands = materializeIndexOperands(
+            rewriter, load.getLoc(), load.getMapOperands());
 
         // Generate a load from each possible bank
         SmallVector<Value> bankLoads;
         for (int64_t bankIdx : possibleBanks) {
           // Create new affine map for this bank's access
-          // The index expression becomes: (original_expr - bank) / factor (for cyclic)
+          // The index expression becomes: (original_expr - bank) / factor (for
+          // cyclic)
           SmallVector<AffineExpr> newExprs;
           for (unsigned r = 0; r < memref.getRank(); ++r) {
             if (r == (unsigned)dynamicRank && partition[r]) {
-              unsigned bank_factor = cyclic ? factor : memref.getShape()[r] / factor;
+              unsigned bank_factor =
+                  cyclic ? factor : memref.getShape()[r] / factor;
               auto expr = map.getResult(r);
               // New index = (expr - bankIdx) / bank_factor for cyclic
               // or expr % bank_factor for block
@@ -765,10 +834,11 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
               newExprs.push_back(getAffineDimExpr(r, ctx));
             }
           }
-          auto newMap = AffineMap::get(map.getNumDims(), map.getNumSymbols(), newExprs, ctx);
+          auto newMap = AffineMap::get(map.getNumDims(), map.getNumSymbols(),
+                                       newExprs, ctx);
 
           auto bankLoad = rewriter.create<AffineLoadOp>(
-              load.getLoc(), newArray[bankIdx], newMap, load.getMapOperands());
+              load.getLoc(), newArray[bankIdx], newMap, indexOperands);
           // Copy all attributes from original load except the affine map
           for (auto attr : load->getAttrs()) {
             if (attr.getName() != load.getMapAttrStrName())
@@ -778,12 +848,15 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
         }
 
         // Build the runtime bank index computation using simplifyMod
-        unsigned bank_factor = cyclic ? factor : memref.getShape()[dynamicRank] / factor;
-        auto simplifiedBankExpr = tor::simplifyMod(map.getResult(dynamicRank), bank_factor,
-                                                    map.getNumDims(), map.getNumSymbols());
-        auto bankMap = AffineMap::get(map.getNumDims(), map.getNumSymbols(), simplifiedBankExpr, ctx);
+        unsigned bank_factor =
+            cyclic ? factor : memref.getShape()[dynamicRank] / factor;
+        auto simplifiedBankExpr =
+            buildRuntimeBankExpr(map.getResult(dynamicRank), bank_factor,
+                                 map.getNumDims(), map.getNumSymbols());
+        auto bankMap = AffineMap::get(map.getNumDims(), map.getNumSymbols(),
+                                      simplifiedBankExpr, ctx);
         auto runtimeBank = rewriter.create<AffineApplyOp>(
-            load.getLoc(), bankMap, load.getMapOperands());
+            load.getLoc(), bankMap, indexOperands);
 
         // Build mux: cascade of selects
         // select(bank == possibleBanks[n-1], loads[n-1],
@@ -794,8 +867,8 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
               load.getLoc(), possibleBanks[i]);
           auto cmp = rewriter.create<arith::CmpIOp>(
               load.getLoc(), arith::CmpIPredicate::eq, runtimeBank, bankConst);
-          result = rewriter.create<arith::SelectOp>(
-              load.getLoc(), cmp, bankLoads[i], result);
+          result = rewriter.create<arith::SelectOp>(load.getLoc(), cmp,
+                                                    bankLoads[i], result);
         }
 
         // Replace original load with mux result
@@ -838,11 +911,12 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
           if (partition[rank]) {
             factor = factorMap[rank];
             cyclic = cyclicMap[rank];
-            unsigned bank_factor = cyclic ? factor : memref.getShape()[rank] / factor;
+            unsigned bank_factor =
+                cyclic ? factor : memref.getShape()[rank] / factor;
             SmallVector<Value> operands(store.getMapOperands().begin(),
-                                         store.getMapOperands().end());
-            possibleBanks = getPossibleBankValues(storeMap.getResult(rank), storeMap,
-                                                   operands, bank_factor);
+                                        store.getMapOperands().end());
+            possibleBanks = getPossibleBankValues(
+                storeMap.getResult(rank), storeMap, operands, bank_factor);
             if (!possibleBanks.empty()) {
               dynamicRank = rank;
               break;
@@ -851,7 +925,8 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
         }
 
         if (possibleBanks.empty() || dynamicRank < 0) {
-          store->emitError() << "Cannot enumerate possible banks for dynamic bank store";
+          store->emitError()
+              << "Cannot enumerate possible banks for dynamic bank store";
           continue;
         }
 
@@ -860,12 +935,15 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
                    llvm::dbgs() << "}\n");
 
         rewriter.setInsertionPoint(store);
+        SmallVector<Value> indexOperands = materializeIndexOperands(
+            rewriter, store.getLoc(), store.getMapOperands());
 
         // Build index map for accessing partitioned banks
         SmallVector<AffineExpr> newExprs;
         for (unsigned r = 0; r < memref.getRank(); ++r) {
           if (r == (unsigned)dynamicRank && partition[r]) {
-            unsigned bank_factor = cyclic ? factor : memref.getShape()[r] / factor;
+            unsigned bank_factor =
+                cyclic ? factor : memref.getShape()[r] / factor;
             auto expr = storeMap.getResult(r);
             if (cyclic) {
               newExprs.push_back(expr.floorDiv(bank_factor));
@@ -876,15 +954,20 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
             newExprs.push_back(getAffineDimExpr(r, ctx));
           }
         }
-        auto indexMap = AffineMap::get(storeMap.getNumDims(), storeMap.getNumSymbols(), newExprs, ctx);
+        auto indexMap = AffineMap::get(storeMap.getNumDims(),
+                                       storeMap.getNumSymbols(), newExprs, ctx);
 
         // Compute runtime bank index using simplifyMod
-        unsigned bank_factor = cyclic ? factor : memref.getShape()[dynamicRank] / factor;
-        auto simplifiedBankExpr = tor::simplifyMod(storeMap.getResult(dynamicRank), bank_factor,
-                                                    storeMap.getNumDims(), storeMap.getNumSymbols());
-        auto bankMap = AffineMap::get(storeMap.getNumDims(), storeMap.getNumSymbols(), simplifiedBankExpr, ctx);
+        unsigned bank_factor =
+            cyclic ? factor : memref.getShape()[dynamicRank] / factor;
+        auto simplifiedBankExpr = buildRuntimeBankExpr(
+            storeMap.getResult(dynamicRank), bank_factor, storeMap.getNumDims(),
+            storeMap.getNumSymbols());
+        auto bankMap =
+            AffineMap::get(storeMap.getNumDims(), storeMap.getNumSymbols(),
+                           simplifiedBankExpr, ctx);
         auto runtimeBank = rewriter.create<AffineApplyOp>(
-            store.getLoc(), bankMap, store.getMapOperands());
+            store.getLoc(), bankMap, indexOperands);
 
         Value storeValue = store.getValue();
 
@@ -892,10 +975,12 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
         for (int64_t bankIdx : possibleBanks) {
           // Read old value from this bank
           auto oldValue = rewriter.create<AffineLoadOp>(
-              store.getLoc(), newArray[bankIdx], indexMap, store.getMapOperands());
+              store.getLoc(), newArray[bankIdx], indexMap, indexOperands);
 
-          // Select: if runtime_bank == bankIdx, use storeValue, else use oldValue
-          auto bankConst = rewriter.create<arith::ConstantIndexOp>(store.getLoc(), bankIdx);
+          // Select: if runtime_bank == bankIdx, use storeValue, else use
+          // oldValue
+          auto bankConst =
+              rewriter.create<arith::ConstantIndexOp>(store.getLoc(), bankIdx);
           auto cmp = rewriter.create<arith::CmpIOp>(
               store.getLoc(), arith::CmpIPredicate::eq, runtimeBank, bankConst);
           auto newValue = rewriter.create<arith::SelectOp>(
@@ -903,7 +988,8 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
 
           // Write back to this bank
           auto newStore = rewriter.create<AffineStoreOp>(
-              store.getLoc(), newValue, newArray[bankIdx], indexMap, store.getMapOperands());
+              store.getLoc(), newValue, newArray[bankIdx], indexMap,
+              indexOperands);
           // Copy all attributes from original store except the affine map
           for (auto attr : store->getAttrs()) {
             if (attr.getName() != store.getMapAttrStrName())
@@ -919,15 +1005,16 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       new_part.push_back(Partition{store, bank});
     } else if (auto burstLoad = dyn_cast<aps::MemBurstLoad>(op)) {
       SmallVector<Value> newOperands;
-      newOperands.push_back(burstLoad.getCpuAddr());  // cpu_addr
+      newOperands.push_back(burstLoad.getCpuAddr()); // cpu_addr
       for (auto memref : newArray) {
         newOperands.push_back(memref);
       }
-      newOperands.push_back(burstLoad.getStart());    // start index
-      newOperands.push_back(burstLoad.getLength());   // length
+      newOperands.push_back(burstLoad.getStart());  // start index
+      newOperands.push_back(burstLoad.getLength()); // length
 
       rewriter.setInsertionPoint(burstLoad);
-      auto newBurstLoad = rewriter.replaceOpWithNewOp<aps::MemBurstLoad>(burstLoad, TypeRange{}, newOperands);
+      auto newBurstLoad = rewriter.replaceOpWithNewOp<aps::MemBurstLoad>(
+          burstLoad, TypeRange{}, newOperands);
 
       // Copy all attributes from original operation first
       for (auto attr : burstLoad->getAttrs()) {
@@ -939,27 +1026,34 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       auto ctx = rewriter.getContext();
       for (size_t rank = 0; rank < partition.size(); ++rank) {
         if (partition[rank]) {
-          dimAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), rank));
-          factorAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), factorMap.at(rank)));
-          cyclicAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), cyclicMap.at(rank)));
+          dimAttrs.push_back(
+              mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), rank));
+          factorAttrs.push_back(mlir::IntegerAttr::get(
+              mlir::IntegerType::get(ctx, 32), factorMap.at(rank)));
+          cyclicAttrs.push_back(mlir::IntegerAttr::get(
+              mlir::IntegerType::get(ctx, 32), cyclicMap.at(rank)));
         }
       }
       if (!dimAttrs.empty()) {
-        newBurstLoad->setAttr("partition_dim_array", ArrayAttr::get(ctx, dimAttrs));
-        newBurstLoad->setAttr("partition_factor_array", ArrayAttr::get(ctx, factorAttrs));
-        newBurstLoad->setAttr("partition_cyclic_array", ArrayAttr::get(ctx, cyclicAttrs));
+        newBurstLoad->setAttr("partition_dim_array",
+                              ArrayAttr::get(ctx, dimAttrs));
+        newBurstLoad->setAttr("partition_factor_array",
+                              ArrayAttr::get(ctx, factorAttrs));
+        newBurstLoad->setAttr("partition_cyclic_array",
+                              ArrayAttr::get(ctx, cyclicAttrs));
       }
     } else if (auto burstStore = dyn_cast<aps::MemBurstStore>(op)) {
       SmallVector<Value> newOperands;
       for (auto memref : newArray) {
         newOperands.push_back(memref);
       }
-      newOperands.push_back(burstStore.getStart());     // start index
-      newOperands.push_back(burstStore.getCpuAddr());   // cpu_addr
-      newOperands.push_back(burstStore.getLength());    // length
+      newOperands.push_back(burstStore.getStart());   // start index
+      newOperands.push_back(burstStore.getCpuAddr()); // cpu_addr
+      newOperands.push_back(burstStore.getLength());  // length
 
       rewriter.setInsertionPoint(burstStore);
-      auto newBurstStore = rewriter.replaceOpWithNewOp<aps::MemBurstStore>(burstStore, TypeRange{}, newOperands);
+      auto newBurstStore = rewriter.replaceOpWithNewOp<aps::MemBurstStore>(
+          burstStore, TypeRange{}, newOperands);
 
       // Copy all attributes from original operation first
       for (auto attr : burstStore->getAttrs()) {
@@ -971,15 +1065,21 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       auto ctx = rewriter.getContext();
       for (size_t rank = 0; rank < partition.size(); ++rank) {
         if (partition[rank]) {
-          dimAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), rank));
-          factorAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), factorMap.at(rank)));
-          cyclicAttrs.push_back(mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), cyclicMap.at(rank)));
+          dimAttrs.push_back(
+              mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), rank));
+          factorAttrs.push_back(mlir::IntegerAttr::get(
+              mlir::IntegerType::get(ctx, 32), factorMap.at(rank)));
+          cyclicAttrs.push_back(mlir::IntegerAttr::get(
+              mlir::IntegerType::get(ctx, 32), cyclicMap.at(rank)));
         }
       }
       if (!dimAttrs.empty()) {
-        newBurstStore->setAttr("partition_dim_array", ArrayAttr::get(ctx, dimAttrs));
-        newBurstStore->setAttr("partition_factor_array", ArrayAttr::get(ctx, factorAttrs));
-        newBurstStore->setAttr("partition_cyclic_array", ArrayAttr::get(ctx, cyclicAttrs));
+        newBurstStore->setAttr("partition_dim_array",
+                               ArrayAttr::get(ctx, dimAttrs));
+        newBurstStore->setAttr("partition_factor_array",
+                               ArrayAttr::get(ctx, factorAttrs));
+        newBurstStore->setAttr("partition_cyclic_array",
+                               ArrayAttr::get(ctx, cyclicAttrs));
       }
     } else if (auto callOp = dyn_cast<func::CallOp>(op)) {
       auto operands = op->getOperands();
@@ -1011,7 +1111,8 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
     // This indicates getDimBank returned -1 due to non-constant access pattern
     if (part.bank == static_cast<unsigned>(-1)) {
       llvm::errs() << "\n=== ARRAY PARTITION ERROR ===\n";
-      llvm::errs() << "Fatal: Cannot determine memory bank for operation with non-constant index\n\n";
+      llvm::errs() << "Fatal: Cannot determine memory bank for operation with "
+                      "non-constant index\n\n";
       llvm::errs() << "Operation: " << *part.op << "\n\n";
 
       // Get the affine map to show the problematic access pattern
@@ -1023,20 +1124,30 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
         llvm::errs() << "Memref: " << store.getMemRef() << "\n";
       }
 
-      llvm::errs() << "\nReason: The memory access pattern contains symbolic expressions or\n";
-      llvm::errs() << "non-constant indices that cannot be statically resolved to a specific\n";
+      llvm::errs() << "\nReason: The memory access pattern contains symbolic "
+                      "expressions or\n";
+      llvm::errs() << "non-constant indices that cannot be statically resolved "
+                      "to a specific\n";
       llvm::errs() << "memory bank during array partitioning.\n\n";
       llvm::errs() << "Possible causes:\n";
-      llvm::errs() << "  1. Index depends on loop induction variable in complex ways\n";
-      llvm::errs() << "  2. Index contains division/modulo operations that cannot be constant-folded\n";
-      llvm::errs() << "  3. Index uses symbolic values (function arguments, loop bounds)\n\n";
+      llvm::errs()
+          << "  1. Index depends on loop induction variable in complex ways\n";
+      llvm::errs() << "  2. Index contains division/modulo operations that "
+                      "cannot be constant-folded\n";
+      llvm::errs() << "  3. Index uses symbolic values (function arguments, "
+                      "loop bounds)\n\n";
       llvm::errs() << "Solutions:\n";
-      llvm::errs() << "  1. Simplify the index expression to use constant offsets\n";
-      llvm::errs() << "  2. Apply loop unrolling first to expose constant indices\n";
-      llvm::errs() << "  3. Use simpler partitioning factors that divide evenly\n";
-      llvm::errs() << "  4. Do not partition this array (remove partition attributes)\n\n";
+      llvm::errs()
+          << "  1. Simplify the index expression to use constant offsets\n";
+      llvm::errs()
+          << "  2. Apply loop unrolling first to expose constant indices\n";
+      llvm::errs()
+          << "  3. Use simpler partitioning factors that divide evenly\n";
+      llvm::errs() << "  4. Do not partition this array (remove partition "
+                      "attributes)\n\n";
 
-      llvm_unreachable("Array partitioning failed: non-constant memory bank index");
+      llvm_unreachable(
+          "Array partitioning failed: non-constant memory bank index");
     }
 
     // Bounds check: ensure bank index is within newArray bounds
@@ -1046,9 +1157,11 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       llvm::errs() << "Bank index: " << part.bank << "\n";
       llvm::errs() << "Array size: " << newArray.size() << "\n";
       llvm::errs() << "Operation: " << *part.op << "\n\n";
-      llvm::errs() << "This indicates a mismatch between the calculated bank index\n";
+      llvm::errs()
+          << "This indicates a mismatch between the calculated bank index\n";
       llvm::errs() << "and the number of partitioned arrays created.\n\n";
-      llvm_unreachable("Array partitioning failed: bank index exceeds array bounds");
+      llvm_unreachable(
+          "Array partitioning failed: bank index exceeds array bounds");
     }
 
     part.op->setOperand(memrefOperandIdx, newArray[part.bank]);
@@ -1161,8 +1274,9 @@ void getNewGlobalArray(Operation *op, SmallVector<Value> newArray,
 }
 
 void updateMemoryMapEntry(Operation *globalOp, SmallVector<Value> &newArray,
-                         DenseMap<int, int> factorMap, DenseMap<int, bool> cyclicMap,
-                         PatternRewriter &rewriter) {
+                          DenseMap<int, int> factorMap,
+                          DenseMap<int, bool> cyclicMap,
+                          PatternRewriter &rewriter) {
   auto globalOpCast = cast<memref::GlobalOp>(globalOp);
   auto symName = globalOpCast.getSymName();
 
@@ -1203,7 +1317,8 @@ void updateMemoryMapEntry(Operation *globalOp, SmallVector<Value> &newArray,
     auto getGlobalOp = cast<memref::GetGlobalOp>(val.getDefiningOp());
     // Get the actual GlobalOp to extract its symbol
     auto globalName = getGlobalOp.getName();
-    newBankSymbols.push_back(FlatSymbolRefAttr::get(rewriter.getContext(), globalName));
+    newBankSymbols.push_back(
+        FlatSymbolRefAttr::get(rewriter.getContext(), globalName));
   }
 
   // Get partition info (use first partitioned dimension)
@@ -1217,10 +1332,10 @@ void updateMemoryMapEntry(Operation *globalOp, SmallVector<Value> &newArray,
 
   // Create a new mem_entry with updated banks
   rewriter.setInsertionPoint(targetEntry);
-  rewriter.create<aps::MemEntryOp>(
-      targetEntry.getLoc(), targetEntry.getName(), newBankSymbols,
-      targetEntry.getBaseAddress(), targetEntry.getBankSize(), numBanks,
-      cyclicMode);
+  rewriter.create<aps::MemEntryOp>(targetEntry.getLoc(), targetEntry.getName(),
+                                   newBankSymbols, targetEntry.getBaseAddress(),
+                                   targetEntry.getBankSize(), numBanks,
+                                   cyclicMode);
 
   // Erase the old entry
   rewriter.eraseOp(targetEntry);
@@ -1304,12 +1419,12 @@ void getArgFactorMapAndCyclicMap(FuncOp op, MemRefType memref, int argIndex,
                                  DenseMap<int, int> &factorMap,
                                  DenseMap<int, bool> &cyclicMap,
                                  bool fullyPartition) {
-  auto partitionDimArray =
-      dyn_cast<mlir::ArrayAttr>(op->getAttr(stringAddNumber("partition_dim_array_", argIndex)));
-  auto partitionFactorArray =
-      dyn_cast<mlir::ArrayAttr>(op->getAttr(stringAddNumber("partition_factor_array_", argIndex)));
-  auto partitionCyclicArray =
-      dyn_cast<mlir::ArrayAttr>(op->getAttr(stringAddNumber("partition_cyclic_array_", argIndex)));
+  auto partitionDimArray = dyn_cast<mlir::ArrayAttr>(
+      op->getAttr(stringAddNumber("partition_dim_array_", argIndex)));
+  auto partitionFactorArray = dyn_cast<mlir::ArrayAttr>(
+      op->getAttr(stringAddNumber("partition_factor_array_", argIndex)));
+  auto partitionCyclicArray = dyn_cast<mlir::ArrayAttr>(
+      op->getAttr(stringAddNumber("partition_cyclic_array_", argIndex)));
   if (fullyPartition) {
     int factor = getAttrInterger(partitionFactorArray[0]);
     for (int i = 0, e = memref.getShape().size(); i < e; i++) {
@@ -1352,8 +1467,8 @@ struct FuncOpPattern : OpRewritePattern<FuncOp> {
       }
       DenseMap<int, int> factorMap;
       DenseMap<int, bool> cyclicMap;
-      bool fullyPartition = isFullyPartition(
-              dyn_cast<mlir::ArrayAttr>(op->getAttr(stringAddNumber("partition_dim_array_", i))));
+      bool fullyPartition = isFullyPartition(dyn_cast<mlir::ArrayAttr>(
+          op->getAttr(stringAddNumber("partition_dim_array_", i))));
       getArgFactorMapAndCyclicMap(op, memref, i, factorMap, cyclicMap,
                                   fullyPartition);
       SmallVector<bool> partition;
@@ -1505,7 +1620,7 @@ void setAttrOneGroupValueSetWithFully(DenseSet<Value> &idValueSet) {
   for (auto val : idValueSet) {
     auto typeStr = "partition_dim_array" + getDimStrWithVal(val);
     if (auto attr = getDefiningOpByValue(val)->getAttr(typeStr)) {
-        if (isFullyPartition(dyn_cast<mlir::ArrayAttr>(attr))) {
+      if (isFullyPartition(dyn_cast<mlir::ArrayAttr>(attr))) {
         setInvalidWithVal(val, dyn_cast<mlir::ArrayAttr>(attr));
       }
     }

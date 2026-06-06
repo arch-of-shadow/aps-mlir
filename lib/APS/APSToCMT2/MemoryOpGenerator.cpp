@@ -52,7 +52,8 @@ LogicalResult MemoryOpGenerator::generateRule(
     return success();
   }
 
-  return failure();
+  return op->emitError(
+      "internal error: unsupported op reached memory generator");
 }
 
 bool MemoryOpGenerator::canHandle(Operation *op) const {

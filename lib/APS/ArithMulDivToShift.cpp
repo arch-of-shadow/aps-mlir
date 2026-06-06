@@ -69,26 +69,41 @@ static FailureOr<int64_t> getPowerOfTwoRhsShift(OpTy op) {
   return log2Val;
 }
 
+static Value createSignedDivByPowerOfTwoForType(PatternRewriter &rewriter,
+                                                Location loc, Value lhs,
+                                                Type type, int64_t log2Val) {
+  if (log2Val == 0)
+    return lhs;
+
+  Value zero = createConstant(rewriter, loc, type, 0);
+  Value mask = createConstant(rewriter, loc, type, (int64_t{1} << log2Val) - 1);
+  Value isNegative = rewriter.create<arith::CmpIOp>(
+      loc, arith::CmpIPredicate::slt, lhs, zero);
+  Value bias = rewriter.create<arith::SelectOp>(loc, isNegative, mask, zero);
+  Value biased = rewriter.create<arith::AddIOp>(loc, lhs, bias);
+  return rewriter.create<arith::ShRSIOp>(
+      loc, biased, createConstant(rewriter, loc, type, log2Val));
+}
+
 static Value createSignedDivByPowerOfTwo(PatternRewriter &rewriter,
                                          arith::DivSIOp op,
                                          int64_t log2Val) {
   Location loc = op.getLoc();
   Value lhs = op.getLhs();
-  auto integerType = llvm::dyn_cast<IntegerType>(lhs.getType());
-  if (!integerType)
+  Type type = lhs.getType();
+
+  if (type.isIndex()) {
+    Type i32Type = rewriter.getI32Type();
+    Value lhsI32 = rewriter.create<arith::IndexCastOp>(loc, i32Type, lhs);
+    Value shifted = createSignedDivByPowerOfTwoForType(rewriter, loc, lhsI32,
+                                                       i32Type, log2Val);
+    return rewriter.create<arith::IndexCastOp>(loc, type, shifted);
+  }
+
+  if (!llvm::isa<IntegerType>(type))
     return {};
 
-  Type type = lhs.getType();
-  if (log2Val == 0)
-    return lhs;
-
-  Value sign = rewriter.create<arith::ShRSIOp>(
-      loc, lhs, createConstant(rewriter, loc, type, integerType.getWidth() - 1));
-  Value mask = createConstant(rewriter, loc, type, (int64_t{1} << log2Val) - 1);
-  Value bias = rewriter.create<arith::AndIOp>(loc, sign, mask);
-  Value biased = rewriter.create<arith::AddIOp>(loc, lhs, bias);
-  return rewriter.create<arith::ShRSIOp>(
-      loc, biased, createConstant(rewriter, loc, type, log2Val));
+  return createSignedDivByPowerOfTwoForType(rewriter, loc, lhs, type, log2Val);
 }
 
 /// Pattern to convert arith.muli with power of 2 to arith.shli

@@ -14,6 +14,23 @@ def NormalizeSCFForIndices : Pass<"normalize-scf-for-indices", "::mlir::func::Fu
   let constructor = "mlir::createNormalizeSCFForIndicesPass()";
 }
 
+def APSRaiseSCFToAffine : Pass<"aps-raise-scf-to-affine"> {
+  let summary = "Speculatively raise eligible SCF loops to affine loops";
+  let description = [{
+    This pass raises only loops that it can locally normalize and convert to
+    affine.for. Integer-typed SCF loop bounds are cast to index only for loops
+    that are actually converted, so loops that cannot enter the affine path keep
+    their original integer IV/bound/step types.
+  }];
+  let constructor = "mlir::createAPSRaiseSCFToAffinePass()";
+  let dependentDialects = [
+    "affine::AffineDialect",
+    "arith::ArithDialect",
+    "memref::MemRefDialect",
+    "scf::SCFDialect"
+  ];
+}
+
 def APSMemToMemRef : Pass<"aps-mem-to-memref", "::mlir::func::FuncOp"> {
   let summary = "Convert APS memload/memstore to memref.load/memref.store";
   let description = [{

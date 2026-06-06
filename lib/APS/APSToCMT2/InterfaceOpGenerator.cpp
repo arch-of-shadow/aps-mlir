@@ -29,7 +29,8 @@ LogicalResult InterfaceOpGenerator::generateRule(Operation *op, mlir::OpBuilder 
     return generateItfcStoreCollect(itfcStoreCollect, b, loc, slot, localMap);
   }
 
-  return failure();
+  return op->emitError(
+      "internal error: unsupported op reached interface generator");
 }
 
 bool InterfaceOpGenerator::canHandle(Operation *op) const {

@@ -57,6 +57,7 @@ __all__ = [
     "ExprStmt",
     "AssignStmt",
     "ReturnStmt",
+    "IfStmt",
     "ForStmt",
     "StaticStmt",
     "GuardStmt",
@@ -507,6 +508,27 @@ class ReturnStmt(Stmt):
     def __str__(self) -> str:
         exprs_str = ", ".join(str(expr) for expr in self.exprs)
         return f"return ({exprs_str});"
+
+
+@dataclass
+class IfStmt(Stmt):
+    """Statement-level conditional control flow"""
+
+    condition: Expr
+    then_body: List[Stmt]
+    else_body: Optional[List[Stmt]] = None
+
+    def __str__(self) -> str:
+        lines = [f"if {self.condition} {{"]
+        for stmt in self.then_body:
+            lines.append(f"  {stmt}")
+        lines.append("}")
+        if self.else_body is not None:
+            lines[-1] += " else {"
+            for stmt in self.else_body:
+                lines.append(f"  {stmt}")
+            lines.append("}")
+        return "\n".join(lines)
 
 
 @dataclass

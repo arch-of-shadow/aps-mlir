@@ -114,8 +114,8 @@ LogicalResult BBHandler::validateOperations() {
           interfaceGen->canHandle(op) || registerGen->canHandle(op))
         continue;
 
-      op->emitError("unsupported operation for rule generation");
-      return failure();
+      op->emitError("unsupported operation for APSToCMT2 rule generation");
+      llvm::report_fatal_error("unsupported operation reached BBHandler");
     }
   }
   return success();
@@ -219,7 +219,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
     return llvm::formatv("{0}_s{1}tok", currentBlock->blockName, slot).str();
   };
   auto makeSlotRuleName = [&](int64_t slot) {
-    return llvm::formatv("{0}_slot{1}rule", currentBlock->blockName, slot)
+    return llvm::formatv("{0}_slot_{1}_rule", currentBlock->blockName, slot)
         .str();
   };
   auto makeRegName = [&](unsigned index) {
@@ -264,6 +264,11 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
     return false;
   };
 
+  auto needsBlockOutput = [&](Value value) {
+    auto outputIt = outputFIFOs.find(value);
+    return outputIt != outputFIFOs.end() && !outputIt->second.empty();
+  };
+
   llvm::DenseMap<Value, Instance *> localValueRegs;
   unsigned localRegCounter = 0;
   auto ensureLocalValueReg = [&](Value value) -> Instance * {
@@ -297,14 +302,15 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
       if (isRequestTokenProducer(op))
         continue;
       for (Value result : op->getResults()) {
-        if (isValueUsedAfterSlot(result, slotIdx))
+        if (isValueUsedAfterSlot(result, slotIdx) ||
+            (needsBlockOutput(result) && slotIdx + 1 < slotOrder.size()))
           ensureLocalValueReg(result);
       }
     }
   }
 
   for (auto &[value, fifo] : inputFIFOs) {
-    if (isValueUsedAfterSlot(value, 0)) {
+    if (isValueUsedAfterSlot(value, 0) || needsBlockOutput(value)) {
       if (!fifo) {
         llvm::report_fatal_error(
             "BBHandler: expected live input FIFO for value used after slot 0");
@@ -313,7 +319,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
     }
   }
   for (auto &[value, reg] : block.scopeResources.inputValueRegs) {
-    if (isValueUsedAfterSlot(value, 0)) {
+    if (isValueUsedAfterSlot(value, 0) || needsBlockOutput(value)) {
       if (!reg) {
         llvm::report_fatal_error("BBHandler: expected input value register for "
                                  "value used after slot 0");
@@ -390,7 +396,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
         }
       }
 
-      if (slotIdx == 0) {
+      if (slotIdx == 0 && block.captures_rocc_command) {
         handleRoCCCommandBundle(b, loc);
       }
 
@@ -423,18 +429,46 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
                 reg->callMethod("write", {valueIt->second}, b);
             }
           }
+        }
+      }
 
-          auto outputIt = outputFIFOs.find(result);
-          if (outputIt != outputFIFOs.end()) {
-            for (const auto &[consumerBlock, fifo] : outputIt->second) {
-              if (!fifo)
-                continue;
-              fifo->callMethod("enq", {valueIt->second}, b);
-              llvm::dbgs()
-                  << "[BBHandler] Enqueued value to block output FIFO for "
-                     "consumer block "
-                  << consumerBlock->blockId << "\n";
+      if (slotIdx == slotOrder.size() - 1) {
+        for (auto &[value, consumers] : outputFIFOs) {
+          Value payload;
+          auto valueIt = localMap.find(value);
+          if (valueIt != localMap.end())
+            payload = valueIt->second;
+          if (!payload) {
+            if (Instance *reg = localValueRegs.lookup(value)) {
+              auto storedValue = reg->callValue("read", b);
+              if (!storedValue.empty())
+                payload = storedValue[0];
             }
+          }
+          if (!payload) {
+            auto regIt = block.scopeResources.inputValueRegs.find(value);
+            if (regIt != block.scopeResources.inputValueRegs.end() &&
+                regIt->second) {
+              auto storedValue = regIt->second->callValue("read", b);
+              if (!storedValue.empty())
+                payload = storedValue[0];
+            }
+          }
+          if (!payload) {
+            if (auto constOp = value.getDefiningOp<arith::ConstantOp>()) {
+              auto intAttr = cast<IntegerAttr>(constOp.getValueAttr());
+              unsigned width = cast<IntegerType>(intAttr.getType()).getWidth();
+              payload = UInt::constant(intAttr.getValue().getZExtValue(),
+                                       width, b, loc)
+                            .getValue();
+            }
+          }
+          if (!payload)
+            continue;
+          for (const auto &[consumerBlock, fifo] : consumers) {
+            (void)consumerBlock;
+            if (fifo)
+              fifo->callMethod("enq", {payload}, b);
           }
         }
       }
@@ -651,7 +685,7 @@ void BBHandler::processPipelineBasicBlock(BlockInfo &block) {
         }
       }
 
-      if (slotIdx == 0) {
+      if (slotIdx == 0 && block.captures_rocc_command) {
         handleRoCCCommandBundle(b, loc);
       }
 
@@ -764,8 +798,10 @@ FailureOr<mlir::Value> OperationGenerator::getValueInRule(
   }
 
   if (auto globalOp = v.getDefiningOp<memref::GetGlobalOp>()) {
-    // Global symbols are handled separately via symbol resolution.
-    return mlir::Value{};
+    return currentOp->emitError()
+           << "memref.get_global value @" << globalOp.getName()
+           << " is not available as a scalar rule value; this operand should "
+              "be handled through memory symbol resolution";
   }
 
   currentOp->emitError("value is not available in this rule");

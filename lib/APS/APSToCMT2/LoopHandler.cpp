@@ -21,6 +21,8 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <optional>
+
 namespace mlir {
 
 using namespace mlir;
@@ -28,6 +30,29 @@ using namespace mlir::tor;
 using namespace circt::cmt2::ecmt2;
 using namespace circt::cmt2::ecmt2::stl;
 using namespace circt::firrtl;
+
+static std::optional<int64_t> getConstantIntegerValue(Value value) {
+  if (auto constant = value.getDefiningOp<arith::ConstantIndexOp>())
+    return constant.value();
+  if (auto constant = value.getDefiningOp<arith::ConstantIntOp>())
+    return constant.value();
+  if (auto constant = value.getDefiningOp<arith::ConstantOp>()) {
+    if (auto attr = dyn_cast<IntegerAttr>(constant.getValue()))
+      return attr.getInt();
+  }
+  if (auto cast = value.getDefiningOp<arith::IndexCastOp>())
+    return getConstantIntegerValue(cast.getIn());
+  return std::nullopt;
+}
+
+static bool isDescendingLoop(const LoopInfo &loop) {
+  auto step = getConstantIntegerValue(loop.step);
+  return step && *step < 0;
+}
+
+static Signal compareLoopBound(Signal lhs, Signal rhs, bool descending) {
+  return descending ? lhs >= rhs : lhs <= rhs;
+}
 
 //===----------------------------------------------------------------------===//
 // Canonical LoopHandler Implementation with Signal EDSL
@@ -76,6 +101,7 @@ LogicalResult LoopHandler::processLoopBlock(BlockInfo &loopBlock) {
   }
 
   // 2. Initialize the single loop with the enclosing compact block name.
+  activeLoopBlock = &loopBlock;
   std::string loop_name = namePrefix;
   if (!loop_name.empty() && loop_name.back() == '_')
     loop_name.pop_back();
@@ -94,16 +120,27 @@ LogicalResult LoopHandler::processLoopBlock(BlockInfo &loopBlock) {
     loop.iterArgs.push_back(iterArg);
     loop.iterArgTypes.push_back(iterArg.getType());
   }
+  for (Value iterInit : forOp.getIterOperands())
+    loop.iterInitValues.push_back(iterInit);
 
-  if (!loop.iterArgs.empty() || forOp->getNumResults() != 0) {
+  if (loop.iterArgs.size() != loop.iterInitValues.size() ||
+      loop.iterArgs.size() != forOp->getNumResults()) {
     return forOp.emitError(
-        "loop with iter_args/results is not supported by APSToCMT2 loop "
-        "lowering yet");
+        "loop iter_args/init operands/results have inconsistent arity");
+  }
+
+  if (loop.isPipeline && (!loop.iterArgs.empty() || forOp->getNumResults() != 0)) {
+    return forOp.emitError(
+        "pipeline loop with iter_args/results is not supported by APSToCMT2 "
+        "loop lowering yet");
   }
 
   // 4. Create simplified loop infrastructure.
   if (failed(createLoopInfrastructure(loopBlock)))
-    return failure();
+    return forOp.emitError()
+           << "APSToCMT2 loop lowering failed while creating infrastructure "
+              "for "
+           << loop.loopName;
 
   if (outputTokenFIFO)
     loop.scopeResources.boundary.exitTokenFIFO = outputTokenFIFO;
@@ -117,15 +154,23 @@ LogicalResult LoopHandler::processLoopBlock(BlockInfo &loopBlock) {
 
   // 5. Process loop body operations using BBHandler with token coordination
   if (failed(processLoopBodyOperations(forOp, loopBlock)))
-    return failure();
+    return forOp.emitError()
+           << "APSToCMT2 loop lowering failed while processing body for "
+           << loop.loopName;
 
   // 6. Generate loop control rules.
   if (loop.isPipeline) {
     if (failed(generatePipelineLoopRules(loopBlock)))
-      return failure();
+      return forOp.emitError()
+             << "APSToCMT2 loop lowering failed while generating pipeline "
+                "rules for "
+             << loop.loopName;
   } else {
     if (failed(generateCanonicalLoopRules(loopBlock)))
-      return failure();
+      return forOp.emitError()
+             << "APSToCMT2 loop lowering failed while generating canonical "
+                "rules for "
+             << loop.loopName;
   }
 
   return success();
@@ -147,11 +192,15 @@ LogicalResult LoopHandler::generateCanonicalLoopRules(BlockInfo &loopBlock) {
 
   // Create entry rule - handles loop initialization and first iteration
   if (failed(generateLoopEntryRule(loopBlock)))
-    return failure();
+    return loop.forOp.emitError()
+           << "APSToCMT2 failed while generating loop entry rule for "
+           << loop.loopName;
 
   // Create next rule - handles loop iteration and termination
   if (failed(generateLoopNextRule(loopBlock)))
-    return failure();
+    return loop.forOp.emitError()
+           << "APSToCMT2 failed while generating loop next rule for "
+           << loop.loopName;
 
   return success();
 }
@@ -162,11 +211,17 @@ LogicalResult LoopHandler::generatePipelineLoopRules(BlockInfo &loopBlock) {
                << loop.loopName << "\n";
 
   if (failed(generatePipelineLoopEntryRule(loopBlock)))
-    return failure();
+    return loop.forOp.emitError()
+           << "APSToCMT2 failed while generating pipeline loop entry rule for "
+           << loop.loopName;
   if (failed(generatePipelineLoopIssueRule(loopBlock)))
-    return failure();
+    return loop.forOp.emitError()
+           << "APSToCMT2 failed while generating pipeline loop issue rule for "
+           << loop.loopName;
   if (failed(generatePipelineLoopRetireRule(loopBlock)))
-    return failure();
+    return loop.forOp.emitError()
+           << "APSToCMT2 failed while generating pipeline loop retire rule for "
+           << loop.loopName;
 
   return success();
 }
@@ -183,7 +238,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
       if (tokenValues.empty())
         llvm::report_fatal_error("LoopHandler: context token read returned no value");
       Signal token(tokenValues[0], &b, loc);
-      auto one = UInt::constant(1, 1, b, loc);
+      auto one = UInt::constant(1, 2, b, loc);
       b.create<circt::cmt2::ReturnOp>(loc, (token == one).getValue());
       return;
     }
@@ -198,7 +253,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
                  << loop.loopName << "\n";
 
     if (loop.scopeResources.contextTokenReg) {
-      auto unavailable = UInt::constant(0, 1, b, loc);
+      auto unavailable = UInt::constant(0, 2, b, loc);
       loop.scopeResources.contextTokenReg->callMethod(
           "write", {unavailable.getValue()}, b);
       llvm::dbgs() << "[LoopHandler] Acquired loop context token\n";
@@ -214,6 +269,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
 
     llvm::SmallVector<std::pair<Instance *, mlir::Value>, 4>
         pendingLoopToBodyValues;
+    llvm::DenseMap<Value, mlir::Value> entryValueMap;
 
     // 2. Handle parent live-ins from direct input FIFOs.
     // IMPORTANT: Only dequeue values that are actually used by this loop.
@@ -239,6 +295,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
 
       // Dequeue only if value is actually used by the loop
       auto dequeuedValue = fifo->callMethod("deq", {}, b)[0];
+      entryValueMap[value] = dequeuedValue;
       llvm::dbgs() << "[LoopHandler] Dequeued cross-block value from input FIFO\n";
 
       // Write to state register for persistent storage (used by next rule)
@@ -276,6 +333,7 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
       auto capturedValue = reg->callValue("read", b);
       if (capturedValue.empty())
         continue;
+      entryValueMap[value] = capturedValue[0];
 
       if (hasStateRegister) {
         Instance *stateReg = loop.input_state_registers[value];
@@ -291,37 +349,42 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
 
     // 4. Initialize loop state in loop carry fifo
     // Pack state: [counter][bound][step][iter_args...]
-    // Convert all values to FIRRTL types before creating Signals
-    auto convertToFIRRTL = [&](mlir::Value val) -> mlir::Value {
-      if (isa<circt::firrtl::FIRRTLBaseType>(val.getType())) {
-        llvm::report_fatal_error("LoopHandler: loop boundary is not a constant!");
-      }
+    auto materializeEntryValue = [&](mlir::Value val) -> mlir::Value {
+      if (auto it = entryValueMap.find(val); it != entryValueMap.end())
+        return it->second;
       if (auto constOp = val.getDefiningOp<arith::ConstantOp>()) {
         auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
         unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
-        return UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc).getValue();
+        return UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc)
+            .getValue();
       }
-      llvm::report_fatal_error("LoopHandler: Cannot convert non-constant MLIR type to FIRRTL");
+      llvm::report_fatal_error(
+          "LoopHandler: cannot materialize loop iter_arg initializer");
     };
 
-    // high: lowerBound (start), medium: upperBound (stop), low: step
-    // TODO: we only handle increment bound here...
-    Signal loopState(convertToFIRRTL(loop.lowerBound), &b, loc);
-    loopState = loopState.cat(Signal(convertToFIRRTL(loop.upperBound), &b, loc));
-    loopState = loopState.cat(Signal(convertToFIRRTL(loop.step), &b, loc));
+    // high: lowerBound (start), medium: upperBound (inclusive stop), low: step
+    mlir::Value entryLowerBound = materializeEntryValue(loop.lowerBound);
+    mlir::Value entryUpperBound = materializeEntryValue(loop.upperBound);
+    mlir::Value entryStep = materializeEntryValue(loop.step);
+    Signal loopState(entryLowerBound, &b, loc);
+    loopState = loopState.cat(Signal(entryUpperBound, &b, loc));
+    loopState = loopState.cat(Signal(entryStep, &b, loc));
 
-    // TODO: ignore for now..
-    // for (unsigned i = 0; i < loop.iterArgs.size(); i++) {
-    //   loopState = loopState.cat(Signal(convertToFIRRTL(loop.iterArgs[i]), &b, loc));
-    // }
+    llvm::SmallVector<mlir::Value, 4> initialIterValues;
+    for (Value iterInit : loop.iterInitValues) {
+      mlir::Value initValue = materializeEntryValue(iterInit);
+      initialIterValues.push_back(initValue);
+      loopState = Signal(initValue, &b, loc).cat(loopState);
+    }
 
     auto *loopStateReg = loop.scopeResources.loopStateReg ? loop.scopeResources.loopStateReg : loop.loop_state_reg;
     loopStateReg->callMethod("write", {loopState.getValue()}, b);
     llvm::dbgs() << "[LoopHandler] Initialized loop state register\n";
 
-    Signal lowerSig(convertToFIRRTL(loop.lowerBound), &b, loc);
-    Signal upperSig(convertToFIRRTL(loop.upperBound), &b, loc);
-    auto shouldEnter = lowerSig <= upperSig;
+    Signal lowerSig(entryLowerBound, &b, loc);
+    Signal upperSig(entryUpperBound, &b, loc);
+    bool descending = isDescendingLoop(loop);
+    auto shouldEnter = compareLoopBound(lowerSig, upperSig, descending);
 
     If(
         shouldEnter,
@@ -332,11 +395,17 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
                             "loop-to-body FIFO for first iteration\n";
           }
 
+          for (auto pair : llvm::zip(loop.iterArgs, initialIterValues)) {
+            Value iterArg = std::get<0>(pair);
+            mlir::Value initValue = std::get<1>(pair);
+            Instance *iterFifo = loop.loop_to_body_fifos.lookup(iterArg);
+            if (iterFifo)
+              iterFifo->callMethod("enq", {initValue}, b);
+          }
+
           // Extract and publish loop variables for the loop body.
           if (loop.inductionVar && inductionVarReg) {
-            Signal stateSig(loopState.getValue(), &b, loc);
-            auto inductionVar = stateSig.bits(95, 64);
-            inductionVarReg->callMethod("write", {inductionVar.getValue()}, b);
+            inductionVarReg->callMethod("write", {entryLowerBound}, b);
             llvm::dbgs() << "[LoopHandler] Wrote induction variable register\n";
           }
 
@@ -357,11 +426,11 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
             exitTokenFIFO->callMethod("enq", {exitToken.getValue()}, b);
           }
           if (loop.scopeResources.contextTokenReg) {
-            auto available = UInt::constant(1, 1, b, loc);
+            auto available = UInt::constant(1, 2, b, loc);
             loop.scopeResources.contextTokenReg->callMethod(
                 "write", {available.getValue()}, b);
           }
-          emitLoopExitValues(b, loc);
+          emitLoopExitValues(b, loc, initialIterValues);
         },
         b, loc);
 
@@ -408,17 +477,19 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
       }
       auto loopState = loopStateValues[0];
 
-      // Extract state components using Signal operations
-      // [counter:32][bound:32][step:32][iter_arg0...]
+      // Extract state components using Signal operations.
+      // Layout from LSB to MSB: step, upper bound, counter, iter_args...
       Signal stateSig(loopState, &b, loc);
+      unsigned controlWidth = getBitWidth(loop.inductionVar.getType());
 
-      auto currentCounter = stateSig.bits(95, 64); // Extract counter (bits 31:0)
-      auto upperBound = stateSig.bits(63, 32);    // Extract bound (bits 63:32)
-      auto step = stateSig.bits(31, 0);          // Extract step (bits 95:64)
+      auto currentCounter = stateSig.bits(controlWidth * 3 - 1,
+                                          controlWidth * 2);
+      auto upperBound = stateSig.bits(controlWidth * 2 - 1, controlWidth);
+      auto step = stateSig.bits(controlWidth - 1, 0);
 
       // Extract iter_args
       llvm::SmallVector<mlir::Value> iterArgs;
-      unsigned stateOffset = 96;
+      unsigned stateOffset = controlWidth * 3;
       for (unsigned i = 0; i < loop.iterArgs.size(); i++) {
         unsigned width = getBitWidth(loop.iterArgTypes[i]);
         unsigned highBit = stateOffset + width - 1;
@@ -427,13 +498,25 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
         stateOffset += width;
       }
 
+      llvm::SmallVector<mlir::Value, 4> yieldedIterArgs;
+      for (Instance *yieldFIFO : loop.iter_yield_fifos) {
+        auto yielded = yieldFIFO->callMethod("deq", {}, b);
+        if (yielded.empty())
+          llvm::report_fatal_error(
+              "LoopHandler: loop yield FIFO dequeue returned no value");
+        yieldedIterArgs.push_back(yielded[0]);
+      }
+
       // 4. Canonical loop decision:
       // If shouldContinue: increment counter and continue loop
       // If not shouldContinue: exit loop and pass control to next block
       auto nextCounter = currentCounter + step;
+      auto nextCounterControl = nextCounter.bits(controlWidth - 1, 0);
 
-      // 3. Check if loop should continue: counter <= upper_bound
-      auto shouldContinue = nextCounter <= upperBound;
+      // 3. Check if loop should continue.
+      bool descending = isDescendingLoop(loop);
+      auto shouldContinue =
+          compareLoopBound(nextCounterControl, upperBound, descending);
       llvm::dbgs()
           << "[LoopHandler] Next rule: checking if counter < upper_bound\n";
 
@@ -447,17 +530,24 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
                             "updated\n";
 
             // Pack updated state: [nextCounter][upperBound][step][iterArgs...]
-            Signal updatedState(nextCounter.getValue(), &b, loc);
+            Signal updatedState(nextCounterControl.getValue(), &b, loc);
             updatedState = updatedState.cat(upperBound);
             updatedState = updatedState.cat(step);
 
-            // Add updated iter_args (for now, just pass through)
-            for (auto iterArg : iterArgs) {
-              updatedState = updatedState.cat(Signal(iterArg, &b, loc));
+            for (auto iterArg : yieldedIterArgs) {
+              updatedState = Signal(iterArg, &b, loc).cat(updatedState);
             }
 
             // Write updated state for next iteration.
             loopStateReg->callMethod("write", {updatedState.bits(stateOffset - 1, 0).getValue()}, b);
+
+            for (auto pair : llvm::zip(loop.iterArgs, yieldedIterArgs)) {
+              Value iterArg = std::get<0>(pair);
+              mlir::Value yieldedValue = std::get<1>(pair);
+              Instance *iterFifo = loop.loop_to_body_fifos.lookup(iterArg);
+              if (iterFifo)
+                iterFifo->callMethod("enq", {yieldedValue}, b);
+            }
 
             // Re-issue every loop live-in payload for the next iteration.
             for (auto &[value, loopToBodyFifo] : loop.loop_to_body_fifos) {
@@ -473,8 +563,8 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
             }
 
             if (loop.inductionVar && inductionVarReg) {
-              auto inductionVar = nextCounter.bits(31, 0);
-              inductionVarReg->callMethod("write", {inductionVar.getValue()}, b);
+              inductionVarReg->callMethod("write",
+                                          {nextCounterControl.getValue()}, b);
               llvm::dbgs() << "[LoopHandler] Wrote induction variable register\n";
             }
 
@@ -504,13 +594,13 @@ LogicalResult LoopHandler::generateLoopNextRule(BlockInfo &loopBlock) {
             }
 
             if (loop.scopeResources.contextTokenReg) {
-              auto available = UInt::constant(1, 1, b, loc);
+              auto available = UInt::constant(1, 2, b, loc);
               loop.scopeResources.contextTokenReg->callMethod(
                   "write", {available.getValue()}, b);
               llvm::dbgs() << "[LoopHandler] Released loop context token\n";
             }
 
-            emitLoopExitValues(b, loc);
+            emitLoopExitValues(b, loc, yieldedIterArgs);
           },
           b, loc);
     } 
@@ -536,7 +626,7 @@ LogicalResult LoopHandler::generatePipelineLoopEntryRule(BlockInfo &loopBlock) {
       if (tokenValues.empty())
         llvm::report_fatal_error("LoopHandler: context token read returned no value");
       Signal token(tokenValues[0], &b, loc);
-      auto one = UInt::constant(1, 1, b, loc);
+      auto one = UInt::constant(1, 2, b, loc);
       b.create<circt::cmt2::ReturnOp>(loc, (token == one).getValue());
       return;
     }
@@ -548,7 +638,7 @@ LogicalResult LoopHandler::generatePipelineLoopEntryRule(BlockInfo &loopBlock) {
     auto loc = b.getUnknownLoc();
 
     if (loop.scopeResources.contextTokenReg) {
-      auto unavailable = UInt::constant(0, 1, b, loc);
+      auto unavailable = UInt::constant(0, 2, b, loc);
       loop.scopeResources.contextTokenReg->callMethod(
           "write", {unavailable.getValue()}, b);
     }
@@ -632,17 +722,20 @@ LogicalResult LoopHandler::generatePipelineLoopIssueRule(BlockInfo &loopBlock) {
           "LoopHandler: pipeline issue state register read returned no value");
 
     Signal stateSig(stateValues[0], &b, loc);
-    auto currentCounter = stateSig.bits(95, 64);
-    auto upperBound = stateSig.bits(63, 32);
-    auto step = stateSig.bits(31, 0);
-    auto shouldIssue = currentCounter <= upperBound;
+    unsigned controlWidth = getBitWidth(loop.inductionVar.getType());
+    auto currentCounter = stateSig.bits(controlWidth * 3 - 1,
+                                        controlWidth * 2);
+    auto upperBound = stateSig.bits(controlWidth * 2 - 1, controlWidth);
+    auto step = stateSig.bits(controlWidth - 1, 0);
+    bool descending = isDescendingLoop(loop);
+    auto shouldIssue = compareLoopBound(currentCounter, upperBound, descending);
 
     If(
         shouldIssue,
         [&](mlir::OpBuilder &b) {
           if (inductionVarFIFO)
             inductionVarFIFO->callMethod("enq",
-                                         {currentCounter.bits(31, 0).getValue()},
+                                         {currentCounter.bits(controlWidth - 1, 0).getValue()},
                                          b);
 
           auto bodyToken = UInt::constant(1, 1, b, loc);
@@ -650,13 +743,15 @@ LogicalResult LoopHandler::generatePipelineLoopIssueRule(BlockInfo &loopBlock) {
               "enq", {bodyToken.getValue()}, b);
 
           auto nextCounter = currentCounter + step;
-          Signal updatedState(nextCounter.bits(31, 0).getValue(), &b, loc);
+          auto nextCounterControl = nextCounter.bits(controlWidth - 1, 0);
+          Signal updatedState(nextCounterControl.getValue(), &b, loc);
           updatedState = updatedState.cat(upperBound);
           updatedState = updatedState.cat(step);
           loop.scopeResources.loopStateReg->callMethod(
               "write", {updatedState.getValue()}, b);
 
-          auto shouldReissue = nextCounter <= upperBound;
+          auto shouldReissue =
+              compareLoopBound(nextCounterControl, upperBound, descending);
           If(
               shouldReissue,
               [&](mlir::OpBuilder &b) {
@@ -675,7 +770,7 @@ LogicalResult LoopHandler::generatePipelineLoopIssueRule(BlockInfo &loopBlock) {
             exitTokenFIFO->callMethod("enq", {exitToken.getValue()}, b);
           }
           if (loop.scopeResources.contextTokenReg) {
-            auto available = UInt::constant(1, 1, b, loc);
+            auto available = UInt::constant(1, 2, b, loc);
             loop.scopeResources.contextTokenReg->callMethod(
                 "write", {available.getValue()}, b);
           }
@@ -711,15 +806,19 @@ LogicalResult LoopHandler::generatePipelineLoopRetireRule(BlockInfo &loopBlock) 
           "LoopHandler: pipeline retire register read returned no value");
 
     Signal stateSig(stateValues[0], &b, loc);
-    auto upperBound = stateSig.bits(63, 32);
-    auto step = stateSig.bits(31, 0);
+    unsigned controlWidth = getBitWidth(loop.inductionVar.getType());
+    auto upperBound = stateSig.bits(controlWidth * 2 - 1, controlWidth);
+    auto step = stateSig.bits(controlWidth - 1, 0);
 
     Signal doneSig(doneValues[0], &b, loc);
     auto nextDone = doneSig + step;
+    auto nextDoneControl = nextDone.bits(controlWidth - 1, 0);
     loop.scopeResources.doneCounterReg->callMethod(
-        "write", {nextDone.bits(31, 0).getValue()}, b);
+        "write", {nextDoneControl.getValue()}, b);
 
-    auto shouldHaveMoreCompletions = nextDone <= upperBound;
+    bool descending = isDescendingLoop(loop);
+    auto shouldHaveMoreCompletions =
+        compareLoopBound(nextDoneControl, upperBound, descending);
     If(
         shouldHaveMoreCompletions,
         [&](mlir::OpBuilder &b) {},
@@ -732,7 +831,7 @@ LogicalResult LoopHandler::generatePipelineLoopRetireRule(BlockInfo &loopBlock) 
             exitTokenFIFO->callMethod("enq", {exitToken.getValue()}, b);
           }
           if (loop.scopeResources.contextTokenReg) {
-            auto available = UInt::constant(1, 1, b, loc);
+            auto available = UInt::constant(1, 2, b, loc);
             loop.scopeResources.contextTokenReg->callMethod(
                 "write", {available.getValue()}, b);
           }
@@ -747,8 +846,36 @@ LogicalResult LoopHandler::generatePipelineLoopRetireRule(BlockInfo &loopBlock) 
   return success();
 }
 
-void LoopHandler::emitLoopExitValues(mlir::OpBuilder &b, mlir::Location loc) {
+void LoopHandler::emitLoopExitValues(mlir::OpBuilder &b, mlir::Location loc,
+                                     llvm::ArrayRef<mlir::Value> resultValues) {
   (void)loc;
+  for (auto pair : llvm::enumerate(loop.forOp.getResults())) {
+    unsigned resultIndex = pair.index();
+    Value result = pair.value();
+    if (resultIndex >= resultValues.size())
+      break;
+    mlir::Value resultPayload = resultValues[resultIndex];
+
+    auto consumersIt = output_fifos.find(result);
+    if (consumersIt != output_fifos.end()) {
+      for (const auto &[consumerBlock, outFIFO] : consumersIt->second) {
+        (void)consumerBlock;
+        if (outFIFO)
+          outFIFO->callMethod("enq", {resultPayload}, b);
+      }
+    }
+
+    if (activeLoopBlock) {
+      auto regIt = activeLoopBlock->scopeResources.outputValueRegs.find(result);
+      if (regIt != activeLoopBlock->scopeResources.outputValueRegs.end()) {
+        for (Instance *reg : regIt->second) {
+          if (reg)
+            reg->callMethod("write", {resultPayload}, b);
+        }
+      }
+    }
+  }
+
   for (auto &[value, consumers] : output_fifos) {
     Instance *stateReg = loop.input_state_registers.lookup(value);
     if (!stateReg)
@@ -757,11 +884,29 @@ void LoopHandler::emitLoopExitValues(mlir::OpBuilder &b, mlir::Location loc) {
     auto storedValue = stateReg->callValue("read", b);
     if (storedValue.empty())
       continue;
+    mlir::Value payload = storedValue[0];
 
-    for (const auto &[consumerBlock, outFIFO] : consumers) {
-      (void)consumerBlock;
-      if (outFIFO)
-        outFIFO->callMethod("enq", {storedValue[0]}, b);
+    if (pipelineMode) {
+      for (const auto &[consumerBlock, outFIFO] : consumers) {
+        // Live-through values are not loop results.  A nullptr consumer denotes
+        // a parent-scope result/yield FIFO; enqueueing it here lets a nested
+        // loop publish the parent yield before the actual producer block runs.
+        // Current loop results are handled by the explicit result loop above.
+        if (!consumerBlock)
+          continue;
+        if (outFIFO)
+          outFIFO->callMethod("enq", {payload}, b);
+      }
+    }
+
+    if (activeLoopBlock) {
+      auto regIt = activeLoopBlock->scopeResources.outputValueRegs.find(value);
+      if (regIt != activeLoopBlock->scopeResources.outputValueRegs.end()) {
+        for (Instance *reg : regIt->second) {
+          if (reg)
+            reg->callMethod("write", {payload}, b);
+        }
+      }
     }
   }
 }
@@ -802,8 +947,9 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
   loop.token_fifos.next_to_exit = nullptr;
 
   // Create single loop state register for the one non-pipeline loop context.
-  // Calculate total bit width: counter(32) + bound(32) + step(32) + iter_args
-  unsigned stateWidth = 32 + 32 + 32; // counter + bound + step
+  // Calculate total bit width: counter + bound + step + iter_args.
+  unsigned controlWidth = getBitWidth(loop.inductionVar.getType());
+  unsigned stateWidth = controlWidth * 3;
   for (unsigned i = 0; i < loop.iterArgs.size(); i++) {
     stateWidth += getBitWidth(loop.iterArgTypes[i]);
   }
@@ -825,7 +971,7 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
         issueTokName, issueTokMod, {mainClk.getValue(), mainRst.getValue()});
     loop.scopeResources.issueTokenFIFO = loop.pipeline_issue_token_fifo;
 
-    auto *doneRegMod = STLLibrary::createRegModule(32, 0, circuit);
+    auto *doneRegMod = STLLibrary::createRegModule(controlWidth, 0, circuit);
     builder.restoreInsertionPoint(savedIP);
     std::string doneRegName = loop.loopName + "_dn";
     loop.pipeline_done_reg = mainModule->addInstance(
@@ -834,7 +980,7 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
   }
 
   if (requireContextToken) {
-    auto *contextTokenMod = STLLibrary::createRegModule(1, 1, circuit);
+    auto *contextTokenMod = STLLibrary::createRegModule(2, 1, circuit);
     builder.restoreInsertionPoint(savedIP);
     std::string contextTokenName = loop.loopName + "_ctok";
     loop.context_token_reg = mainModule->addInstance(
@@ -876,11 +1022,12 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
 
   // Create state registers and loop-to-body FIFOs for parent live-ins that
   // reach the loop through either a direct FIFO or a captured parent register.
-  // State registers store values for reuse across iterations. Loop-to-body
-  // FIFOs are fed by entry/next and consumed by the body.
+  // State registers store values for reuse across iterations and for
+  // parent-pipeline live-through. Loop-to-body FIFOs are created only for
+  // values actually consumed by the loop body.
   Block *loopBody = loop.forOp.getBody();
   llvm::dbgs() << "[LoopHandler] Creating state registers and loop-to-body FIFOs for input values used in loop body\n";
-  auto ensureLoopLiveInStorage = [&](Value value) {
+  auto ensureLoopLiveInStorage = [&](Value value, bool forceCapture = false) {
     if (!value)
       return;
     if (loop.input_state_registers.count(value))
@@ -889,8 +1036,11 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
       llvm::dbgs() << "[LoopHandler] Skipping constant value (constants don't need loop live-in storage)\n";
       return;
     }
-    if (!isValueUsedInLoopBody(value, loopBody)) {
-      llvm::dbgs() << "[LoopHandler] Skipping value (not used in loop body)\n";
+    bool usedInLoopBody = isValueUsedInLoopBody(value, loopBody);
+    bool liveThroughToParent = output_fifos.count(value) > 0;
+    if (!usedInLoopBody && !liveThroughToParent && !forceCapture) {
+      llvm::dbgs() << "[LoopHandler] Skipping value (not used in loop body or "
+                      "live-through output)\n";
       return;
     }
 
@@ -907,7 +1057,7 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
     llvm::dbgs() << "[LoopHandler] Created state register: " << regName
                  << " (width=" << bitWidth << ")\n";
 
-    if (!loop.isPipeline) {
+    if (!loop.isPipeline && usedInLoopBody) {
       auto *loopToBodyFifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
       builder.restoreInsertionPoint(savedIP);
       std::string loopToBodyFifoName = loop.loopName + "_in" +
@@ -926,9 +1076,49 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
     if (fifo)
       ensureLoopLiveInStorage(value);
   }
+  ensureLoopLiveInStorage(loop.lowerBound, true);
+  ensureLoopLiveInStorage(loop.upperBound, true);
+  ensureLoopLiveInStorage(loop.step, true);
+  for (Value iterInit : loop.iterInitValues)
+    ensureLoopLiveInStorage(iterInit, true);
+  for (auto &[value, consumers] : output_fifos) {
+    (void)consumers;
+    ensureLoopLiveInStorage(value);
+  }
   for (auto &[value, reg] : loopBlock.scopeResources.inputValueRegs) {
     if (reg)
       ensureLoopLiveInStorage(value);
+  }
+
+  for (Value iterArg : loop.iterArgs) {
+    unsigned bitWidth = getBitWidth(iterArg.getType());
+    auto *iterFifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
+    builder.restoreInsertionPoint(savedIP);
+    std::string iterFifoName =
+        loop.loopName + "_iter" + std::to_string(loop.iter_arg_fifos.size());
+    Instance *iterFifo = mainModule->addInstance(
+        iterFifoName, iterFifoMod, {mainClk.getValue(), mainRst.getValue()});
+    loop.iter_arg_fifos.push_back(iterFifo);
+    loop.loop_to_body_fifos[iterArg] = iterFifo;
+    loop.scopeResources.loopToBodyFIFOs[iterArg] = iterFifo;
+  }
+
+  auto yieldOp = dyn_cast<tor::YieldOp>(loopBody->getTerminator());
+  if (!loop.iterArgs.empty() &&
+      (!yieldOp || yieldOp.getOperands().size() != loop.iterArgs.size()))
+    return loop.forOp.emitError("loop yield arity does not match iter_args");
+  if (yieldOp) {
+    for (Value yieldedValue : yieldOp.getOperands()) {
+      unsigned bitWidth = getBitWidth(yieldedValue.getType());
+      auto *yieldFifoMod = STLLibrary::createFIFO2IModule(bitWidth, circuit);
+      builder.restoreInsertionPoint(savedIP);
+      std::string yieldFifoName =
+          loop.loopName + "_yield" +
+          std::to_string(loop.iter_yield_fifos.size());
+      Instance *yieldFifo = mainModule->addInstance(
+          yieldFifoName, yieldFifoMod, {mainClk.getValue(), mainRst.getValue()});
+      loop.iter_yield_fifos.push_back(yieldFifo);
+    }
   }
 
   loop.scopeResources.boundary.exitTokenFIFO = outputTokenFIFO;
@@ -1003,6 +1193,17 @@ LogicalResult LoopHandler::processLoopBodyOperations(tor::ForOp forOp, BlockInfo
     loopBodyInputFIFOs[loop.inductionVar] = inductionVarFIFO;
   llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo *, Instance *>, 4>>
       loopBodyOutputFIFOs;
+  if (!loop.iter_yield_fifos.empty()) {
+    auto yieldOp = dyn_cast<tor::YieldOp>(loopBody->getTerminator());
+    if (!yieldOp || yieldOp.getOperands().size() != loop.iter_yield_fifos.size())
+      return forOp.emitError("loop yield arity does not match iter_args");
+    for (auto pair : llvm::zip(yieldOp.getOperands(), loop.iter_yield_fifos)) {
+      Value yieldedValue = std::get<0>(pair);
+      Instance *yieldFIFO = std::get<1>(pair);
+      loopBodyOutputFIFOs[yieldedValue].push_back(
+          std::make_pair(static_cast<BlockInfo *>(nullptr), yieldFIFO));
+    }
+  }
 
   // Use BlockHandler's processLoopBodyAsBlocks for proper loop body processing
   // This will handle block segmentation, dataflow analysis, and rule generation

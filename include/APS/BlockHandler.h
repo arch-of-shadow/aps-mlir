@@ -62,6 +62,13 @@ struct BlockInfo {
   llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>> output_fifos;
   llvm::DenseMap<Value, Instance*> input_fifos;   // Values this block consumes
 
+  // Pipeline live-through FIFOs force values to move block-by-block through
+  // intermediate scopes even when the intermediate block body does not use the
+  // value.
+  llvm::DenseMap<Value, Instance*> pipeline_live_in_fifos;
+  llvm::DenseMap<Value, llvm::SmallVector<std::pair<BlockInfo*, Instance*>, 4>>
+      pipeline_live_out_fifos;
+
   // Block execution coordination - unified token system
   Instance* input_token_fifo;     // Token coordination (prev block complete -> this block ready)
   Instance* output_token_fifo;    // Token to next block (this block complete -> next block ready)
@@ -69,12 +76,14 @@ struct BlockInfo {
   // Block-specific data (union-like pattern)
   bool is_loop_block;
   bool is_conditional_block;
+  bool captures_rocc_command;
   BlockScopeResources scopeResources;
 
   BlockInfo(unsigned blockId, const std::string& blockName, Block* block, BlockType type)
     : blockId(blockId), blockName(blockName), mlirBlock(block), type(type),
       startTime(-1), endTime(-1), input_token_fifo(nullptr), output_token_fifo(nullptr),
-      is_loop_block(false), is_conditional_block(false) {}
+      is_loop_block(false), is_conditional_block(false),
+      captures_rocc_command(false) {}
 };
 
 /// Cross-block value flow information
@@ -107,6 +116,9 @@ public:
   LogicalResult processFunctionAsBlocks();
 
   LogicalResult processLoopBodyAsBlocks(tor::ForOp loopOp);
+
+  /// Process a single-region control-flow body as nested blocks.
+  LogicalResult processRegionAsBlocks(Block *regionBlock, Operation *anchorOp);
 
   /// Process a specific block (virtual for specialization)
   virtual LogicalResult processBlock(BlockInfo& block);

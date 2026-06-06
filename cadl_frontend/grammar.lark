@@ -122,11 +122,14 @@ with_binding: IDENTIFIER COLON VARTYPE ASSIGN LPAREN expr? COMMA expr? RPAREN
 static: attribute* KW_STATIC IDENTIFIER COLON data_type (ASSIGN expr)? SEMICOLON
 
 // Statements
+stmt_block: LBRACE stmt* RBRACE
+
 stmt: expr SEMICOLON                                   -> expr_stmt
     | KW_LET? expr (COLON data_type)? ASSIGN expr SEMICOLON -> assign_stmt
     | KW_RETURN expr_list SEMICOLON                   -> return_stmt
     | LBRACKET expr RBRACKET COLON stmt               -> guard_stmt
     | KW_WITH with_binding* KW_DO body KW_WHILE expr SEMICOLON -> do_while_stmt
+    | KW_IF expr stmt_block (KW_ELSE stmt_block)?     -> if_stmt
     | LBRACKET_BRACKET IDENTIFIER (LPAREN expr RPAREN)? RBRACKET_BRACKET -> directive_stmt
     | KW_SPAWN LBRACE stmt* RBRACE                    -> spawn_stmt
     | static                                          -> static_stmt

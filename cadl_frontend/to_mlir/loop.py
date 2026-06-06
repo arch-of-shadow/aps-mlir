@@ -23,7 +23,8 @@ class ForLoopPattern:
     induction_var: Any  # WithBinding for the induction variable
     induction_step: int  # Step value (positive or negative)
     lower_bound: int  # Initial value
-    upper_bound: int  # Adjusted upper bound (exclusive for scf.for)
+    upper_bound: Any  # CADL expression for the exclusive scf.for upper bound
+    upper_bound_adjust: int  # Constant adjustment applied to the upper bound
     comparison_op: Any  # cadl_ast.BinaryOp for the condition
     other_bindings: List[Any]  # Other loop-carried variables
 
@@ -182,18 +183,13 @@ class LoopTransformer:
                     if not condition_involves_iv:
                         can_be_for = False
                         reasons.append("Condition doesn't reference induction variable")
-                    elif self._is_constant_expr(stmt.condition.right):
-                        # Check if bound variable is modified in loop body
-                        if isinstance(stmt.condition.right, cadl_ast.IdentExpr):
-                            bound_var = stmt.condition.right.name
-                            if self._is_variable_modified_in_body(stmt.body, bound_var):
-                                can_be_for = False
-                                reasons.append(
-                                    f"Bound variable '{bound_var}' modified in loop body"
-                                )
                     else:
-                        can_be_for = False
-                        reasons.append("Non-constant bound")
+                        bound_expr = self._resolve_for_bound_expr(
+                            stmt.condition.right, stmt.bindings, stmt.body
+                        )
+                        if bound_expr is None:
+                            can_be_for = False
+                            reasons.append("Loop bound is modified in loop body")
                 else:
                     can_be_for = False
                     reasons.append("Non-comparison operator")
@@ -204,15 +200,17 @@ class LoopTransformer:
         # Print minimal summary (one line per loop)
         if can_be_for:
             init_val = self._extract_constant_value(induction_var.init)
-            bound_val = self._extract_constant_value(stmt.condition.right)
+            bound_expr = self._resolve_for_bound_expr(
+                stmt.condition.right, stmt.bindings, stmt.body
+            )
             comparison_op = stmt.condition.op
-            adjusted_bound = bound_val
+            upper_bound_adjust = 0
 
             # Adjust bound for scf.for based on comparison operator
             if comparison_op == cadl_ast.BinaryOp.LE:
-                adjusted_bound = bound_val + 1
+                upper_bound_adjust = 1
             elif comparison_op == cadl_ast.BinaryOp.GE:
-                adjusted_bound = bound_val - 1
+                upper_bound_adjust = -1
 
             other_vars = [b for b in stmt.bindings if b.id != induction_var.id]
             iter_args_str = (
@@ -220,9 +218,14 @@ class LoopTransformer:
                 if other_vars
                 else ""
             )
+            bound_str = str(bound_expr)
+            if upper_bound_adjust > 0:
+                bound_str = f"{bound_str}+{upper_bound_adjust}"
+            elif upper_bound_adjust < 0:
+                bound_str = f"{bound_str}{upper_bound_adjust}"
 
             dbg_info(
-                f"Loop -> scf.for: {induction_var.id}={init_val}..{adjusted_bound} step {induction_step}{iter_args_str}",
+                f"Loop -> scf.for: {induction_var.id}={init_val}..{bound_str} step {induction_step}{iter_args_str}",
                 module="mlir_loop",
             )
 
@@ -231,7 +234,8 @@ class LoopTransformer:
                 induction_var=induction_var,
                 induction_step=induction_step,
                 lower_bound=init_val,
-                upper_bound=adjusted_bound,
+                upper_bound=bound_expr,
+                upper_bound_adjust=upper_bound_adjust,
                 comparison_op=comparison_op,
                 other_bindings=other_vars,
             )
@@ -242,6 +246,33 @@ class LoopTransformer:
             return None
 
     # Helper methods
+
+    def _resolve_for_bound_expr(
+        self,
+        expr: cadl_ast.Expr,
+        bindings: List[cadl_ast.WithBinding],
+        body: List[cadl_ast.Stmt],
+    ) -> Optional[cadl_ast.Expr]:
+        """Return an expression valid before the scf.for for a loop bound.
+
+        A bound can be a normal outer expression, or an unchanged loop-carried
+        binding such as `n` in `with n = (n0, n) ... while (i < n)`. In the
+        latter case the pre-loop upper bound is the binding init (`n0`).
+        """
+        if isinstance(expr, cadl_ast.IdentExpr):
+            for binding in bindings:
+                if binding.id != expr.name:
+                    continue
+                if self._is_variable_modified_in_body(body, binding.id):
+                    return None
+                if isinstance(binding.next, cadl_ast.IdentExpr) and binding.next.name == binding.id:
+                    return binding.init
+                return None
+
+            if self._is_variable_modified_in_body(body, expr.name):
+                return None
+
+        return expr
 
     def _is_constant_expr(self, expr: Optional[cadl_ast.Expr]) -> bool:
         """Check if expression is a constant literal or references a constant variable"""
@@ -356,6 +387,7 @@ class LoopTransformer:
         iv_binding = pattern.induction_var
         lower_bound = pattern.lower_bound
         upper_bound = pattern.upper_bound
+        upper_bound_adjust = pattern.upper_bound_adjust
         step = pattern.induction_step
 
         dbg_debug(
@@ -366,10 +398,19 @@ class LoopTransformer:
         # Determine if this is a forward or backward loop
         is_forward = step > 0
 
-        # Convert bounds and step to MLIR constants
+        # Convert bounds and step to MLIR values. The lower bound is currently
+        # restricted to a constant by the pattern detector; the upper bound may
+        # be a dynamic SSA value.
         iv_type = self.converter.convert_cadl_type(iv_binding.ty)
         lower_const = arith.ConstantOp(iv_type, lower_bound).result
-        upper_const = arith.ConstantOp(iv_type, upper_bound).result
+        upper_value = self.converter._convert_expr(upper_bound)
+        upper_value = self.converter.expr_emitter.cast_type(upper_value, iv_type)
+        if upper_bound_adjust != 0:
+            adjust_const = arith.ConstantOp(iv_type, abs(upper_bound_adjust)).result
+            if upper_bound_adjust > 0:
+                upper_value = arith.AddIOp(upper_value, adjust_const).result
+            else:
+                upper_value = arith.SubIOp(upper_value, adjust_const).result
         step_const = arith.ConstantOp(iv_type, abs(step)).result
 
         # Collect initial values for loop-carried variables (iter_args)
@@ -384,7 +425,7 @@ class LoopTransformer:
 
         # Create scf.for operation
         # For backward loops, we still use the same scf.for but will need to adjust IV
-        for_op = scf.ForOp(lower_const, upper_const, step_const, init_values)
+        for_op = scf.ForOp(lower_const, upper_value, step_const, init_values)
 
         # Apply directives as attributes (generalized)
         if self.converter.pending_directives:
@@ -425,7 +466,7 @@ class LoopTransformer:
                 #   ...
                 current_iter = body_block.arguments[0]
                 # Compute: upper_bound - current_iter + lower_bound
-                diff = arith.SubIOp(upper_const, current_iter).result
+                diff = arith.SubIOp(upper_value, current_iter).result
                 iv_value = arith.AddIOp(diff, lower_const).result
 
             self.converter.set_symbol(iv_binding.id, iv_value)
@@ -463,7 +504,7 @@ class LoopTransformer:
         # For backward: final IV = lower_bound (or upper_bound depending on semantics)
         # In CADL, the IV after loop should be the last value used
         if is_forward:
-            self.converter.set_symbol(iv_binding.id, upper_const)
+            self.converter.set_symbol(iv_binding.id, upper_value)
         else:
             self.converter.set_symbol(iv_binding.id, lower_const)
 

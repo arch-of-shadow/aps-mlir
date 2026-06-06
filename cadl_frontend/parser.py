@@ -524,6 +524,17 @@ class CADLTransformer(Transformer):
         stmt = items[1]
         return cadl_ast.GuardStmt(condition, stmt)
 
+    def if_stmt(self, items):
+        condition = next(
+            item
+            for item in items
+            if isinstance(item, cadl_ast.Expr)
+        )
+        bodies = [item for item in items if isinstance(item, list)]
+        then_body = bodies[0] if bodies else []
+        else_body = bodies[1] if len(bodies) > 1 else None
+        return cadl_ast.IfStmt(condition, then_body, else_body)
+
     def do_while_stmt(self, items):
         # Grammar: KW_WITH with_binding* KW_DO body KW_WHILE expr SEMICOLON
         bindings = []
@@ -571,6 +582,9 @@ class CADLTransformer(Transformer):
 
     def block_body(self, items):
         # Filter out LBRACE and RBRACE tokens, return only statements
+        return [item for item in items if isinstance(item, cadl_ast.Stmt)]
+
+    def stmt_block(self, items):
         return [item for item in items if isinstance(item, cadl_ast.Stmt)]
 
     # Static and thread definitions

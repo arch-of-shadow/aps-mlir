@@ -1,6 +1,7 @@
 add_mlir_library(APS
   aps.cpp
   NormalizeSCFForIndices.cpp
+  APSRaiseSCFToAffine.cpp
   APSMemToMemRef.cpp
   MemoryIndexUtils.cpp
   AffineMemToAPS.cpp
@@ -18,6 +19,7 @@ add_mlir_library(APS
   APSToCMT2/BlockHandler.cpp
   APSToCMT2/BBHandler.cpp
   APSToCMT2/LoopHandler.cpp
+  APSToCMT2/IfHandler.cpp
   APSToCMT2/ArithmeticOpGenerator.cpp
   APSToCMT2/RegisterOpGenerator.cpp
   APSToCMT2/MemoryOpGenerator.cpp

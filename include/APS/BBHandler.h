@@ -211,6 +211,7 @@ public:
 
 private:
   enum class ArithmeticKind { Add, Sub, Mul };
+  enum class DivisionKind { Unsigned, Signed };
   enum class ShiftKind { Shl, ShrU, ShrS };
   enum class BitwiseKind { And, Or, Xor };
 
@@ -227,6 +228,12 @@ private:
                       mlir::Value rhs, mlir::Value result,
                       mlir::tor::CmpIPredicate predicate,
                       llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
+  /// Perform integer division using FIRRTL div.
+  LogicalResult
+  performDivOp(mlir::OpBuilder &b, Location loc, mlir::Value lhs,
+               mlir::Value rhs, mlir::Value result, DivisionKind kind,
+               llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Perform select operation using Signal abstraction (mux)
   LogicalResult

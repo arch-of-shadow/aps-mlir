@@ -40,6 +40,55 @@ static void padToSameWidth(Signal &lhs, Signal &rhs) {
     rhs = rhs.pad(maxWidth);
 }
 
+static mlir::Value signExtendToWidth(mlir::OpBuilder &b, Location loc,
+                                     mlir::Value value, unsigned width) {
+  Signal valueSignal(value, &b, loc);
+  auto inputWidth = valueSignal.getWidth();
+  auto signedType = circt::firrtl::SIntType::get(b.getContext(), inputWidth);
+  mlir::Value signedValue =
+      b.create<circt::firrtl::AsSIntPrimOp>(loc, signedType, value);
+  if (inputWidth == width)
+    return signedValue;
+
+  auto paddedType = circt::firrtl::SIntType::get(b.getContext(), width);
+  return b.create<circt::firrtl::PadPrimOp>(loc, paddedType, signedValue,
+                                            width);
+}
+
+static mlir::Value signedValueToUIntWidth(mlir::OpBuilder &b, Location loc,
+                                          mlir::Value signedValue,
+                                          unsigned requiredWidth) {
+  auto actualWidth = Signal(signedValue, &b, loc).getWidth();
+
+  if (actualWidth > requiredWidth) {
+    auto wideUIntType =
+        circt::firrtl::UIntType::get(b.getContext(), actualWidth);
+    auto wideUInt =
+        b.create<circt::firrtl::AsUIntPrimOp>(loc, wideUIntType, signedValue);
+    return Signal(wideUInt, &b, loc).bits(requiredWidth - 1, 0).getValue();
+  }
+
+  if (actualWidth == requiredWidth) {
+    auto resultType =
+        circt::firrtl::UIntType::get(b.getContext(), requiredWidth);
+    return b.create<circt::firrtl::AsUIntPrimOp>(loc, resultType, signedValue);
+  }
+
+  auto paddedType =
+      circt::firrtl::SIntType::get(b.getContext(), requiredWidth);
+  auto padded =
+      b.create<circt::firrtl::PadPrimOp>(loc, paddedType, signedValue,
+                                         requiredWidth);
+  auto resultType =
+      circt::firrtl::UIntType::get(b.getContext(), requiredWidth);
+  return b.create<circt::firrtl::AsUIntPrimOp>(loc, resultType, padded);
+}
+
+static mlir::tor::CmpIPredicate
+toTorCmpPredicate(mlir::arith::CmpIPredicate predicate) {
+  return static_cast<mlir::tor::CmpIPredicate>(predicate);
+}
+
 LogicalResult ArithmeticOpGenerator::generateRule(Operation *op, mlir::OpBuilder &b,
                                                 Location loc, int64_t slot,
                                                 llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
@@ -70,6 +119,28 @@ LogicalResult ArithmeticOpGenerator::generateRule(Operation *op, mlir::OpBuilder
     if (failed(lhs) || failed(rhs))
       return failure();
     return performComparisonOp(b, loc, *lhs, *rhs, cmpOp.getResult(), cmpOp.getPredicate(), localMap);
+  } else if (auto cmpOp = dyn_cast<arith::CmpIOp>(op)) {
+    auto lhs = getValueInRule(cmpOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(cmpOp.getRhs(), op, b, localMap, loc);
+    if (failed(lhs) || failed(rhs))
+      return failure();
+    return performComparisonOp(b, loc, *lhs, *rhs, cmpOp.getResult(),
+                               toTorCmpPredicate(cmpOp.getPredicate()),
+                               localMap);
+  } else if (auto divuiOp = dyn_cast<arith::DivUIOp>(op)) {
+    auto lhs = getValueInRule(divuiOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(divuiOp.getRhs(), op, b, localMap, loc);
+    if (failed(lhs) || failed(rhs))
+      return failure();
+    return performDivOp(b, loc, *lhs, *rhs, divuiOp.getResult(),
+                        DivisionKind::Unsigned, localMap);
+  } else if (auto divsiOp = dyn_cast<arith::DivSIOp>(op)) {
+    auto lhs = getValueInRule(divsiOp.getLhs(), op, b, localMap, loc);
+    auto rhs = getValueInRule(divsiOp.getRhs(), op, b, localMap, loc);
+    if (failed(lhs) || failed(rhs))
+      return failure();
+    return performDivOp(b, loc, *lhs, *rhs, divsiOp.getResult(),
+                        DivisionKind::Signed, localMap);
   } else if (auto selectOp = dyn_cast<arith::SelectOp>(op)) {
     auto condition = getValueInRule(selectOp.getCondition(), op, b, localMap, loc);
     auto trueValue = getValueInRule(selectOp.getTrueValue(), op, b, localMap, loc);
@@ -141,11 +212,13 @@ LogicalResult ArithmeticOpGenerator::generateRule(Operation *op, mlir::OpBuilder
     return performExtSIOp(b, loc, *input, extsiOp.getResult(), localMap);
   }
 
-  return failure();
+  return op->emitError(
+      "internal error: unsupported op reached arithmetic generator");
 }
 
 bool ArithmeticOpGenerator::canHandle(Operation *op) const {
-  return isa<tor::AddIOp, tor::SubIOp, tor::MulIOp, tor::CmpIOp, arith::SelectOp,
+  return isa<tor::AddIOp, tor::SubIOp, tor::MulIOp, tor::CmpIOp,
+             arith::CmpIOp, arith::DivUIOp, arith::DivSIOp, arith::SelectOp,
              arith::ExtUIOp, arith::ExtSIOp, arith::TruncIOp, circt::comb::ExtractOp,
              arith::ShLIOp, arith::ShRUIOp, arith::ShRSIOp,
              arith::AndIOp, arith::OrIOp, arith::XOrIOp>(op);
@@ -180,6 +253,34 @@ LogicalResult ArithmeticOpGenerator::performArithmeticOp(mlir::OpBuilder &b, Loc
   return success();
 }
 
+LogicalResult ArithmeticOpGenerator::performDivOp(
+    mlir::OpBuilder &b, Location loc, mlir::Value lhs, mlir::Value rhs,
+    mlir::Value result, DivisionKind kind,
+    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
+
+  if (kind == DivisionKind::Signed) {
+    auto maxWidth = std::max(Signal(lhs, &b, loc).getWidth(),
+                             Signal(rhs, &b, loc).getWidth());
+    auto signedLhs = signExtendToWidth(b, loc, lhs, maxWidth);
+    auto signedRhs = signExtendToWidth(b, loc, rhs, maxWidth);
+    auto divResult =
+        b.create<circt::firrtl::DivPrimOp>(loc, signedLhs, signedRhs);
+    localMap[result] =
+        signedValueToUIntWidth(b, loc, divResult, requiredWidth);
+    return success();
+  }
+
+  Signal lhsSignal(lhs, &b, loc);
+  Signal rhsSignal(rhs, &b, loc);
+  padToSameWidth(lhsSignal, rhsSignal);
+  auto divResult = b.create<circt::firrtl::DivPrimOp>(
+      loc, lhsSignal.getValue(), rhsSignal.getValue());
+  Signal resultSignal(divResult, &b, loc);
+  localMap[result] = fitToWidth(resultSignal, requiredWidth).getValue();
+  return success();
+}
+
 LogicalResult ArithmeticOpGenerator::performComparisonOp(mlir::OpBuilder &b, Location loc,
                                                         mlir::Value lhs, mlir::Value rhs,
                                                         mlir::Value result,
@@ -192,39 +293,67 @@ LogicalResult ArithmeticOpGenerator::performComparisonOp(mlir::OpBuilder &b, Loc
   // Match widths to the maximum (like arith.cmpi expects)
   padToSameWidth(lhsSignal, rhsSignal);
 
-  Signal resultSignal(lhs, &b, loc); // dummy init
+  auto getSignedOperands = [&]() -> std::pair<mlir::Value, mlir::Value> {
+    auto maxWidth = std::max(Signal(lhs, &b, loc).getWidth(),
+                             Signal(rhs, &b, loc).getWidth());
+    return {signExtendToWidth(b, loc, lhs, maxWidth),
+            signExtendToWidth(b, loc, rhs, maxWidth)};
+  };
 
   // Map predicate to Signal comparison operators
+  mlir::Value compareResult;
   switch (predicate) {
     case mlir::tor::CmpIPredicate::eq:
-      resultSignal = lhsSignal == rhsSignal;
+      compareResult = (lhsSignal == rhsSignal).getValue();
       break;
     case mlir::tor::CmpIPredicate::ne:
-      resultSignal = lhsSignal != rhsSignal;
+      compareResult = (lhsSignal != rhsSignal).getValue();
       break;
-    case mlir::tor::CmpIPredicate::slt:
     case mlir::tor::CmpIPredicate::ult:
-      resultSignal = lhsSignal < rhsSignal;
+      compareResult = (lhsSignal < rhsSignal).getValue();
       break;
-    case mlir::tor::CmpIPredicate::sle:
     case mlir::tor::CmpIPredicate::ule:
-      resultSignal = lhsSignal <= rhsSignal;
+      compareResult = (lhsSignal <= rhsSignal).getValue();
       break;
-    case mlir::tor::CmpIPredicate::sgt:
     case mlir::tor::CmpIPredicate::ugt:
-      resultSignal = lhsSignal > rhsSignal;
+      compareResult = (lhsSignal > rhsSignal).getValue();
       break;
-    case mlir::tor::CmpIPredicate::sge:
     case mlir::tor::CmpIPredicate::uge:
-      resultSignal = lhsSignal >= rhsSignal;
+      compareResult = (lhsSignal >= rhsSignal).getValue();
       break;
+    case mlir::tor::CmpIPredicate::slt: {
+      auto [signedLhs, signedRhs] = getSignedOperands();
+      compareResult =
+          b.create<circt::firrtl::LTPrimOp>(loc, signedLhs, signedRhs);
+      break;
+    }
+    case mlir::tor::CmpIPredicate::sle: {
+      auto [signedLhs, signedRhs] = getSignedOperands();
+      compareResult =
+          b.create<circt::firrtl::LEQPrimOp>(loc, signedLhs, signedRhs);
+      break;
+    }
+    case mlir::tor::CmpIPredicate::sgt: {
+      auto [signedLhs, signedRhs] = getSignedOperands();
+      compareResult =
+          b.create<circt::firrtl::GTPrimOp>(loc, signedLhs, signedRhs);
+      break;
+    }
+    case mlir::tor::CmpIPredicate::sge: {
+      auto [signedLhs, signedRhs] = getSignedOperands();
+      compareResult =
+          b.create<circt::firrtl::GEQPrimOp>(loc, signedLhs, signedRhs);
+      break;
+    }
     default:
-      return failure();
+      return result.getDefiningOp()->emitError(
+          "unsupported comparison predicate in arithmetic generator");
   }
 
   // Get required result width from the TOR operation result type
   // The result type should be an integer type (typically i1 for comparisons)
   auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
+  Signal resultSignal(compareResult, &b, loc);
   localMap[result] = fitToWidth(resultSignal, requiredWidth).getValue();
   return success();
 }
@@ -336,10 +465,15 @@ LogicalResult ArithmeticOpGenerator::performShiftOp(mlir::OpBuilder &b, Location
       shiftResult = b.create<circt::firrtl::ShlPrimOp>(loc, lhs, shiftAmt);
       break;
     case ShiftKind::ShrU:
-    case ShiftKind::ShrS:
-      // Constant right shift (both logical and arithmetic use ShrPrimOp)
       shiftResult = b.create<circt::firrtl::ShrPrimOp>(loc, lhs, shiftAmt);
       break;
+    case ShiftKind::ShrS: {
+      auto lhsSigned = signExtendToWidth(b, loc, lhs, Signal(lhs, &b, loc).getWidth());
+      auto shifted = b.create<circt::firrtl::ShrPrimOp>(loc, lhsSigned, shiftAmt);
+      localMap[result] =
+          signedValueToUIntWidth(b, loc, shifted, requiredWidth);
+      return success();
+    }
     }
   } else {
     // Dynamic shift - use DShlPrimOp/DShrPrimOp
@@ -353,10 +487,14 @@ LogicalResult ArithmeticOpGenerator::performShiftOp(mlir::OpBuilder &b, Location
       shiftResult = b.create<circt::firrtl::DShrPrimOp>(loc, lhs, rhs);
       break;
     case ShiftKind::ShrS:
-      // Dynamic arithmetic right shift: for signed, we need to ensure proper sign extension
-      // FIRRTL's dshr on signed values performs arithmetic shift
-      shiftResult = b.create<circt::firrtl::DShrPrimOp>(loc, lhs, rhs);
-      break;
+      // FIRRTL dshr on SInt performs arithmetic shift.
+      auto lhsSigned =
+          signExtendToWidth(b, loc, lhs, Signal(lhs, &b, loc).getWidth());
+      auto shifted =
+          b.create<circt::firrtl::DShrPrimOp>(loc, lhsSigned, rhs);
+      localMap[result] =
+          signedValueToUIntWidth(b, loc, shifted, requiredWidth);
+      return success();
     }
   }
 

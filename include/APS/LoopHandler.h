@@ -38,6 +38,7 @@ struct LoopInfo {
   Value inductionVar;
   Value lowerBound, upperBound, step;
   llvm::SmallVector<Value> iterArgs;
+  llvm::SmallVector<Value> iterInitValues;
   llvm::SmallVector<Type> iterArgTypes;
   bool isPipeline = false;
 
@@ -60,6 +61,7 @@ struct LoopInfo {
   Instance *context_token_reg = nullptr;
   Instance *loop_result_fifo; // Final iter_args results
   llvm::SmallVector<Instance *, 4> iter_arg_fifos; // Individual iter_arg FIFOs
+  llvm::SmallVector<Instance *, 4> iter_yield_fifos; // Body yield values to next rule
 
   // State registers: persistent storage for input values that need to be accessed by both entry and next rules
   // Maps input Value to Register instance for consistent storage across iterations
@@ -124,6 +126,7 @@ protected:
 private:
   // Single loop that this handler processes
   LoopInfo loop;
+  BlockInfo *activeLoopBlock = nullptr;
   bool requireContextToken = false;
 
   //===--------------------------------------------------------------------===//
@@ -147,7 +150,8 @@ private:
   LogicalResult generatePipelineLoopRetireRule(BlockInfo &loopBlock);
 
   /// Emit loop-scope output values that are owned by the loop controller.
-  void emitLoopExitValues(mlir::OpBuilder &b, mlir::Location loc);
+  void emitLoopExitValues(mlir::OpBuilder &b, mlir::Location loc,
+                          llvm::ArrayRef<mlir::Value> resultValues = {});
 
   /// Create loop infrastructure (tokens, loop state, and body live-ins).
   LogicalResult createLoopInfrastructure(BlockInfo &loopBlock);
