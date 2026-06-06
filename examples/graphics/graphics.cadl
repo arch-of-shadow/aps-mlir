@@ -99,20 +99,20 @@ rtype mean_var_fixed(rs1: u5, rs2: u5, rd: u5) {
 
     sum_acc = 0;
     [[unroll(4)]]
-    with i: u32 = (0, i_) do {
+    with i: u8 = (0, i_) do {
         sum_acc = sum_acc + arr0[i];
-        let i_: u32 = i + 1;
+        let i_: u8 = i + 1;
     } while (i_ < 32);
 
     let mean_q: i32 = sum_acc << 3;
 
     sum_sq_diff_acc = 0;
     [[unroll(4)]]
-    with i: u32 = (0, i_) do {
+    with i: u8 = (0, i_) do {
         let sample: i32 = arr0[i];
         let diff: i32 = (sample << 8) - mean_q;
         sum_sq_diff_acc = sum_sq_diff_acc + ((diff * diff) >> 8);
-        let i_: u32 = i + 1;
+        let i_: u8 = i + 1;
     } while (i_ < 32);
 
     _mem[out_addr] = mean_q;
@@ -155,7 +155,7 @@ rtype phong_fixed(rs1: u5, rs2: u5, rd: u5) {
     let li0: i16 = light_zi[31:16];
 
     [[unroll(2)]]
-    with idx: u32 = (0, idx_) do {
+    with idx: u8 = (0, idx_) do {
         let nx: i16 = arr1[idx];
         let ny: i16 = arr2[idx];
         let nz: i16 = arr3[idx];
@@ -185,7 +185,7 @@ rtype phong_fixed(rs1: u5, rs2: u5, rd: u5) {
 
         diffuse[idx] = diff0[15:0];
         specular[idx] = spec0[15:0];
-        let idx_: u32 = idx + 1;
+        let idx_: u8 = idx + 1;
     } while (idx_ < 16);
 
     _burst_write[out_addr +: 16] = diffuse[0 +: ];
@@ -219,10 +219,10 @@ rtype rgb2yuv_fixed(rs1: u5, rs2: u5, rd: u5) {
     arr2[0 +: ] = _burst_read[in_addr + plane_bytes +: 16];
     arr3[0 +: ] = _burst_read[in_addr + plane_bytes + plane_bytes +: 16];
 
-    with row: u32 = (0, row_) do {
+    with row: u8 = (0, row_) do {
         [[unroll(2)]]
-        with col: u32 = (0, col_) do {
-            let idx: u32 = row * 4 + col;
+        with col: u8 = (0, col_) do {
+            let idx: u8 = row * 4 + col;
             let r: i16 = arr1[idx];
             let g: i16 = arr2[idx];
             let b: i16 = arr3[idx];
@@ -235,9 +235,9 @@ rtype rgb2yuv_fixed(rs1: u5, rs2: u5, rd: u5) {
             arr4[idx] = if (y_raw > max_channel) {16'd255} else {if (y_raw < zero) {16'd0} else {y_raw[15:0]}};
             arr5[idx] = if (u_raw > max_channel) {16'd255} else {if (u_raw < zero) {16'd0} else {u_raw[15:0]}};
             arr6[idx] = if (v_raw > max_channel) {16'd255} else {if (v_raw < zero) {16'd0} else {v_raw[15:0]}};
-            let col_: u32 = col + 1;
+            let col_: u8 = col + 1;
         } while (col_ < 4);
-        let row_: u32 = row + 1;
+        let row_: u8 = row + 1;
     } while (row_ < 4);
 
     _burst_write[out_addr +: 16] = arr4[0 +: ];

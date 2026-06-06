@@ -153,11 +153,10 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
 }
 ```
 
-## Parser Usage
+## Frontend Usage
 
 ```bash
-pixi run parse examples/simple.cadl          # Parse and display AST
-pixi run mlir examples/simple.cadl out.mlir  # Convert to MLIR
+pixi run mlir examples/features/csr_partition_loop.cadl out.mlir  # Convert to MLIR
 ```
 
 ## Best Practices

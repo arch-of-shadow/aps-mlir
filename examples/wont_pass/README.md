@@ -25,9 +25,9 @@ These files are designed to fail parsing and can be used to test:
 - Parser robustness
 - Error reporting accuracy
 
-Try parsing them with:
+Try compiling them with:
 ```bash
-pixi run parse examples/wont_pass/<filename>.cadl
+pixi run aps-frontend mlir examples/wont_pass/<filename>.cadl
 ```
 
 Each should produce helpful error messages indicating what went wrong and where.

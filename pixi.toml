@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [activation.env]
 CIRCT_COMMIT = "cmt2-edsl"
-PYTHONPATH = "${PIXI_PROJECT_ROOT}/build/python_packages/circt_core:${PYTHONPATH}"
+PYTHONPATH = "${PIXI_PROJECT_ROOT}:${PIXI_PROJECT_ROOT}/build/python_packages/circt_core:${PYTHONPATH}"
 OR_TOOLS_PATH = "${PIXI_PROJECT_ROOT}/install"
 PATH = "${PIXI_PROJECT_ROOT}/circt/build/bin:${PATH}:${PIXI_PROJECT_ROOT}/install/bin:${PIXI_PROJECT_ROOT}/thirdparty/polygeist"
 MEGGINCLUDE = "${PIXI_PROJECT_ROOT}/megg/megg_include" # put extra include files for megg here
@@ -42,25 +42,17 @@ setup-riscv-extra = { cmd = "cd $PIXI_PROJECT_ROOT/thirdparty/chipyard && bash .
 # Python execution with CIRCT bindings
 python = { cmd = "python" }
 pytest = { cmd = "python -m pytest -s -v" }
-silicon = { cmd = "python dev_scripts/silicon.py" }
-
-# APS Tools
-aps-frontend = { cmd = "python aps-frontend" }
-parse = { cmd = "python aps-frontend parse" }
-parse-summary = { cmd = "python aps-frontend parse --summary" }
-mlir-std = { cmd = "bash scripts/mlir-std.sh" }
-cadl2c = { cmd = "python aps-frontend cadl2c" }
 
 # Tutorial Demo
 tutorial-compiler-demo = { cmd = "streamlit run tutorial/compiler/hands_on.py --server.headless true" }
 
 [tasks.mlir]
 args = ["cadl", "apsir"]
-cmd =  "python aps-frontend mlir {{ cadl }} > {{ apsir }}"
+cmd =  "aps-frontend mlir {{ cadl }} > {{ apsir }}"
 
 [tasks.opt]
 args = ["apsir", "apsir_opt"]
-cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e --clock 8.0 -i {{ apsir }} -o {{ apsir_opt }}"
+cmd = "$PIXI_PROJECT_ROOT/build/tools/aps-opt/aps-e2e --clock 4.0 -i {{ apsir }} -o {{ apsir_opt }}"
 
 [tasks.opt-debug]
 args = ["apsir", "apsir_opt", "apsir_log"]
@@ -73,6 +65,15 @@ cmd = "./circt/build/bin/circt-opt {{ apsir }} --lower-cmt2-to-firrtl | ./circt/
 [tasks.cmt2main]
 args = ["apsir", "mainir"]
 cmd = "sed -n '/cmt2\\.module @main(%clk: !firrtl\\.clock, %rst: !firrtl\\.uint<1>)/,/^}/p' {{ apsir }} | sed '/cmt2\\.module @.*main(/!{/cmt2\\.module @/,/^}/d}' > {{ mainir }}"
+
+# APS Tools
+[tasks.cadl2c]
+args = ["cadl", "cfile"]
+cmd = "$PIXI_PROJECT_ROOT/tools/aps-frontend cadl2c -o {{ cfile }} {{ cadl }}"
+
+[tasks.encoding]
+args = ["cadl", "json"]
+cmd = "$PIXI_PROJECT_ROOT/tools/aps-frontend encoding -o {{ json }} {{ cadl }}"
 
 [tasks.compile]
 args = ["cadl", "test_c", "output"]
@@ -110,7 +111,7 @@ lp_solve = ">=5.5.2.11,<6"
 nlohmann_json = ">=3.12.0,<4"
 pip = "*"
 egglog = ">=11.2.0"
-streamlit = ">=1.28.0"
+# streamlit = ">=1.28.0"
 black = "<=25.1.0"
 pytokens = "*"
 riscv-tools = "1.0.6.*"

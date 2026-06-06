@@ -79,7 +79,7 @@ echo ""
 
 # Step 1: CADL → C
 echo "[1/4] Converting CADL to C..."
-pixi run -q python "$PROJECT_ROOT/aps-frontend" cadl2c "$CADL_FILE" -o "$PATTERN_C"
+pixi run -q aps-frontend cadl2c "$CADL_FILE" -o "$PATTERN_C"
 echo "  ✓ Created: $PATTERN_C"
 
 # Step 2: C → MLIR (using cgeist)
@@ -92,7 +92,7 @@ echo "  ✓ Created: $PATTERN_MLIR"
 
 # Step 3: CADL → encoding JSON
 echo "[3/4] Extracting encoding JSON..."
-pixi run -q python "$PROJECT_ROOT/aps-frontend" encoding "$CADL_FILE" -o "$ENCODING_JSON"
+pixi run -q aps-frontend encoding "$CADL_FILE" -o "$ENCODING_JSON"
 echo "  ✓ Created: $ENCODING_JSON"
 
 # Step 4: Full E2E compilation

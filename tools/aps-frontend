@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Small CADL frontend CLI used by the APS tool flow."""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from cadl_frontend import cadl_ast, parse_proc
+from cadl_frontend.parser import CADLParseError
+from cadl_frontend.to_c import CTranspiler
+from cadl_frontend.to_mlir import convert_cadl_to_mlir
+
+
+def _read_proc(input_file: str):
+    source = Path(input_file).read_text()
+    return parse_proc(source, input_file)
+
+
+def _write_or_print(text: str, output_file: str | None) -> None:
+    if output_file:
+        Path(output_file).write_text(text)
+    else:
+        print(text)
+
+
+def convert_to_mlir(input_file: str, output_file: str | None,
+                    verify: bool) -> None:
+    proc = _read_proc(input_file)
+    mlir_text = str(convert_cadl_to_mlir(proc))
+
+    if verify:
+        import circt
+        import circt.ir as ir
+
+        with ir.Context() as ctx:
+            circt.register_dialects(ctx)
+            ir.Module.parse(mlir_text)
+
+    _write_or_print(mlir_text, output_file)
+
+
+def convert_to_c(input_file: str, output_file: str | None) -> None:
+    c_code = CTranspiler().transpile(Path(input_file))
+    _write_or_print(c_code, output_file)
+
+
+def extract_encoding(input_file: str, output_file: str | None) -> None:
+    proc = _read_proc(input_file)
+    encoding = {}
+
+    for flow_name, flow in proc.flows.items():
+        flow_encoding = {}
+        for attr_name in ("opcode", "funct3", "funct7"):
+            attr_value = flow.attrs.get(attr_name)
+            if not isinstance(attr_value, cadl_ast.LitExpr):
+                continue
+            lit_inner = attr_value.literal.lit
+            if isinstance(lit_inner, cadl_ast.LiteralInner_Fixed):
+                flow_encoding[attr_name] = f"0x{lit_inner.value:X}"
+        if flow_encoding:
+            encoding[flow_name] = flow_encoding
+
+    _write_or_print(json.dumps(encoding, indent=2), output_file)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="aps-frontend",
+        description="APS CADL frontend",
+    )
+    parser.add_argument(
+        "--version", "-v", action="version", version="aps-frontend 1.0.0")
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    mlir_parser = subparsers.add_parser("mlir", help="Convert CADL to MLIR")
+    mlir_parser.add_argument("input")
+    mlir_parser.add_argument("-o", "--output")
+    mlir_parser.add_argument("--no-verify", action="store_true")
+
+    c_parser = subparsers.add_parser("cadl2c", help="Convert CADL to C")
+    c_parser.add_argument("input")
+    c_parser.add_argument("-o", "--output")
+
+    encoding_parser = subparsers.add_parser(
+        "encoding", help="Extract instruction encoding JSON")
+    encoding_parser.add_argument("input")
+    encoding_parser.add_argument("-o", "--output")
+
+    args = parser.parse_args()
+
+    try:
+        if args.command == "mlir":
+            convert_to_mlir(args.input, args.output, not args.no_verify)
+        elif args.command == "cadl2c":
+            convert_to_c(args.input, args.output)
+        elif args.command == "encoding":
+            extract_encoding(args.input, args.output)
+        return 0
+    except CADLParseError as e:
+        print(f"Parse error:\n{e}", file=sys.stderr)
+    except FileNotFoundError as e:
+        print(f"File not found: {e.filename}", file=sys.stderr)
+    except Exception as e:
+        print(f"aps-frontend error: {e}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

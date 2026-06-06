@@ -35,7 +35,7 @@ That import surface should remain stable during the first refactor stages.
 | `cadl_frontend/to_mlir/memory.py` | `_mem` usage scan, static/global declaration, global references, `_irf`, `_mem`, static array, and burst memory lowering. |
 | `cadl_frontend/to_mlir/loop.py` | Loop-specific analysis and emission helper for `do-while` to `scf.for` / `scf.while`. |
 | `cadl_frontend/to_c/transpiler.py` | CADL-to-C path used by compiler/pattern matching flow. |
-| `aps-frontend` | CLI wrapper for parse, MLIR conversion, C transpilation, and encoding extraction. |
+| `tools/aps-frontend` | CLI wrapper for MLIR conversion, C transpilation, and encoding extraction. |
 
 ## What `to_mlir/converter.py` Currently Does
 

@@ -31,7 +31,7 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
     // Same structure as original deca_decompress.cadl but with [[unroll]]
     // ========================================================================
 
-    with idx: u32 = (0, idx_) do {
+    with idx: u8 = (0, idx_) do {
         // Extract the bitmask byte for this group of 4 elements
         let mask_byte: u8 = sel {
             idx < 2: bitmask[7:0],
@@ -42,9 +42,9 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
 
         // Process 4 elements using [[unroll(4)]]
         [[unroll(4)]]
-        with bit_idx: u32 = (0, bit_idx_) do {
+        with bit_idx: u8 = (0, bit_idx_) do {
             // Calculate bit position within the byte
-            let bit_pos: u32 = idx[0:0] * 4 + bit_idx;
+            let bit_pos: u8 = idx[0:0] * 4 + bit_idx;
             let bit_shifted: u8 = mask_byte >> bit_pos;
             let is_nonzero: u1 = bit_shifted[0:0];
 
@@ -57,23 +57,23 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
             let val: i8 = (val_double_word >> (value_offset * 8))[7:0];
 
             // Write to dense array (affine access)
-            let elem_idx: u32 = idx * 4 + bit_idx;
+            let elem_idx: u8 = idx * 4 + bit_idx;
             dense_values[elem_idx] = if is_nonzero { val } else { zero_i8 };
 
             // Update sparse index counter
             vidx = vidx + (if is_nonzero {1} else {0});
 
-            let bit_idx_: u32 = bit_idx + 1;
+            let bit_idx_: u8 = bit_idx + 1;
         } while (bit_idx_ < 4);
 
-        let idx_: u32 = idx + 1;
+        let idx_: u8 = idx + 1;
     } while (idx_ < 8);
 
     // ========================================================================
     // Stage 2: Fully Affine Decompression
     // ========================================================================
     [[unroll(4)]]
-    with idx: u32 = (0, idx_) do {
+    with idx: u8 = (0, idx_) do {
         let val: i8 = dense_values[idx];
         let val32: i32 = val;
         let global_scale32: i32 = global_scale;
@@ -81,7 +81,7 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
         let dequant: i16 = (mul_result >> 8)[15:0];
 
         decompressed_weights[idx] = dequant;
-        let idx_: u32 = idx + 1;
+        let idx_: u8 = idx + 1;
     } while (idx_ < 32);
 
     _burst_write[out_addr +: 64] = decompressed_weights[0 +: ];
@@ -158,39 +158,39 @@ rtype gemm_4x4(rs1: u5, rs2: u5, rd: u5) {
     // ========================================================================
 
     // Outer loop: iterate over rows of A (and C)
-    with i: u32 = (0, i_) do {
+    with i: u8 = (0, i_) do {
 
         // Middle loop: iterate over columns of B (and C)
         [[unroll(4)]]
-        with j: u32 = (0, j_) do {
+        with j: u8 = (0, j_) do {
             // Reset accumulator for each output element
             acc = 0;
 
             // Inner loop: dot product over dimension N
             [[unroll(4)]]
-            with k: u32 = (0, k_) do {
+            with k: u8 = (0, k_) do {
                 // Access A[i,k]: row-major layout → index = i*N + k
-                let a_idx: u32 = i * 4 + k;
+                let a_idx: u8 = i * 4 + k;
                 let a_val: i16 = matrix_a[a_idx];
 
                 // Access B[k,j]: row-major layout → index = k*P + j
-                let b_idx: u32 = k * 4 + j;
+                let b_idx: u8 = k * 4 + j;
                 let b_val: i16 = matrix_b[b_idx];
 
                 // Multiply-accumulate: acc += A[i,k] × B[k,j]
                 acc = acc ^ (a_val & b_val);
 
-                let k_: u32 = k + 1;
+                let k_: u8 = k + 1;
             } while (k_ < 4);
 
             // Store accumulated result to C[i,j]
-            let c_idx: u32 = i * 4 + j;
+            let c_idx: u8 = i * 4 + j;
             matrix_c[c_idx] = acc;
 
-            let j_: u32 = j + 1;
+            let j_: u8 = j + 1;
         } while (j_ < 4);
 
-        let i_: u32 = i + 1;
+        let i_: u8 = i + 1;
     } while (i_ < 4);
 
     // ========================================================================
