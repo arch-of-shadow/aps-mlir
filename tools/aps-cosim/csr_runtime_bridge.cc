@@ -55,7 +55,7 @@ void CsrRuntimeBridge::bind(Vmain &top, ApsCsrFile &csrs) {
 
 void *CsrRuntimeBridge::requiredPort(Vmain &top, const std::string &name) {
   const VerilatedVar *var =
-      top.rootp->vlSymsp->__Vscope_TOP.varFind(name.c_str());
+      top.rootp->vlSymsp->__Vscopep_TOP->varFind(name.c_str());
   if (!var)
     throw std::runtime_error("missing RTL CSR port: " + name);
   return var->datap();

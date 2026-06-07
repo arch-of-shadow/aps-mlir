@@ -27,7 +27,7 @@ clean = { cmd = "rm -rf build"}
 
 # Prepare Chipyard environment
 setup-yosys-slang = { cmd = "test -f __setup-yosys-slang.success || (bash scripts/setup-yosys-slang.sh && touch __setup-yosys-slang.success)" }
-setup-verilator = { cmd = "test -f _setup-verilator.success || (sed -i -e 's|^AR *= *.*|AR = /usr/bin/ar|' -e 's|^CXX *= *.*|CXX = /usr/bin/g++|' -e 's|^LINK *= *.*|LINK = /usr/bin/g++|' \"$CONDA_PREFIX/share/verilator/include/verilated.mk\" && touch __setup-verilator.success\")" }
+setup-verilator = { cmd = "test -f \"$CONDA_PREFIX/.aps-setup-verilator.success\" || (sed -i -e 's|^AR *= *.*|AR = /usr/bin/ar|' -e 's|^CXX *= *.*|CXX = /usr/bin/g++|' -e 's|^LINK *= *.*|LINK = /usr/bin/g++|' \"$CONDA_PREFIX/share/verilator/include/verilated.mk\" && touch \"$CONDA_PREFIX/.aps-setup-verilator.success\")" }
 setup-firtool = { cmd = "test -f  __setup-firtool.success || (mkdir -p thirdparty && cd thirdparty && wget -O firtool.tar.gz \"$LEGACY_FIRTOOL_PATH\" && tar xvzf firtool.tar.gz && rm firtool.tar.gz && touch __setup-firtool.success)"}
 setup-chipyard = { cmd = "git submodule update --init && cd thirdparty/chipyard && bash ./scripts/init-submodules-no-riscv-tools-nolog.sh && bash ./scripts/build-toolchain-extra-32.sh -p \"$RISCV\"", depends-on = ["setup-yosys-slang", "setup-verilator", "setup-firtool"]}
 check-chipyard = { cmd = "test -f thirdparty/chipyard/toolchains/riscv-tools/riscv-pk/README.md"}
@@ -75,6 +75,7 @@ cmd = "make -C $PIXI_PROJECT_ROOT/tools/aps-cosim clean"
 [tasks.aps-cosim-run]
 args = [{ arg = "elf" }, { arg = "rtl" }, { arg = "extra_args", default = "" }]
 cmd = "make -j -C tools/aps-cosim run-spike RTL={{ rtl }} ELF={{ elf }} EXTRA_ARGS='{{ extra_args }}' TOP=main"
+depends-on = ["setup-verilator"]
 
 [dependencies]
 cmake = ">=4.1.1,<5"
