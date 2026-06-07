@@ -1,6 +1,6 @@
 [workspace]
 authors = ["uv-xiao <shallwexiao@gmail.com>"]
-channels = ["weijiepeng", "conda-forge"]
+channels = ["conda-forge", "weijiepeng"]
 name = "aps-mlir"
 platforms = ["linux-64"]
 version = "0.1.0"
@@ -8,12 +8,11 @@ version = "0.1.0"
 [activation.env]
 CIRCT_COMMIT = "cmt2-edsl"
 PYTHONPATH = "${PIXI_PROJECT_ROOT}:${PIXI_PROJECT_ROOT}/build/python_packages/circt_core:${PYTHONPATH}"
-OR_TOOLS_PATH = "${PIXI_PROJECT_ROOT}/install"
-PATH = "${PIXI_PROJECT_ROOT}/circt/build/bin:${PATH}:${PIXI_PROJECT_ROOT}/install/bin:${PIXI_PROJECT_ROOT}/thirdparty/polygeist"
+PATH = "${PIXI_PROJECT_ROOT}/circt/build/bin:${PATH}:${PIXI_PROJECT_ROOT}/thirdparty/polygeist"
 MEGGINCLUDE = "${PIXI_PROJECT_ROOT}/megg/megg_include" # put extra include files for megg here
 # Chipyard is not compatable with new firtool, so we have to use a pre-built binary from github release
 LEGACY_FIRTOOL_PATH = "https://github.com/llvm/circt/releases/download/firtool-1.75.0/firrtl-bin-linux-x64.tar.gz"
-LEGACY_FIRTOOL = "${PIXI_PROJECT_ROOT}/install/firtool-1.75.0/bin/firtool" # this is for chipyard compatibility
+LEGACY_FIRTOOL = "${PIXI_PROJECT_ROOT}/thirdparty/firtool-1.75.0/bin/firtool" # this is for chipyard compatibility
 # tutorial docker environment
 APS = "${PIXI_PROJECT_ROOT}"
 APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard"
@@ -21,23 +20,19 @@ APS_SIM = "${APS_CHIPYARD}/sims/verilator"
 APS_VLSI = "${APS_CHIPYARD}/nextvlsi"
 
 [tasks]
-
-setup-ortools = { cmd = "pixi run chmod +x scripts/setup-ortools.sh && pixi run scripts/setup-ortools.sh", inputs = ["scripts/setup-ortools.sh"], outputs = ["__setup-ortools.success"] }
-setup-firtool = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/install && cd $PIXI_PROJECT_ROOT/install && wget -O firtool.tar.gz $LEGACY_FIRTOOL_PATH && tar xvzf firtool.tar.gz && rm firtool.tar.gz", outputs = ["__setup-firtool.success" ]}
-setup-yosys-slang = { cmd = "cd $PIXI_PROJECT_ROOT/scripts && bash setup-yosys-slang.sh", outputs = ["__setup-yosys-slang.success"] }
-setup = { cmd = "pixi run chmod +x scripts/setup.sh && pixi run scripts/setup.sh $CIRCT_COMMIT", inputs = ["scripts/setup.sh","__setup-ortools.success"], outputs = ["__setup.success"] }
-
-mkdir_build = { cmd = "mkdir -p build", outputs = ["build"] }
-build = { cmd = "pixi run cmake .. -G Ninja -DCMAKE_CXX_FLAGS=\"-fuse-ld=lld\" -DCMAKE_BUILD_TYPE=Debug  && ninja", depends-on = ["mkdir_build"], cwd = "build"}
+# Build CIRCT and APS toolchain
+setup = { cmd = "test -f __setup.success || (chmod +x scripts/setup.sh && scripts/setup.sh \"$CIRCT_COMMIT\")" }
+build = { cmd = "mkdir -p build && cd build && cmake .. -G Ninja -DCMAKE_CXX_FLAGS=\"-fuse-ld=lld\" -DCMAKE_BUILD_TYPE=Debug && ninja", depends-on = ["setup"]}
 clean = { cmd = "rm -rf build"}
 
-fix-verilator = { cmd = "sed -i -e 's|^AR *= *.*|AR = /usr/bin/ar|' -e 's|^CXX *= *.*|CXX = /usr/bin/g++|' -e 's|^LINK *= *.*|LINK = /usr/bin/g++|' $CONDA_PREFIX/share/verilator/include/verilated.mk" }
-
-# don't run this in docker
-setup-chipyard = { cmd = "cd $PIXI_PROJECT_ROOT && git submodule update --init && cd $PIXI_PROJECT_ROOT/thirdparty/chipyard && bash ./scripts/init-submodules-no-riscv-tools-nolog.sh && bash ./scripts/build-toolchain-extra-32.sh -p $RISCV", outputs = ["__setup-chipyard.success"] }
-
-# We assume the user has done running "init-submodules" provided by chipyard
-setup-riscv-extra = { cmd = "cd $PIXI_PROJECT_ROOT/thirdparty/chipyard && bash ./scripts/build-toolchain-extra-32.sh -p $RISCV", outputs = ["__setup-chipyard.success"] }
+# Prepare Chipyard environment
+setup-yosys-slang = { cmd = "test -f __setup-yosys-slang.success || (bash scripts/setup-yosys-slang.sh && touch __setup-yosys-slang.success)" }
+setup-verilator = { cmd = "test -f _setup-verilator.success || (sed -i -e 's|^AR *= *.*|AR = /usr/bin/ar|' -e 's|^CXX *= *.*|CXX = /usr/bin/g++|' -e 's|^LINK *= *.*|LINK = /usr/bin/g++|' \"$CONDA_PREFIX/share/verilator/include/verilated.mk\" && touch __setup-verilator.success\")" }
+setup-firtool = { cmd = "test -f  __setup-firtool.success || (mkdir -p thirdparty && cd thirdparty && wget -O firtool.tar.gz \"$LEGACY_FIRTOOL_PATH\" && tar xvzf firtool.tar.gz && rm firtool.tar.gz && touch __setup-firtool.success)"}
+setup-chipyard = { cmd = "git submodule update --init && cd thirdparty/chipyard && bash ./scripts/init-submodules-no-riscv-tools-nolog.sh && bash ./scripts/build-toolchain-extra-32.sh -p \"$RISCV\"", depends-on = ["setup-yosys-slang", "setup-verilator", "setup-firtool"]}
+check-chipyard = { cmd = "test -f thirdparty/chipyard/toolchains/riscv-tools/riscv-pk/README.md"}
+# or, install extra RISC-V tools after after submodule init with
+setup-chipyard-riscv-extra = { cmd = "cd thirdparty/chipyard && bash ./scripts/build-toolchain-extra-32.sh -p \"$RISCV\"", depends-on = ["check-chipyard", "setup-yosys-slang", "setup-verilator", "setup-firtool"]}
 
 # Python execution with CIRCT bindings
 python = { cmd = "python" }
@@ -119,13 +114,13 @@ lp_solve = ">=5.5.2.11,<6"
 nlohmann_json = ">=3.12.0,<4"
 pip = "*"
 egglog = ">=11.2.0"
-# streamlit = ">=1.28.0"
 black = "<=25.1.0"
 pytokens = "*"
-riscv-tools = "1.0.6.*"
+riscv-tools = { version = "1.0.6.*", channel = "weijiepeng" }
 iverilog = ">=11.0,<12"
-yosys = ">=0.50,<0.51"
+yosys = ">=0.65"
 jq = ">=1.8.1,<2"
+ortools-cpp = ">=9.1,<10"
 
 [pypi-dependencies]
 lark = ">=1.1.0"
@@ -136,3 +131,4 @@ isort = ">=6.0.1, <7"
 mypy = ">=1.18.2, <2"
 ruff = ">=0.8.0,<1"
 scour = ">=0.38.2"
+streamlit = ">=1.58.0, <2"

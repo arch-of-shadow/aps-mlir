@@ -50,26 +50,14 @@ Generates the complete hardware architecture for RISC-V integration:
 
 ### Installation
 
-1. Clone the repository:
 ```bash
+# 1. Clone the repository
 git clone https://github.com/arch-of-shadow/aps-mlir.git
 cd aps-mlir
-```
-
-2. Setup chipyard
-```bash
-pixi run fix-verilator
-pixi run setup-ortools
-pixi run setup-yosys-slang
-pixi run setup-firtool
-pixi run setup-chipyard
-```
-
-3. Build CIRCT and APS passes:
-```bash
-rm -rf circt/build
-pixi run setup
+# 2. Build APS toolchain
 pixi run build
+# 3. Setup Chipyard
+pixi run setup-chipyard
 ```
 
 ### Quick Start

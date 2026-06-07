@@ -5,15 +5,15 @@ if [ -z "$APS" ]; then
   exit 1
 fi
 
-mkdir -p $APS/install
+mkdir -p $APS/thirdparty
 
-pushd $APS/install
+pushd $APS/thirdparty
 
 git clone https://github.com/povik/yosys-slang.git --recursive
 
 pushd yosys-slang
 
-mkdir build
+mkdir -p build
 
 pushd build
 
