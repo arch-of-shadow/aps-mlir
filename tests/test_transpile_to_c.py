@@ -33,7 +33,7 @@ static buf_out: [u32; 4];
 
 rtype burst_demo(rs1: u5, rs2: u5, rd: u5) {
   let addr: u32 = _irf[rs1];
-  buf_in[0 +: ] = _burst_read[addr +: 4];
+  buf_in[0 +: ] = _mem[addr +: 4];
 
   let v0: u32 = buf_in[0];
   buf_out[0] = v0 + 1;
@@ -115,7 +115,7 @@ static buf: [u32; 4];
 static acc: u32;
 
 rtype scalar_demo(rs1: u5) {
-  buf[0 +: ] = _burst_read[_irf[rs1] +: 4];
+  buf[0 +: ] = _mem[_irf[rs1] +: 4];
   with i: u32 = (0, i_) do {
     acc = 0;
     acc = acc + buf[i];

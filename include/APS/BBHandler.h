@@ -297,19 +297,19 @@ public:
 private:
   /// Handle SPM load request (first phase of split memory load)
   LogicalResult
-  generateSpmLoadReq(aps::SpmLoadReq op, mlir::OpBuilder &b, Location loc,
+  generateSpmLoadReq(aps::ReadSmemIssue op, mlir::OpBuilder &b, Location loc,
                      int64_t slot,
                      llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Handle SPM load collect (second phase of split memory load)
   LogicalResult
-  generateSpmLoadCollect(aps::SpmLoadCollect op, mlir::OpBuilder &b, Location loc,
+  generateSpmLoadCollect(aps::ReadSmemWait op, mlir::OpBuilder &b, Location loc,
                          int64_t slot,
                          llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Handle regular memory store
   LogicalResult
-  generateMemStore(aps::MemStore op, mlir::OpBuilder &b, Location loc,
+  generateMemStore(aps::WriteSmem op, mlir::OpBuilder &b, Location loc,
                    int64_t slot,
                    llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
@@ -325,29 +325,17 @@ private:
                    int64_t slot,
                    llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
-  /// Handle burst load request
+  /// Handle bulk copy issue
   LogicalResult
-  generateBurstLoadReq(aps::ItfcBurstLoadReq op, mlir::OpBuilder &b,
-                       Location loc, int64_t slot,
-                       llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+  generateCopyIssue(aps::CopyIssue op, mlir::OpBuilder &b, Location loc,
+                    int64_t slot,
+                    llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
-  /// Handle burst load collect
+  /// Handle bulk copy wait
   LogicalResult
-  generateBurstLoadCollect(aps::ItfcBurstLoadCollect op, mlir::OpBuilder &b,
-                           Location loc, int64_t slot,
-                           llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
-
-  /// Handle burst store request
-  LogicalResult
-  generateBurstStoreReq(aps::ItfcBurstStoreReq op, mlir::OpBuilder &b,
-                        Location loc, int64_t slot,
-                        llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
-
-  /// Handle burst store collect
-  LogicalResult
-  generateBurstStoreCollect(aps::ItfcBurstStoreCollect op, mlir::OpBuilder &b,
-                            Location loc, int64_t slot,
-                            llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+  generateCopyWait(aps::CopyWait op, mlir::OpBuilder &b, Location loc,
+                   int64_t slot,
+                   llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 };
 
 //===----------------------------------------------------------------------===//
@@ -368,25 +356,25 @@ public:
 private:
   /// Handle regular interface load request
   LogicalResult
-  generateItfcLoadReq(aps::ItfcLoadReq op, mlir::OpBuilder &b, Location loc,
+  generateItfcLoadReq(aps::LoadIssue op, mlir::OpBuilder &b, Location loc,
                       int64_t slot,
                       llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Handle regular interface load collect
   LogicalResult
-  generateItfcLoadCollect(aps::ItfcLoadCollect op, mlir::OpBuilder &b,
+  generateItfcLoadCollect(aps::LoadWait op, mlir::OpBuilder &b,
                           Location loc, int64_t slot,
                           llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Handle regular interface store request
   LogicalResult
-  generateItfcStoreReq(aps::ItfcStoreReq op, mlir::OpBuilder &b, Location loc,
+  generateItfcStoreReq(aps::StoreIssue op, mlir::OpBuilder &b, Location loc,
                        int64_t slot,
                        llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Handle regular interface store collect
   LogicalResult
-  generateItfcStoreCollect(aps::ItfcStoreCollect op, mlir::OpBuilder &b,
+  generateItfcStoreCollect(aps::StoreWait op, mlir::OpBuilder &b,
                            Location loc, int64_t slot,
                            llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 };
@@ -395,7 +383,7 @@ private:
 // Register Operation Generator
 //===----------------------------------------------------------------------===//
 
-/// Handles register file operations (readrf, writerf)
+/// Handles register file operations (read_irf, write_irf)
 class RegisterOpGenerator : public OperationGenerator {
 public:
   RegisterOpGenerator(BBHandler *bbHandler) : OperationGenerator(bbHandler) {}
@@ -418,13 +406,13 @@ private:
 
   /// Handle register file read
   LogicalResult
-  generateCpuRfRead(aps::CpuRfRead op, mlir::OpBuilder &b, Location loc,
+  generateCpuRfRead(aps::ReadIRF op, mlir::OpBuilder &b, Location loc,
                     int64_t slot,
                     llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
   /// Handle register file write
   LogicalResult
-  generateCpuRfWrite(aps::CpuRfWrite op, mlir::OpBuilder &b, Location loc,
+  generateCpuRfWrite(aps::WriteIRF op, mlir::OpBuilder &b, Location loc,
                      int64_t slot,
                      llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 

@@ -98,8 +98,8 @@ The frontend emits a `module` containing:
 
 - `func.func` operations for CADL instructions.
 - `opcode` and `funct7` attributes on instruction functions.
-- APS register file operations: `aps.readrf`, `aps.writerf`.
-- APS scratchpad/burst memory operations: `aps.memload`, `aps.memstore`, `aps.memburstload`, `aps.memburststore`.
+- APS register file operations: `aps.read_irf`, `aps.write_irf`.
+- APS scratchpad/bulk memory operations: `aps.read_smem`, `aps.write_smem`, `aps.copy`.
 - `memref.global` declarations for static memories, often with partition metadata.
 
 Relevant files:
@@ -218,12 +218,12 @@ Typical frontend output:
 ```mlir
 func.func @flow_v3ddist_vv(%arg0: i5, %arg1: i5, %arg2: i5)
     attributes {funct7 = 40 : i32, opcode = 11 : i32} {
-  %0 = aps.readrf %arg0 : i5 -> i32
+  %0 = aps.read_irf %arg0 : i5 -> i32
   %mem = memref.get_global @points1_x : memref<16xi32>
-  aps.memburstload %0, (%mem) [%c0_i32], %c16_i32
+  aps.copy %0, (%mem)[%c0_i32], %c16_i32
       : i32, (memref<16xi32>), i32, i32
   scf.for ...
-  aps.writerf %arg2, %c0_i32 : i5, i32
+  aps.write_irf %arg2, %c0_i32 : i5, i32
   return
 }
 ```

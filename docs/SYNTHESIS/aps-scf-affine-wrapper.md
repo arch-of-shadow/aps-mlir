@@ -210,8 +210,8 @@ symbol operand。
 在复制 loop body 时：
 
 1. 普通 op 使用 `rewriter.clone(op, mapping)`。
-2. `aps.memload` 转成 `memref.load`。
-3. `aps.memstore` 转成 `memref.store`。
+2. `aps.read_smem` 转成 `memref.load`。
+3. `aps.write_smem` 转成 `memref.store`。
 4. memory indices 转成 index。
 
 为什么要改：
@@ -222,7 +222,7 @@ memref 的转换，才能让真实带 memory 的 loop raise 到 affine load/stor
 
 如果不这样改：
 
-真实 case 里有 memory 的 loop 会停在 `aps.memload/store`，后续不能生成
+真实 case 里有 memory 的 loop 会停在 `aps.read_smem/write_smem`，后续不能生成
 `affine.load/store`，array partition 也无法看到 affine memory access。
 
 #### `APSRaiseForPattern`
@@ -655,7 +655,7 @@ affine load/store。它能覆盖 wrapper 与 memory/partition 的组合路径。
 验证：
 
 1. `memref.load/store` loop 能 raise 成 `affine.load/store`。
-2. `aps.memload/store` loop 能通过 wrapper 局部转成 memref，再进入 affine memory
+2. `aps.read_smem/write_smem` loop 能通过 wrapper 局部转成 memref，再进入 affine memory
    path。
 
 如果没有这个测试：

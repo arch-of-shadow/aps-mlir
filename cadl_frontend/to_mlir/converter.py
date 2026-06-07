@@ -14,7 +14,7 @@ import circt.ir as ir
 
 from .loop import LoopTransformer
 from .expr import ExprEmitter
-from .memory import GlobalEmitter, MemoryEmitter, flow_uses_memory
+from .memory import GlobalEmitter, MemoryEmitter
 from .state import ConversionState, SymbolScope
 from .stmt import StatementEmitter
 from .types import cast_cadl_type_to_mlir
@@ -149,13 +149,6 @@ class CADLMLIRConverter:
             with ir.InsertionPoint(self.module.body):
                 self.builder = ir.InsertionPoint.current
 
-                any_uses_memory = any(
-                    flow_uses_memory(flow) for flow in proc.flows.values()
-                )
-
-                if any_uses_memory:
-                    self.global_emitter.declare_cpu_memory(self.set_symbol)
-
                 for static in proc.statics.values():
                     self.global_emitter.convert_static(static, self.set_symbol)
 
@@ -239,3 +232,9 @@ def convert_cadl_to_mlir(proc: cadl_ast.Proc, run_cse: bool = True) -> ir.Module
             pm.run(module.operation)
 
     return module
+
+def validate_mlir(mlir_text: str) -> bool:
+    with ir.Context() as ctx:
+        circt.register_dialects(ctx)
+        ir.Module.parse(mlir_text)
+    return True

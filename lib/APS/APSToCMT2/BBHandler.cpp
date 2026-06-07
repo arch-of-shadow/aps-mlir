@@ -235,8 +235,8 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
   }
 
   auto isRequestTokenProducer = [](Operation *op) {
-    return isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq,
-               aps::ItfcStoreReq, aps::SpmLoadReq>(op);
+    return isa<aps::CopyIssue, aps::LoadIssue,
+               aps::StoreIssue, aps::ReadSmemIssue>(op);
   };
 
   auto isOpInSlot = [&](Operation *candidate, int64_t slot) {
@@ -531,8 +531,8 @@ void BBHandler::processPipelineBasicBlock(BlockInfo &block) {
   }
 
   auto isRequestTokenProducer = [](Operation *op) {
-    return isa<aps::ItfcBurstLoadReq, aps::ItfcBurstStoreReq, aps::ItfcLoadReq,
-               aps::ItfcStoreReq, aps::SpmLoadReq>(op);
+    return isa<aps::CopyIssue, aps::LoadIssue,
+               aps::StoreIssue, aps::ReadSmemIssue>(op);
   };
 
   auto isOpInSlot = [&](Operation *candidate, int64_t slot) {

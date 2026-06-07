@@ -48,6 +48,46 @@ def _create_symbol_write_op(
     )
 
 
+def _create_gmem_load(result_type: ir.Type, cpu_addr: ir.Value) -> ir.Value:
+    op_class = getattr(aps, "Load", None)
+    if op_class is not None:
+        return op_class(result_type, cpu_addr).result
+
+    op = ir.Operation.create("aps.load", operands=[cpu_addr], results=[result_type])
+    return op.results[0]
+
+
+def _create_gmem_store(value: ir.Value, cpu_addr: ir.Value) -> None:
+    op_class = getattr(aps, "Store", None)
+    if op_class is not None:
+        op_class(value, cpu_addr)
+        return
+
+    ir.Operation.create("aps.store", operands=[value, cpu_addr])
+
+
+def _create_gmem_copy(
+    cpu_addr: ir.Value,
+    memrefs: list[ir.Value],
+    start: ir.Value,
+    length: ir.Value,
+    direction: str,
+):
+    if direction not in {"in", "out"}:
+        raise ValueError(f"Unsupported gmem copy direction: {direction}")
+
+    i32_type = ir.IntegerType.get_signless(32)
+    attrs = {
+        "direction": ir.IntegerAttr.get(i32_type, 0 if direction == "in" else 1)
+    }
+
+    return ir.Operation.create(
+        "aps.copy",
+        operands=[cpu_addr, *memrefs, start, length],
+        attributes=attrs,
+    )
+
+
 def function_uses_memory(function) -> bool:
     """Return true when a function-like AST node uses _mem."""
     if not function.body:
@@ -74,8 +114,8 @@ def stmt_uses_memory(stmt) -> bool:
     expression coverage should be added as a separate semantic change.
     """
     if isinstance(stmt, cadl_ast.AssignStmt):
-        if isinstance(stmt.lhs, cadl_ast.IndexExpr) and isinstance(stmt.lhs.expr, cadl_ast.IdentExpr):
-            if stmt.lhs.expr.name == "_mem":
+        if isinstance(stmt.lhs, (cadl_ast.IndexExpr, cadl_ast.RangeSliceExpr)):
+            if isinstance(stmt.lhs.expr, cadl_ast.IdentExpr) and stmt.lhs.expr.name == "_mem":
                 return True
         return expr_uses_memory(stmt.rhs)
     if isinstance(stmt, cadl_ast.ExprStmt):
@@ -89,7 +129,7 @@ def stmt_uses_memory(stmt) -> bool:
 
 def expr_uses_memory(expr) -> bool:
     """Return true when an expression uses _mem."""
-    if isinstance(expr, cadl_ast.IndexExpr) and isinstance(expr.expr, cadl_ast.IdentExpr):
+    if isinstance(expr, (cadl_ast.IndexExpr, cadl_ast.RangeSliceExpr)) and isinstance(expr.expr, cadl_ast.IdentExpr):
         return expr.expr.name == "_mem"
     if isinstance(expr, cadl_ast.BinaryExpr):
         return expr_uses_memory(expr.left) or expr_uses_memory(expr.right)
@@ -306,9 +346,9 @@ class MemoryEmitter:
         Convert IndexExpr to appropriate MLIR operation based on the base expression.
 
         Handles:
-        - _irf[rs] -> aps.CpuRfRead
-        - _mem[addr] -> aps.memload
-        - regular array[idx] -> aps.memload
+        - _irf[rs] -> aps.ReadIRF
+        - _mem[addr] -> aps.load
+        - regular array[idx] -> aps.read_smem
         """
         c = self.converter
         if isinstance(expr.expr, cadl_ast.IdentExpr):
@@ -320,7 +360,7 @@ class MemoryEmitter:
 
                 reg_index = c._convert_expr(expr.indices[0])
                 result_type = ir.IntegerType.get_signless(32)
-                return aps.CpuRfRead(result_type, reg_index).result
+                return aps.ReadIRF(result_type, reg_index).result
 
             if base_name == "_csr":
                 if len(expr.indices) != 1:
@@ -333,14 +373,15 @@ class MemoryEmitter:
                         f"Cannot infer CSR register element type for {csr_name}"
                     )
                 return _create_symbol_read_op(
-                    "ReadCSR", "aps.readcsr", element_type, symbol_ref
+                    "ReadCSR", "aps.read_csr", element_type, symbol_ref
                 )
 
             if base_name == "_mem":
                 if len(expr.indices) != 1:
                     raise ValueError("_mem access requires exactly one index")
-                memref = self.get_cpu_memory()
-                indices = [c._convert_expr(expr.indices[0])]
+                addr = c._convert_expr(expr.indices[0])
+                result_type = ir.IntegerType.get_signless(32)
+                return _create_gmem_load(result_type, addr)
             else:
                 symbol_value = c.get_symbol(base_name)
                 if isinstance(symbol_value, str):
@@ -356,7 +397,7 @@ class MemoryEmitter:
         if element_type is None:
             element_type = ir.IntegerType.get_signless(32)
 
-        return aps.MemLoad(element_type, memref, indices).result
+        return aps.ReadSmem(element_type, memref, indices).result
 
     def get_memref_element_type(self, memref_value: ir.Value) -> Optional[ir.Type]:
         """Get the element type of a memref value."""
@@ -378,9 +419,9 @@ class MemoryEmitter:
         Convert indexed assignment to appropriate MLIR operation.
 
         Handles:
-        - _irf[rd] = value -> aps.CpuRfWrite
-        - _mem[addr] = value -> aps.memstore
-        - regular array[idx] = value -> aps.memstore
+        - _irf[rd] = value -> aps.WriteIRF
+        - _mem[addr] = value -> aps.store
+        - regular array[idx] = value -> aps.write_smem
         """
         c = self.converter
         if isinstance(lhs.expr, cadl_ast.IdentExpr):
@@ -391,7 +432,7 @@ class MemoryEmitter:
                     raise ValueError("_irf assignment requires exactly one index")
 
                 reg_index = c._convert_expr(lhs.indices[0])
-                aps.CpuRfWrite(reg_index, rhs_value)
+                aps.WriteIRF(reg_index, rhs_value)
                 return
 
             if base_name == "_csr":
@@ -403,7 +444,7 @@ class MemoryEmitter:
                     rhs_value = c.expr_emitter.cast_type(rhs_value, target_type)
                 symbol_ref = ir.FlatSymbolRefAttr.get(csr_name)
                 _create_symbol_write_op(
-                    "WriteCSR", "aps.writecsr", rhs_value, symbol_ref
+                    "WriteCSR", "aps.write_csr", rhs_value, symbol_ref
                 )
                 return
 
@@ -412,12 +453,10 @@ class MemoryEmitter:
                     raise ValueError("_mem assignment requires exactly one index")
 
                 addr = c._convert_expr(lhs.indices[0])
-                cpu_mem = self.get_cpu_memory()
-                target_type = self.get_memref_element_type(cpu_mem)
-                if target_type is not None:
-                    rhs_value = c.expr_emitter.cast_type(rhs_value, target_type)
-
-                aps.MemStore(rhs_value, cpu_mem, [addr])
+                rhs_value = c.expr_emitter.cast_type(
+                    rhs_value, ir.IntegerType.get_signless(32)
+                )
+                _create_gmem_store(rhs_value, addr)
                 return
 
             base_value = self.get_memref_for_symbol(base_name)
@@ -430,20 +469,20 @@ class MemoryEmitter:
         if target_type is not None:
             rhs_value = c.expr_emitter.cast_type(rhs_value, target_type)
 
-        aps.MemStore(rhs_value, base_value, indices)
+        aps.WriteSmem(rhs_value, base_value, indices)
 
     def is_burst_operation(self, stmt: cadl_ast.AssignStmt) -> bool:
         """Detect burst read/write assignments."""
         if isinstance(stmt.rhs, cadl_ast.RangeSliceExpr) and isinstance(
             stmt.rhs.expr, cadl_ast.IdentExpr
         ):
-            if stmt.rhs.expr.name == "_burst_read":
+            if stmt.rhs.expr.name == "_mem":
                 return True
 
         if isinstance(stmt.lhs, cadl_ast.RangeSliceExpr) and isinstance(
             stmt.lhs.expr, cadl_ast.IdentExpr
         ):
-            if stmt.lhs.expr.name == "_burst_write":
+            if stmt.lhs.expr.name == "_mem":
                 return True
 
         return False
@@ -453,14 +492,14 @@ class MemoryEmitter:
         if isinstance(stmt.rhs, cadl_ast.RangeSliceExpr) and isinstance(
             stmt.rhs.expr, cadl_ast.IdentExpr
         ):
-            if stmt.rhs.expr.name == "_burst_read":
+            if stmt.rhs.expr.name == "_mem":
                 self.convert_burst_load(stmt)
                 return
 
         if isinstance(stmt.lhs, cadl_ast.RangeSliceExpr) and isinstance(
             stmt.lhs.expr, cadl_ast.IdentExpr
         ):
-            if stmt.lhs.expr.name == "_burst_write":
+            if stmt.lhs.expr.name == "_mem":
                 self.convert_burst_store(stmt)
                 return
 
@@ -477,7 +516,7 @@ class MemoryEmitter:
         return expr.literal.lit.value
 
     def convert_burst_load(self, stmt: cadl_ast.AssignStmt) -> None:
-        """Convert buffer[offset +: ] = _burst_read[cpu_addr +: length]."""
+        """Convert buffer[offset +: ] = _mem[cpu_addr +: length]."""
         c = self.converter
         lhs = stmt.lhs
         rhs = stmt.rhs
@@ -505,16 +544,18 @@ class MemoryEmitter:
             if lhs_length_val != rhs_length_val:
                 raise ValueError(
                     f"Burst length mismatch: buffer[+:{lhs_length_val}] = "
-                    f"_burst_read[+:{rhs_length_val}]"
+                    f"_mem[+:{rhs_length_val}]"
                 )
 
         i32_type = ir.IntegerType.get_signless(32)
         length = arith.ConstantOp(i32_type, rhs_length_val).result
-        burst_op = aps.MemBurstLoad(cpu_addr, [buffer_memref], start_offset, length)
+        burst_op = _create_gmem_copy(
+            cpu_addr, [buffer_memref], start_offset, length, "in"
+        )
         self.apply_pending_directives(burst_op)
 
     def convert_burst_store(self, stmt: cadl_ast.AssignStmt) -> None:
-        """Convert _burst_write[cpu_addr +: length] = buffer[offset +: ]."""
+        """Convert _mem[cpu_addr +: length] = buffer[offset +: ]."""
         c = self.converter
         lhs = stmt.lhs
         rhs = stmt.rhs
@@ -541,13 +582,15 @@ class MemoryEmitter:
             rhs_length_val = self.extract_literal_value(rhs.length)
             if lhs_length_val != rhs_length_val:
                 raise ValueError(
-                    f"Burst length mismatch: _burst_write[+:{lhs_length_val}] = "
+                    f"Burst length mismatch: _mem[+:{lhs_length_val}] = "
                     f"buffer[+:{rhs_length_val}]"
                 )
 
         i32_type = ir.IntegerType.get_signless(32)
         length = arith.ConstantOp(i32_type, lhs_length_val).result
-        burst_op = aps.MemBurstStore([buffer_memref], start_offset, cpu_addr, length)
+        burst_op = _create_gmem_copy(
+            cpu_addr, [buffer_memref], start_offset, length, "out"
+        )
         self.apply_pending_directives(burst_op)
 
     def get_memref_for_symbol(self, symbol_name: str) -> ir.Value:

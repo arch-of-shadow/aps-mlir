@@ -21,7 +21,7 @@ namespace {
 using namespace mlir;
 using namespace mlir::memref;
 
-// Pattern to convert memref.load to aps.memload
+// Pattern to convert memref.load to aps.read_smem
 struct MemRefLoadToAPSMemLoadPattern : public OpRewritePattern<LoadOp> {
   using OpRewritePattern<LoadOp>::OpRewritePattern;
 
@@ -40,19 +40,19 @@ struct MemRefLoadToAPSMemLoadPattern : public OpRewritePattern<LoadOp> {
     // Get the result type from the original load
     Type resultType = loadOp.getResult().getType();
 
-    // Create aps.memload with i32-typed indices
-    auto apsLoadOp = rewriter.create<aps::MemLoad>(
+    // Create aps.read_smem with i32-typed indices
+    auto apsLoadOp = rewriter.create<aps::ReadSmem>(
         loc, resultType, loadOp.getMemRef(), i32CastedIndices);
 
     // Replace the memref.load
     rewriter.replaceOp(loadOp, apsLoadOp.getResult());
 
-    LLVM_DEBUG(llvm::dbgs() << "Converted memref.load to aps.memload\n");
+    LLVM_DEBUG(llvm::dbgs() << "Converted memref.load to aps.read_smem\n");
     return success();
   }
 };
 
-// Pattern to convert memref.store to aps.memstore
+// Pattern to convert memref.store to aps.write_smem
 struct MemRefStoreToAPSMemStorePattern : public OpRewritePattern<StoreOp> {
   using OpRewritePattern<StoreOp>::OpRewritePattern;
 
@@ -68,14 +68,14 @@ struct MemRefStoreToAPSMemStorePattern : public OpRewritePattern<StoreOp> {
     SmallVector<Value> i32CastedIndices =
         aps::castMemoryIndicesToI32(rewriter, loc, indices);
 
-    // Create aps.memstore with i32-typed indices
-    rewriter.create<aps::MemStore>(loc, storeOp.getValue(),
+    // Create aps.write_smem with i32-typed indices
+    rewriter.create<aps::WriteSmem>(loc, storeOp.getValue(),
                                    storeOp.getMemRef(), i32CastedIndices);
 
     // Erase the memref.store
     rewriter.eraseOp(storeOp);
 
-    LLVM_DEBUG(llvm::dbgs() << "Converted memref.store to aps.memstore\n");
+    LLVM_DEBUG(llvm::dbgs() << "Converted memref.store to aps.write_smem\n");
     return success();
   }
 };

@@ -10,6 +10,7 @@ add_mlir_library(APS
   APSMemoryMap.cpp
   RaiseMemRefToAffine.cpp
   DuplicateMemLoads.cpp
+  APSFunctionalToArch.cpp
   LowerAPSMemToReqCollect.cpp
   PlaceReadRFAtEntry.cpp
   PromoteSingletonMemRefToGlobal.cpp
@@ -32,6 +33,7 @@ add_mlir_library(APS
   ${PROJECT_SOURCE_DIR}/include/APS
 
   DEPENDS
+  MLIRAPSEnumsIncGen
   MLIRAPSIncGen
   MLIRAPSPassIncGen
   MLIRTORIncGen

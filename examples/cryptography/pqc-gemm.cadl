@@ -34,9 +34,6 @@ static matrix_b: [i16; 16];
 #[partition_cyclic_array([1])]
 static matrix_c: [i16; 16];
 
-// Accumulator for dot product computation
-static acc: i16;
-
 // ============================================================================
 // GEMM Kernel - Matrix-Matrix Multiplication
 // ============================================================================
@@ -57,10 +54,10 @@ rtype gemm_4x4(rs1: u5, rs2: u5, rd: u5) {
     // ========================================================================
 
     // Burst read matrix A (16 i16 elements = 32 bytes)
-    matrix_a[0 +: ] = _burst_read[addr_a +: 16];
+    matrix_a[0 +: ] = _mem[addr_a +: 16];
 
     // Burst read matrix B (16 i16 elements = 32 bytes)
-    matrix_b[0 +: ] = _burst_read[addr_b +: 16];
+    matrix_b[0 +: ] = _mem[addr_b +: 16];
 
     // ========================================================================
     // Stage 2: Matrix Multiplication - Triple Nested Loop
@@ -73,12 +70,9 @@ rtype gemm_4x4(rs1: u5, rs2: u5, rd: u5) {
         // Middle loop: iterate over columns of B (and C)
         [[unroll(4)]]
         with j: u32 = (0, j_) do {
-            // Reset accumulator for each output element
-            acc = 0;
-
             // Inner loop: dot product over dimension N
             [[unroll(4)]]
-            with k: u32 = (0, k_) do {
+            with k: u32 = (0, k_) acc: i16 = (0, acc_) do {
                 // Access A[i,k]: row-major layout → index = i*N + k
                 let a_idx: u32 = i * 4 + k;
                 let a_val: i16 = matrix_a[a_idx];
@@ -88,7 +82,7 @@ rtype gemm_4x4(rs1: u5, rs2: u5, rd: u5) {
                 let b_val: i16 = matrix_b[b_idx];
 
                 // Multiply-accumulate: acc += A[i,k] × B[k,j]
-                acc = acc ^ (a_val & b_val);
+                let acc_: i16 = acc ^ (a_val & b_val);
 
                 let k_: u32 = k + 1;
             } while (k_ < 4);
@@ -109,7 +103,7 @@ rtype gemm_4x4(rs1: u5, rs2: u5, rd: u5) {
 
     // Burst write matrix C (16 i16 elements = 32 bytes)
     let write_addr: u32 = addr_b + 32;
-    _burst_write[write_addr +: 16] = matrix_c[0 +: ];
+    _mem[write_addr +: 16] = matrix_c[0 +: ];
 
     // Return success status
     _irf[rd] = 0;

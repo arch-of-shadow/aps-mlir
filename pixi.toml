@@ -48,7 +48,7 @@ tutorial-compiler-demo = { cmd = "streamlit run tutorial/compiler/hands_on.py --
 
 [tasks.mlir]
 args = ["cadl", "apsir"]
-cmd =  "aps-frontend mlir {{ cadl }} > {{ apsir }}"
+cmd =  "$PIXI_PROJECT_ROOT/tools/aps-frontend mlir {{ cadl }} > {{ apsir }}"
 
 [tasks.opt]
 args = ["apsir", "apsir_opt"]

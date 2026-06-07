@@ -58,12 +58,12 @@ rtype phong_fixed(rs1: u5, rs2: u5, rd: u5) {
     let plane_bytes: u32 = 32;
     let light_pair_bytes: u32 = 4;
 
-    normal_x[0 +: ] = _burst_read[in_addr +: 16];
-    normal_y[0 +: ] = _burst_read[in_addr + plane_bytes +: 16];
-    normal_z[0 +: ] = _burst_read[in_addr + plane_bytes + plane_bytes +: 16];
-    view_x[0 +: ] = _burst_read[in_addr + plane_bytes * 3 +: 16];
-    view_y[0 +: ] = _burst_read[in_addr + plane_bytes * 4 +: 16];
-    view_z[0 +: ] = _burst_read[in_addr + plane_bytes * 5 +: 16];
+    normal_x[0 +: ] = _mem[in_addr +: 16];
+    normal_y[0 +: ] = _mem[in_addr + plane_bytes +: 16];
+    normal_z[0 +: ] = _mem[in_addr + plane_bytes + plane_bytes +: 16];
+    view_x[0 +: ] = _mem[in_addr + plane_bytes * 3 +: 16];
+    view_y[0 +: ] = _mem[in_addr + plane_bytes * 4 +: 16];
+    view_z[0 +: ] = _mem[in_addr + plane_bytes * 5 +: 16];
 
     let light_xy: i32 = _mem[in_addr + plane_bytes * 6];
     let light_zi: i32 = _mem[in_addr + plane_bytes * 6 + light_pair_bytes];
@@ -106,7 +106,7 @@ rtype phong_fixed(rs1: u5, rs2: u5, rd: u5) {
         let idx_: u32 = idx + 1;
     } while (idx_ < 16);
 
-    _burst_write[out_addr +: 16] = diffuse[0 +: ];
-    _burst_write[out_addr + plane_bytes +: 16] = specular[0 +: ];
+    _mem[out_addr +: 16] = diffuse[0 +: ];
+    _mem[out_addr + plane_bytes +: 16] = specular[0 +: ];
     _irf[rd] = 0;
 }

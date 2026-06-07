@@ -1,5 +1,4 @@
-// DECA Decompression - Nested Loop Auto Unroll Version
-// Uses nested loops with [[unroll]] directives
+// decompression: sparse u1 stream to scaled i16 weights.
 
 static values: [i64; 8];
 
@@ -22,7 +21,7 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
     let out_addr: u32 = _irf[rs2];
     vidx = 0;
 
-    values[0 +: ] = _burst_read[base_addr +: 8];
+    values[0 +: ] = _mem[base_addr +: 8];
     let bitmask: u32 = _mem[base_addr + 64];
     let global_scale: i16 = _mem[base_addr + 68];
 
@@ -84,6 +83,6 @@ rtype deca_decompress_u1(rs1: u5, rs2: u5, rd: u5) {
         let idx_: u32 = idx + 1;
     } while (idx_ < 32);
 
-    _burst_write[out_addr +: 64] = decompressed_weights[0 +: ];
+    _mem[out_addr +: 64] = decompressed_weights[0 +: ];
     _irf[rd] = 0;
 }

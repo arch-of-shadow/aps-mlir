@@ -548,7 +548,7 @@ bool isMultiCycleOp(mlir::Operation* op) {
                 tor::CmpFOp, arith::DivSIOp, tor::MacIOp, tor::MacFOp,
                 arith::RemSIOp, arith::DivUIOp, arith::RemUIOp,
                 arith::UIToFPOp, arith::FPToUIOp,
-                aps::CpuRfRead, aps::CpuRfWrite>(op)) {
+                aps::ReadIRF, aps::WriteIRF>(op)) {
       return true;
   }
   return false;

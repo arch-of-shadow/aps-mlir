@@ -34,7 +34,7 @@ def APSRaiseSCFToAffine : Pass<"aps-raise-scf-to-affine"> {
 def APSMemToMemRef : Pass<"aps-mem-to-memref", "::mlir::func::FuncOp"> {
   let summary = "Convert APS memload/memstore to memref.load/memref.store";
   let description = [{
-    This pass converts aps.memload and aps.memstore operations to their
+    This pass converts aps.read_smem and aps.write_smem operations to their
     standard memref counterparts (memref.load and memref.store).
     Integer-typed indices are automatically cast to index type as required
     by memref operations.
@@ -67,11 +67,11 @@ def MemRefToAPS : Pass<"memref-to-aps", "::mlir::func::FuncOp"> {
 def AutoBurstPartition : Pass<"auto-burst-partition", "::mlir::ModuleOp"> {
   let summary = "Add default cyclic partitioning for globals used by APS burst transfers";
   let description = [{
-    This pass inspects aps.memburstload and aps.memburststore operations and
-    finds the global memrefs they transfer to or from. If a referenced global
-    has no user-provided partition attributes, the pass adds a cyclic
-    partition on dimension 0 with factor 64 / element_bitwidth. This gives the
-    later array partition pass enough banks to fill a 64-bit burst beat.
+    This pass inspects aps.copy operations and finds the global memrefs they
+    transfer to or from. If a referenced global has no user-provided partition
+    attributes, the pass adds a cyclic partition on dimension 0 with factor
+    64 / element_bitwidth. This gives the later array partition pass enough
+    banks to fill a 64-bit burst beat.
 
     User-provided partition_dim_array, partition_factor_array, or
     partition_cyclic_array attributes are treated as explicit decisions and
@@ -123,7 +123,7 @@ def RaiseMemRefToAffine : Pass<"raise-memref-to-affine"> {
 def DuplicateMemLoads : Pass<"duplicate-memloads", "mlir::tor::FuncOp"> {
   let summary = "Duplicate memory loads to reduce FIFO usage";
   let description = [{
-    This pass duplicates aps.memload operations when they are used at different
+    This pass duplicates aps.read_smem operations when they are used at different
     cycles than when they are loaded. If there is no memory conflict at the
     user's cycle, the memload is duplicated at that cycle to eliminate the need
     for a FIFO buffer to hold the value across cycles.
@@ -133,6 +133,18 @@ def DuplicateMemLoads : Pass<"duplicate-memloads", "mlir::tor::FuncOp"> {
     will duplicate the memload at cycle 10, saving a FIFO.
   }];
   let constructor = "mlir::createDuplicateMemLoadsPass()";
+  let dependentDialects = ["mlir::tor::TORDialect", "aps::APSDialect"];
+}
+
+def APSFunctionalToArch : Pass<"aps-functional-to-arch", "mlir::ModuleOp"> {
+  let summary = "Bind APS functional memory operations to architectural interfaces";
+  let description = [{
+    This pass lowers functional-level APS global/CPU memory operations
+    (aps.load, aps.store, aps.copy) to architectural interface-bound forms
+    (aps.load_by, aps.store_by, aps.copy_by). It also materializes dummy
+    aps.memitfc symbols for the CPU scalar interface and bulk bus interface.
+  }];
+  let constructor = "mlir::createAPSFunctionalToArchPass()";
   let dependentDialects = ["mlir::tor::TORDialect", "aps::APSDialect"];
 }
 
@@ -202,20 +214,20 @@ def ArithMulDivToShift : Pass<"arith-muldiv-to-shift"> {
 }
 
 def PlaceReadRFAtEntry : Pass<"place-readrf-at-entry", "::mlir::func::FuncOp"> {
-  let summary = "Place all aps.readrf operations at the function entry block";
+  let summary = "Place all aps.read_irf operations at the function entry block";
   let description = [{
-    This pass moves all aps.readrf operations to the entry block of their
+    This pass moves all aps.read_irf operations to the entry block of their
     containing function. This ensures they can be scheduled at cycle 0,
-    since readrf operations only depend on function arguments which are
+    since read_irf operations only depend on function arguments which are
     available at function entry.
 
     This transformation is safe because:
-    - aps.readrf only reads from function arguments (register file indices)
+    - aps.read_irf only reads from function arguments (register file indices)
     - Function arguments are available throughout the function
     - There are no side effects or dependencies on control flow
 
     This pass should run before SCF to TOR conversion and scheduling to avoid
-    control-flow constraints preventing readrf from being scheduled early.
+    control-flow constraints preventing read_irf from being scheduled early.
 
     Example transformation:
       func.func @foo(%arg0: i5, %arg1: i5) {
@@ -223,12 +235,12 @@ def PlaceReadRFAtEntry : Pass<"place-readrf-at-entry", "::mlir::func::FuncOp"> {
         scf.for ... {
           // loop body
         }
-        %0 = aps.readrf %arg1 : i5 -> i32  // readrf after loop
+        %0 = aps.read_irf %arg1 : i5 -> i32  // read_irf after loop
         // use %0
       }
     becomes:
       func.func @foo(%arg0: i5, %arg1: i5) {
-        %0 = aps.readrf %arg1 : i5 -> i32  // readrf at entry
+        %0 = aps.read_irf %arg1 : i5 -> i32  // read_irf at entry
         // some operations
         scf.for ... {
           // loop body
@@ -241,9 +253,9 @@ def PlaceReadRFAtEntry : Pass<"place-readrf-at-entry", "::mlir::func::FuncOp"> {
 }
 
 def PromoteSingletonMemRefToGlobal : Pass<"promote-singleton-memref-to-global", "::mlir::func::FuncOp"> {
-  let summary = "Convert aps.memload/memstore on memref<1xT> to aps.globalload/globalstore";
+  let summary = "Convert aps.read_smem/memstore on memref<1xT> to aps.globalload/globalstore";
   let description = [{
-    This pass converts aps.memload and aps.memstore operations that access
+    This pass converts aps.read_smem and aps.write_smem operations that access
     single-element memrefs (memref<1xT>) to aps.globalload and aps.globalstore
     operations.
 
@@ -258,8 +270,8 @@ def PromoteSingletonMemRefToGlobal : Pass<"promote-singleton-memref-to-global", 
 
     Example transformation:
       %0 = memref.get_global @vec_0 : memref<1xi32>
-      aps.memstore %val, %0[%c0] : i32, memref<1xi32>, i32
-      %1 = aps.memload %0[%c0] : memref<1xi32>, i32 -> i32
+      aps.write_smem %val, %0[%c0] : i32, memref<1xi32>, i32
+      %1 = aps.read_smem %0[%c0] : memref<1xi32>, i32 -> i32
     becomes:
       aps.globalstore %val, @vec_0 : i32
       %1 = aps.globalload @vec_0 : i32

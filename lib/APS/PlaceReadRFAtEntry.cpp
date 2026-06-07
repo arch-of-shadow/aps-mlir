@@ -1,6 +1,6 @@
-//===- PlaceReadRFAtEntry.cpp - Place aps.readrf at function entry --------===//
+//===- PlaceReadRFAtEntry.cpp - Place aps.read_irf at function entry --------===//
 //
-// This pass moves all aps.readrf operations to the entry block of their
+// This pass moves all aps.read_irf operations to the entry block of their
 // containing function. This ensures they can be scheduled at cycle 0.
 //
 //===----------------------------------------------------------------------===//
@@ -37,7 +37,7 @@ private:
     llvm::DenseSet<Operation *> readRfUsers;
     for (BlockArgument arg : funcOp.getArguments()) {
       for (Operation *user : arg.getUsers()) {
-        if (llvm::isa<aps::CpuRfRead>(user))
+        if (llvm::isa<aps::ReadIRF>(user))
           readRfUsers.insert(user);
       }
     }
@@ -47,7 +47,7 @@ private:
 
     Operation *insertionPoint = entryBlock.getTerminator();
     for (auto &op : entryBlock) {
-      if (!llvm::isa<aps::CpuRfRead>(op)) {
+      if (!llvm::isa<aps::ReadIRF>(op)) {
         insertionPoint = &op;
         break;
       }

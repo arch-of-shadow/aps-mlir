@@ -32,11 +32,11 @@ static FlatSymbolRefAttr getPromotableGlobalSymbol(Value memref) {
   return FlatSymbolRefAttr::get(memref.getContext(), getGlobalOp.getName());
 }
 
-/// Pattern to convert aps.memload on memref<1xT> to aps.globalload
-struct ScalarMemLoadToGlobalLoadPattern : public OpRewritePattern<aps::MemLoad> {
-  using OpRewritePattern<aps::MemLoad>::OpRewritePattern;
+/// Pattern to convert aps.read_smem on memref<1xT> to aps.globalload
+struct ScalarMemLoadToGlobalLoadPattern : public OpRewritePattern<aps::ReadSmem> {
+  using OpRewritePattern<aps::ReadSmem>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(aps::MemLoad loadOp,
+  LogicalResult matchAndRewrite(aps::ReadSmem loadOp,
                                 PatternRewriter &rewriter) const override {
     auto symbolRef = getPromotableGlobalSymbol(loadOp.getMemref());
     if (!symbolRef)
@@ -49,11 +49,11 @@ struct ScalarMemLoadToGlobalLoadPattern : public OpRewritePattern<aps::MemLoad> 
   }
 };
 
-/// Pattern to convert aps.memstore on memref<1xT> to aps.globalstore
-struct ScalarMemStoreToGlobalStorePattern : public OpRewritePattern<aps::MemStore> {
-  using OpRewritePattern<aps::MemStore>::OpRewritePattern;
+/// Pattern to convert aps.write_smem on memref<1xT> to aps.globalstore
+struct ScalarMemStoreToGlobalStorePattern : public OpRewritePattern<aps::WriteSmem> {
+  using OpRewritePattern<aps::WriteSmem>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(aps::MemStore storeOp,
+  LogicalResult matchAndRewrite(aps::WriteSmem storeOp,
                                 PatternRewriter &rewriter) const override {
     auto symbolRef = getPromotableGlobalSymbol(storeOp.getMemref());
     if (!symbolRef)

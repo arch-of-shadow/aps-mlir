@@ -322,7 +322,7 @@ def run_cadl2c(cadl_code: str, work_dir: Path) -> tuple:
     cadl_file.write_text(cadl_code)
 
     # Run cadl2c
-    cmd = ["python", "aps-frontend", "cadl2c", str(cadl_file)]
+    cmd = ["aps-frontend", "cadl2c", str(cadl_file)]
     success, stdout, stderr = run_command(cmd)
 
     # Read generated C file if exists
@@ -586,7 +586,7 @@ def run_step1_cadl_to_mlir(example_data: dict):
     cadl_file = work_dir / "input.cadl"
     cadl_file.write_text(default_cadl)
 
-    cmd = ["python", "aps-frontend", "cadl2c", str(cadl_file)]
+    cmd = ["aps-frontend", "cadl2c", str(cadl_file)]
     success, stdout, stderr = run_command(cmd)
 
     c_file = work_dir / "input.c"

@@ -3,19 +3,29 @@
 
 include "mlir/IR/OpBase.td"
 include "APS/APSDialect.td"
+include "mlir/IR/EnumAttr.td"
+include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 class APSOp<string mnemonic, list<Trait> traits = []> :
   Op<APSDialect, mnemonic, traits>;
 
-def CpuRfRead : APSOp<"readrf", [MemoryEffects<[MemRead, MemWrite]>]> {
+def CopyIn : I32EnumAttrCase<"In", 0, "in">;
+def CopyOut : I32EnumAttrCase<"Out", 1, "out">;
+
+def CopyDirectionAttr : I32EnumAttr<"CopyDirection", "copy direction",
+                                    [CopyIn, CopyOut]> {
+  let cppNamespace = "::aps";
+}
+
+def ReadIRF : APSOp<"read_irf", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "read cpu register file";
   let arguments = (ins AnyInteger:$rs);
   let results = (outs AnyInteger:$result);
   let assemblyFormat = "$rs attr-dict `:` type($rs) `->` type($result)";
 }
 
-def CpuRfWrite : APSOp<"writerf", [MemoryEffects<[MemRead, MemWrite]>]> {
+def WriteIRF : APSOp<"write_irf", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "write cpu register file";
   let arguments = (ins AnyInteger:$rd, AnyInteger:$value);
   let assemblyFormat = "$rd `,` $value attr-dict `:` type($rd) `,` type($value)";
@@ -32,7 +42,7 @@ def MemDeclare : APSOp<"memdeclare", []> {
   let assemblyFormat = "attr-dict `:` type($result)";
 }
 
-def MemLoad : APSOp<"memload", [MemoryEffects<[MemRead, MemWrite]>]> {
+def ReadSmem : APSOp<"read_smem", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "load from memory instance";
   let description = [{
     Loads a value from the specified memory instance at the given address.
@@ -44,30 +54,30 @@ def MemLoad : APSOp<"memload", [MemoryEffects<[MemRead, MemWrite]>]> {
   let hasCanonicalizer = 1;
 }
 
-def SpmLoadReq : APSOp<"spm.load_req", [MemoryEffects<[MemRead, MemWrite]>]> {
+def ReadSmemIssue : APSOp<"read_smem_issue", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "scratchpad memory load request";
   let description = [{
     Sends a load request to the scratchpad memory at the given address.
     This is the first half of a two-cycle scratchpad memory access pattern.
-    Returns a token that must be consumed by aps.spm.load_collect.
+    Returns a token that must be consumed by aps.read_smem_wait.
 
     Pipeline semantics:
     - Cycle N: Send request (address computation and port arbitration)
-    - Cycle N+1: Collect data (aps.spm.load_collect)
+    - Cycle N+1: Collect data (aps.read_smem_wait)
 
-    This operation is derived from aps.memload during the split memory ops pass,
+    This operation is derived from aps.read_smem during the split memory ops pass,
     enabling fine-grained scheduling of memory accesses in pipelined designs.
 
     Example:
-      %req = aps.spm.load_req %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
-      %val = aps.spm.load_collect %req : !aps.mem_req -> i32
+      %req = aps.read_smem_issue %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
+      %val = aps.read_smem_wait %req : !aps.mem_req -> i32
   }];
   let arguments = (ins AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
   let results = (outs AnyType:$request);
   let assemblyFormat = "$memref `[` $indices `]` attr-dict `:` type($memref) `,` type($indices) `->` type($request)";
 }
 
-def SpmLoadCollect : APSOp<"spm.load_collect", []> {
+def ReadSmemWait : APSOp<"read_smem_wait", []> {
   let summary = "scratchpad memory load collect data";
   let description = [{
     Collects the data from a previously issued scratchpad memory load request.
@@ -75,24 +85,24 @@ def SpmLoadCollect : APSOp<"spm.load_collect", []> {
     The operation is combinational (zero latency within the same cycle).
 
     Pipeline semantics:
-    - Cycle N: aps.spm.load_req sends request
-    - Cycle N+1: aps.spm.load_collect reads result (combinational)
+    - Cycle N: aps.read_smem_issue sends request
+    - Cycle N+1: aps.read_smem_wait reads result (combinational)
 
     Multiple collects can occur in the same cycle since this is purely
     combinational - it just reads the registered output from the SRAM.
 
-    This operation is derived from aps.memload during the split memory ops pass.
+    This operation is derived from aps.read_smem during the split memory ops pass.
 
     Example:
-      %req = aps.spm.load_req %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
-      %val = aps.spm.load_collect %req : !aps.mem_req -> i32
+      %req = aps.read_smem_issue %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
+      %val = aps.read_smem_wait %req : !aps.mem_req -> i32
   }];
   let arguments = (ins AnyType:$request);
   let results = (outs AnyType:$result);
   let assemblyFormat = "$request attr-dict `:` type($request) `->` type($result)";
 }
 
-def MemStore : APSOp<"memstore", [MemoryEffects<[MemRead, MemWrite]>]> {
+def WriteSmem : APSOp<"write_smem", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "store to memory instance";
   let description = [{
     Stores a value to the specified memory instance at the given address.
@@ -103,7 +113,74 @@ def MemStore : APSOp<"memstore", [MemoryEffects<[MemRead, MemWrite]>]> {
   let hasCanonicalizer = 1;
 }
 
-def ItfcLoadReq : APSOp<"itfc.load_req", [MemoryEffects<[MemRead, MemWrite]>]> {
+def MemItfc : APSOp<"memitfc", [Symbol]> {
+  let summary = "dummy memory interface symbol";
+  let description = [{
+    Declares a named memory interface for architectural binding. This op is a
+    dummy symbol in the initial Aquas-IR layering: attributes are optional
+    documentation and are not required by lowering.
+  }];
+  let arguments = (ins SymbolNameAttr:$sym_name);
+  let assemblyFormat = "$sym_name attr-dict";
+}
+
+def Load : APSOp<"load", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "scalar load from CPU/global memory";
+  let arguments = (ins AnySignlessInteger:$cpu_addr);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$cpu_addr attr-dict `:` type($cpu_addr) `->` type($result)";
+}
+
+def Store : APSOp<"store", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "scalar store to CPU/global memory";
+  let arguments = (ins AnyType:$value, AnySignlessInteger:$cpu_addr);
+  let assemblyFormat = "$value `,` $cpu_addr attr-dict `:` type($value) `,` type($cpu_addr)";
+}
+
+def Copy : APSOp<"copy", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "bulk copy between CPU/global memory and scratchpad memory";
+  let description = [{
+    Functional-level bulk copy. The required direction enum determines the
+    operand print form: "in" copies CPU/global memory to scratchpad, and "out"
+    copies scratchpad to CPU/global memory.
+  }];
+  let arguments = (ins
+    CopyDirectionAttr:$direction,
+    AnySignlessInteger:$cpu_addr,
+    Variadic<AnyMemRef>:$memrefs,
+    AnySignlessInteger:$start,
+    AnySignlessInteger:$length
+  );
+  let hasCustomAssemblyFormat = 1;
+}
+
+def LoadBy : APSOp<"load_by", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "interface-bound scalar load from CPU/global memory";
+  let arguments = (ins FlatSymbolRefAttr:$itfc, AnySignlessInteger:$cpu_addr);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$itfc `,` $cpu_addr attr-dict `:` type($cpu_addr) `->` type($result)";
+}
+
+def StoreBy : APSOp<"store_by", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "interface-bound scalar store to CPU/global memory";
+  let arguments = (ins FlatSymbolRefAttr:$itfc, AnyType:$value, AnySignlessInteger:$cpu_addr);
+  let assemblyFormat = "$itfc `,` $value `,` $cpu_addr attr-dict `:` type($value) `,` type($cpu_addr)";
+}
+
+def CopyBy : APSOp<"copy_by", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "interface-bound bulk copy";
+  let arguments = (ins
+    CopyDirectionAttr:$direction,
+    FlatSymbolRefAttr:$itfc,
+    AnySignlessInteger:$cpu_addr,
+    Variadic<AnyMemRef>:$memrefs,
+    AnySignlessInteger:$start,
+    AnySignlessInteger:$length
+  );
+  let hasCustomAssemblyFormat = 1;
+}
+
+def LoadIssue : APSOp<"load_issue", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "interface load request from memory instance";
   let description = [{
     Sends a load request to the memory instance at the given address.
@@ -115,15 +192,15 @@ def ItfcLoadReq : APSOp<"itfc.load_req", [MemoryEffects<[MemRead, MemWrite]>]> {
     - Cycle N+1: Collect data (aps.itfc.load_collect)
 
     Example:
-      %req = aps.itfc.load_req %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
-      %val = aps.itfc.load_collect %req : !aps.mem_req -> i32
+      %req = aps.load_issue %addr : i32 -> !aps.mem_req
+      %val = aps.load_wait %req : !aps.mem_req -> i32
   }];
-  let arguments = (ins AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
+  let arguments = (ins AnySignlessInteger:$cpu_addr);
   let results = (outs AnyType:$request);
-  let assemblyFormat = "$memref `[` $indices `]` attr-dict `:` type($memref) `,` type($indices) `->` type($request)";
+  let assemblyFormat = "$cpu_addr attr-dict `:` type($cpu_addr) `->` type($request)";
 }
 
-def ItfcLoadCollect : APSOp<"itfc.load_collect", []> {
+def LoadWait : APSOp<"load_wait", []> {
   let summary = "interface load collect data from memory request";
   let description = [{
     Collects the data from a previously issued memory load request.
@@ -131,22 +208,22 @@ def ItfcLoadCollect : APSOp<"itfc.load_collect", []> {
     The operation is combinational (zero latency within the same cycle).
 
     Pipeline semantics:
-    - Cycle N: aps.itfc.load_req sends request
-    - Cycle N+1: aps.itfc.load_collect reads result (combinational)
+    - Cycle N: aps.load_issue sends request
+    - Cycle N+1: aps.load_wait reads result (combinational)
 
     Multiple collects can occur in the same cycle since this is purely
     combinational - it just reads the registered output from the RAM.
 
     Example:
-      %req = aps.itfc.load_req %mem[%i] : memref<1024xi32>, index -> !aps.mem_req
-      %val = aps.itfc.load_collect %req : !aps.mem_req -> i32
+      %req = aps.load_issue %addr : i32 -> !aps.mem_req
+      %val = aps.load_wait %req : !aps.mem_req -> i32
   }];
   let arguments = (ins AnyType:$request);
   let results = (outs AnyType:$result);
   let assemblyFormat = "$request attr-dict `:` type($request) `->` type($result)";
 }
 
-def ItfcStoreReq : APSOp<"itfc.store_req", [MemoryEffects<[MemRead, MemWrite]>]> {
+def StoreIssue : APSOp<"store_issue", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "interface store request to memory instance";
   let description = [{
     Sends a store request to the memory instance at the given address.
@@ -158,15 +235,15 @@ def ItfcStoreReq : APSOp<"itfc.store_req", [MemoryEffects<[MemRead, MemWrite]>]>
     - Cycle N+1: Complete write (aps.itfc.store_collect)
 
     Example:
-      %req = aps.itfc.store_req %val, %mem[%i] : i32, memref<1024xi32>, index -> !aps.mem_req
-      aps.itfc.store_collect %req : !aps.mem_req
+      %req = aps.store_issue %val, %addr : i32, i32 -> !aps.mem_req
+      aps.store_wait %req : !aps.mem_req
   }];
-  let arguments = (ins AnyType:$value, AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
+  let arguments = (ins AnyType:$value, AnySignlessInteger:$cpu_addr);
   let results = (outs AnyType:$request);
-  let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices) `->` type($request)";
+  let assemblyFormat = "$value `,` $cpu_addr attr-dict `:` type($value) `,` type($cpu_addr) `->` type($request)";
 }
 
-def ItfcStoreCollect : APSOp<"itfc.store_collect", []> {
+def StoreWait : APSOp<"store_wait", []> {
   let summary = "interface store collect - complete memory write";
   let description = [{
     Completes a previously issued memory store request.
@@ -174,69 +251,40 @@ def ItfcStoreCollect : APSOp<"itfc.store_collect", []> {
     The operation is combinational (zero latency within the same cycle).
 
     Pipeline semantics:
-    - Cycle N: aps.itfc.store_req sends write request
-    - Cycle N+1: aps.itfc.store_collect completes (combinational)
+    - Cycle N: aps.store_issue sends write request
+    - Cycle N+1: aps.store_wait completes (combinational)
 
     Example:
-      %req = aps.itfc.store_req %val, %mem[%i] : i32, memref<1024xi32>, index -> !aps.mem_req
-      aps.itfc.store_collect %req : !aps.mem_req
+      %req = aps.store_issue %val, %addr : i32, i32 -> !aps.mem_req
+      aps.store_wait %req : !aps.mem_req
   }];
   let arguments = (ins AnyType:$request);
   let assemblyFormat = "$request attr-dict `:` type($request)";
 }
 
-def ItfcBurstLoadReq : APSOp<"itfc.burst_load_req", [MemoryEffects<[MemRead, MemWrite]>]> {
-  let summary = "interface burst load request";
+def CopyIssue : APSOp<"copy_issue", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "issue an interface-bound bulk copy";
   let description = [{
-    Sends a burst load request to transfer data from CPU memory to APS scratchpad.
-    This is the first half of a two-cycle burst transfer pattern.
+    Issues a bulk copy transaction. The required direction enum determines the
+    operand print form: "in" copies CPU/global memory to scratchpad, and "out"
+    copies scratchpad to CPU/global memory.
   }];
   let arguments = (ins
+    CopyDirectionAttr:$direction,
+    FlatSymbolRefAttr:$itfc,
     AnySignlessInteger:$cpu_addr,
     Variadic<AnyMemRef>:$memrefs,
     AnySignlessInteger:$start,
     AnySignlessInteger:$length
   );
   let results = (outs AnyType:$request);
-  let assemblyFormat = [{
-    $cpu_addr `,` `(` $memrefs `)` `[` $start `]` `,` $length attr-dict
-    `:` type($cpu_addr) `,` `(` type($memrefs) `)` `,` type($start) `,` type($length) `->` type($request)
-  }];
+  let hasCustomAssemblyFormat = 1;
 }
 
-def ItfcBurstLoadCollect : APSOp<"itfc.burst_load_collect", []> {
-  let summary = "interface burst load collect - complete burst transfer";
+def CopyWait : APSOp<"copy_wait", []> {
+  let summary = "wait for an interface-bound bulk copy";
   let description = [{
-    Completes a previously issued burst load request.
-    This is the second half of a two-cycle burst transfer pattern.
-  }];
-  let arguments = (ins AnyType:$request);
-  let assemblyFormat = "$request attr-dict `:` type($request)";
-}
-
-def ItfcBurstStoreReq : APSOp<"itfc.burst_store_req", [MemoryEffects<[MemRead, MemWrite]>]> {
-  let summary = "interface burst store request";
-  let description = [{
-    Sends a burst store request to transfer data from APS scratchpad to CPU memory.
-    This is the first half of a two-cycle burst transfer pattern.
-  }];
-  let arguments = (ins
-    Variadic<AnyMemRef>:$memrefs,
-    AnySignlessInteger:$start,
-    AnySignlessInteger:$cpu_addr,
-    AnySignlessInteger:$length
-  );
-  let results = (outs AnyType:$request);
-  let assemblyFormat = [{
-    `(` $memrefs `)` `[` $start `]` `,` $cpu_addr `,` $length attr-dict
-    `:` `(` type($memrefs) `)` `,` type($start) `,` type($cpu_addr) `,` type($length) `->` type($request)
-  }];
-}
-
-def ItfcBurstStoreCollect : APSOp<"itfc.burst_store_collect", []> {
-  let summary = "interface burst store collect - complete burst transfer";
-  let description = [{
-    Completes a previously issued burst store request.
+    Completes a previously issued bulk copy request.
     This is the second half of a two-cycle burst transfer pattern.
   }];
   let arguments = (ins AnyType:$request);
@@ -249,7 +297,7 @@ def GlobalLoad : APSOp<"globalload", [MemoryEffects<[MemRead, MemWrite]>]> {
     Loads a value from a scalar global variable (memref<element_type>).
     This operation is specifically for scalar globals, not arrays.
 
-    Unlike aps.memload which takes indices, this operation directly loads
+    Unlike aps.read_smem which takes indices, this operation directly loads
     from a rank-0 memref representing a single scalar value.
 
     Designed to enable optimization passes (e.g., canonicalization) to fuse
@@ -271,7 +319,7 @@ def GlobalStore : APSOp<"globalstore", [MemoryEffects<[MemRead, MemWrite]>]> {
     Stores a value to a scalar global variable (memref<element_type>).
     This operation is specifically for scalar globals, not arrays.
 
-    Unlike aps.memstore which takes indices, this operation directly stores
+    Unlike aps.write_smem which takes indices, this operation directly stores
     to a rank-0 memref representing a single scalar value.
 
     Designed to enable optimization passes (e.g., canonicalization) to fuse
@@ -286,7 +334,7 @@ def GlobalStore : APSOp<"globalstore", [MemoryEffects<[MemRead, MemWrite]>]> {
   let hasCanonicalizer = 1;
 }
 
-def ReadCSR : APSOp<"readcsr", [MemoryEffects<[MemRead, MemWrite]>]> {
+def ReadCSR : APSOp<"read_csr", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "read custom CSR register";
   let description = [{
     Reads a value from a top-level CADL register declared with
@@ -297,82 +345,24 @@ def ReadCSR : APSOp<"readcsr", [MemoryEffects<[MemRead, MemWrite]>]> {
     operation is semantically a CSR access rather than an ordinary global load.
 
     Example:
-      %value = aps.readcsr @cfg : i32
+      %value = aps.read_csr @cfg : i32
   }];
   let arguments = (ins FlatSymbolRefAttr:$global_name);
   let results = (outs AnyType:$result);
   let assemblyFormat = "$global_name attr-dict `:` type($result)";
 }
 
-def WriteCSR : APSOp<"writecsr", [MemoryEffects<[MemRead, MemWrite]>]> {
+def WriteCSR : APSOp<"write_csr", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "write custom CSR register";
   let description = [{
     Writes a value to a top-level CADL register declared with
     #[csr_address(...)].
 
     Example:
-      aps.writecsr %value, @cfg : i32
+      aps.write_csr %value, @cfg : i32
   }];
   let arguments = (ins AnyType:$value, FlatSymbolRefAttr:$global_name);
   let assemblyFormat = "$value `,` $global_name attr-dict `:` type($value)";
-}
-
-def MemBurstLoad : APSOp<"memburstload", [MemoryEffects<[MemRead, MemWrite]>]> {
-  let summary = "burst load from CPU memory to APS scratchpad memory";
-  let description = [{
-    Transfers a sequence of data from CPU memory to APS scratchpad memory in a burst fashion.
-    Reads 'length' elements from CPU memory starting at 'cpu_addr'
-    and writes them to the APS scratchpad (memref or vector of memrefs) starting at 'start' index.
-
-    After array partitioning, memrefs can be a variadic list of partitioned memref slices.
-
-    Example:
-      aps.memburstload %cpu_addr, %aps_mem[%start], %length
-        : i64, memref<1024xi32>, i32, i32 -> ()
-
-      // After array partition with factor 4:
-      aps.memburstload %cpu_addr, %mem0, %mem1, %mem2, %mem3[%start], %length
-        : i64, memref<256xi32>, memref<256xi32>, memref<256xi32>, memref<256xi32>, i32, i32 -> ()
-  }];
-  let arguments = (ins
-    AnySignlessInteger:$cpu_addr,
-    Variadic<AnyMemRef>:$memrefs,
-    AnySignlessInteger:$start,
-    AnySignlessInteger:$length
-  );
-  let assemblyFormat = [{
-    $cpu_addr `,` `(` $memrefs `)` `[` $start `]` `,` $length attr-dict
-    `:` type($cpu_addr) `,` `(` type($memrefs) `)` `,` type($start) `,` type($length)
-  }];
-}
-
-def MemBurstStore : APSOp<"memburststore", [MemoryEffects<[MemRead, MemWrite]>]> {
-  let summary = "burst store from APS scratchpad memory to CPU memory";
-  let description = [{
-    Transfers a sequence of data from APS scratchpad memory to CPU memory in a burst fashion.
-    Reads 'length' elements starting from 'start' index in the APS scratchpad (memref or vector of memrefs)
-    and writes them to the CPU memory starting at 'cpu_addr'.
-
-    After array partitioning, memrefs can be a variadic list of partitioned memref slices.
-
-    Example:
-      aps.memburststore %aps_mem[%start], %cpu_addr, %length
-        : memref<1024xi32>, i32, i64, i32 -> ()
-
-      // After array partition with factor 4:
-      aps.memburststore %mem0, %mem1, %mem2, %mem3[%start], %cpu_addr, %length
-        : memref<256xi32>, memref<256xi32>, memref<256xi32>, memref<256xi32>, i32, i64, i32 -> ()
-  }];
-  let arguments = (ins
-    Variadic<AnyMemRef>:$memrefs,
-    AnySignlessInteger:$start,
-    AnySignlessInteger:$cpu_addr,
-    AnySignlessInteger:$length
-  );
-  let assemblyFormat = [{
-    `(` $memrefs `)` `[` $start `]` `,` $cpu_addr `,` $length attr-dict
-    `:` `(` type($memrefs) `)` `,` type($start) `,` type($cpu_addr) `,` type($length)
-  }];
 }
 
 def MemoryMapOp : APSOp<"memorymap", [
@@ -454,17 +444,5 @@ def MemFinishOp : APSOp<"mem_finish", [Terminator, HasParent<"MemoryMapOp">]> {
   }];
   let assemblyFormat = "attr-dict";
 }
-
-// def SubOp : ToyOp<"sub", [Pure]> {
-//   let summary = "sub operation";
-//   let arguments = (ins AnyInteger:$lhs, AnyInteger:$rhs);
-//   let results = (outs AnyInteger:$result);
-// }
-
-// def ConstantOp : ToyOp<"const", [Pure]> {
-//   let summary = "const operation";
-//   let arguments = (ins APIntAttr:$value);
-//   let results = (outs AnyInteger:$result);
-// }
 
 #endif

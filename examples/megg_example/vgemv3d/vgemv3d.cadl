@@ -23,7 +23,6 @@ static vec: [i32; 4];
 #[partition_cyclic_array([1])]
 static result: [i32; 4];
 
-static acc: i32;
 // VGEMV3D.VV - Vector-Vector mode
 // Multiplies 4×4 matrix with 4D homogeneous vector
 #[opcode(7'b0101011)]
@@ -33,10 +32,10 @@ rtype vgemv3d_vv(rs1: u5, rs2: u5, rd: u5) {
   let out_addr: u32 = _irf[rs2];    // Address of output
 
   // Burst read for flattened matrix (16 elements)
-  matrix[0 +: ] = _burst_read[addr +: 16];
+  matrix[0 +: ] = _mem[addr +: 16];
 
   // Burst read for vector (4 elements)
-  vec[0 +: ] = _burst_read[addr + 64 +: 4];
+  vec[0 +: ] = _mem[addr + 64 +: 4];
 
   // Compute matrix-vector product: result[i] = Σⱼ matrix[i*4+j] * vec[j]
   // Outer loop manually unrolled by factor of 2
@@ -44,19 +43,17 @@ rtype vgemv3d_vv(rs1: u5, rs2: u5, rd: u5) {
     let i_mul_2: u32 = i * 2;
 
     // First iteration (i_mul_2)
-    acc = 0;
     [[unroll(4)]]
-    with j: u32 = (0, j_) do {
-      acc = acc + matrix[i_mul_2 * 4 + j] * vec[j];
+    with j: u32 = (0, j_) acc: i32 = (0, acc_) do {
+      let acc_: i32 = acc + matrix[i_mul_2 * 4 + j] * vec[j];
       let j_: u32 = j + 1;
     } while (j_ < 4);
     result[i_mul_2] = acc;
 
     // Second iteration (i_mul_2 + 1)
-    acc = 0;
     [[unroll(4)]]
-    with j: u32 = (0, j_) do {
-      acc = acc + matrix[(i_mul_2 + 1) * 4 + j] * vec[j];
+    with j: u32 = (0, j_) acc: i32 = (0, acc_) do {
+      let acc_: i32 = acc + matrix[(i_mul_2 + 1) * 4 + j] * vec[j];
       let j_: u32 = j + 1;
     } while (j_ < 4);
     result[i_mul_2 + 1] = acc;
@@ -65,7 +62,7 @@ rtype vgemv3d_vv(rs1: u5, rs2: u5, rd: u5) {
   } while (i_ < 2);
 
   // Burst write result vector
-  _burst_write[out_addr +: 4] = result[0 +: ];
+  _mem[out_addr +: 4] = result[0 +: ];
 
   _irf[rd] = 0;
 }

@@ -19,13 +19,13 @@ using namespace circt::firrtl;
 LogicalResult InterfaceOpGenerator::generateRule(Operation *op, mlir::OpBuilder &b,
                                                Location loc, int64_t slot,
                                                llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  if (auto itfcLoadReq = dyn_cast<aps::ItfcLoadReq>(op)) {
+  if (auto itfcLoadReq = dyn_cast<aps::LoadIssue>(op)) {
     return generateItfcLoadReq(itfcLoadReq, b, loc, slot, localMap);
-  } else if (auto itfcLoadCollect = dyn_cast<aps::ItfcLoadCollect>(op)) {
+  } else if (auto itfcLoadCollect = dyn_cast<aps::LoadWait>(op)) {
     return generateItfcLoadCollect(itfcLoadCollect, b, loc, slot, localMap);
-  } else if (auto itfcStoreReq = dyn_cast<aps::ItfcStoreReq>(op)) {
+  } else if (auto itfcStoreReq = dyn_cast<aps::StoreIssue>(op)) {
     return generateItfcStoreReq(itfcStoreReq, b, loc, slot, localMap);
-  } else if (auto itfcStoreCollect = dyn_cast<aps::ItfcStoreCollect>(op)) {
+  } else if (auto itfcStoreCollect = dyn_cast<aps::StoreWait>(op)) {
     return generateItfcStoreCollect(itfcStoreCollect, b, loc, slot, localMap);
   }
 
@@ -34,10 +34,10 @@ LogicalResult InterfaceOpGenerator::generateRule(Operation *op, mlir::OpBuilder 
 }
 
 bool InterfaceOpGenerator::canHandle(Operation *op) const {
-  return isa<aps::ItfcLoadReq, aps::ItfcLoadCollect, aps::ItfcStoreReq, aps::ItfcStoreCollect>(op);
+  return isa<aps::LoadIssue, aps::LoadWait, aps::StoreIssue, aps::StoreWait>(op);
 }
 
-LogicalResult InterfaceOpGenerator::generateItfcLoadReq(aps::ItfcLoadReq op, mlir::OpBuilder &b,
+LogicalResult InterfaceOpGenerator::generateItfcLoadReq(aps::LoadIssue op, mlir::OpBuilder &b,
                                                       Location loc, int64_t slot,
                                                       llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // Handle CPU interface load request operations
@@ -59,13 +59,7 @@ LogicalResult InterfaceOpGenerator::generateItfcLoadReq(aps::ItfcLoadReq op, mli
        BundleType::BundleElement{b.getStringAttr("tag"), false,
                                  UIntType::get(context, 8)}});
 
-  // Get address from indices (similar to MemLoad)
-  if (op.getIndices().empty()) {
-    op.emitError("Interface load request must have at least one index");
-    return failure();
-  }
-
-  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), b, localMap, loc);
+  auto addr = getValueInRule(op.getCpuAddr(), op.getOperation(), b, localMap, loc);
   if (failed(addr)) {
     op.emitError("Failed to get address for interface load request");
     return failure();
@@ -95,7 +89,7 @@ LogicalResult InterfaceOpGenerator::generateItfcLoadReq(aps::ItfcLoadReq op, mli
   return success();
 }
 
-LogicalResult InterfaceOpGenerator::generateItfcLoadCollect(aps::ItfcLoadCollect op, mlir::OpBuilder &b,
+LogicalResult InterfaceOpGenerator::generateItfcLoadCollect(aps::LoadWait op, mlir::OpBuilder &b,
                                                           Location loc, int64_t slot,
                                                           llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   auto hellaMemInstance = bbHandler->getHellaMemInstance();
@@ -112,21 +106,16 @@ LogicalResult InterfaceOpGenerator::generateItfcLoadCollect(aps::ItfcLoadCollect
   return success();
 }
 
-LogicalResult InterfaceOpGenerator::generateItfcStoreReq(aps::ItfcStoreReq op, mlir::OpBuilder &b,
+LogicalResult InterfaceOpGenerator::generateItfcStoreReq(aps::StoreIssue op, mlir::OpBuilder &b,
                                                        Location loc, int64_t slot,
                                                        llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // Handle CPU interface store request operations
   // This sends a store request to memory and returns a request token
 
-  // Get address from indices (value is first operand, address is from indices)
   auto context = b.getContext();
-  if (op.getIndices().empty()) {
-    op.emitError("Interface store request must have at least one index");
-    return failure();
-  }
 
   auto value = getValueInRule(op.getValue(), op.getOperation(), b, localMap, loc);
-  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), b, localMap, loc);
+  auto addr = getValueInRule(op.getCpuAddr(), op.getOperation(), b, localMap, loc);
   if (failed(value) || failed(addr)) {
     op.emitError("Failed to get value or address for interface store request");
     return failure();
@@ -171,7 +160,7 @@ LogicalResult InterfaceOpGenerator::generateItfcStoreReq(aps::ItfcStoreReq op, m
   return success();
 }
 
-LogicalResult InterfaceOpGenerator::generateItfcStoreCollect(aps::ItfcStoreCollect op, mlir::OpBuilder &b,
+LogicalResult InterfaceOpGenerator::generateItfcStoreCollect(aps::StoreWait op, mlir::OpBuilder &b,
                                                            Location loc, int64_t slot,
                                                            llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // Do nothing here, don't reply...

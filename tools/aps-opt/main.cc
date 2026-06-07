@@ -100,6 +100,7 @@ void buildApsE2EPipeline(PassManager &pm, double clock,
   addCanonicalize(pm);
   pm.addNestedPass<func::FuncOp>(createAffineMemToAPSPass());
   pm.addNestedPass<func::FuncOp>(createMemRefToAPSPass());
+  pm.addPass(createAPSFunctionalToArchPass());
   pm.addNestedPass<func::FuncOp>(createPromoteSingletonMemRefToGlobalPass());
   pm.addPass(createArithMulDivToShiftPass());
   addCanonicalize(pm);
@@ -152,6 +153,8 @@ int main(int argc, char **argv) {
   DialectRegistry registry;
   registerDialects(registry);
   MLIRContext context(registry);
+  if (printIrAfterAll)
+    context.disableMultithreading();
   context.allowUnregisteredDialects();
   context.loadAllAvailableDialects();
 

@@ -427,9 +427,7 @@ bool checkValueUsers(Value val, int64_t rankNum) {
       // if (getFuncOpByVal(val).getSymName() == call.getCallee()) {
       //   return false;
       // }
-    } else if (auto burst_read = dyn_cast<aps::MemBurstLoad>(op)) {
-      //
-    } else if (auto burst_write = dyn_cast<aps::MemBurstStore>(op)) {
+    } else if (auto copy = dyn_cast<aps::Copy>(op)) {
       //
     } else {
       // TODO: handle burst load/store here!
@@ -1005,25 +1003,16 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       }
 
       new_part.push_back(Partition{store, bank});
-    } else if (auto burstLoad = dyn_cast<aps::MemBurstLoad>(op)) {
-      SmallVector<Value> newOperands;
-      newOperands.push_back(burstLoad.getCpuAddr()); // cpu_addr
-      for (auto memref : newArray) {
-        newOperands.push_back(memref);
-      }
-      newOperands.push_back(burstLoad.getStart());  // start index
-      newOperands.push_back(burstLoad.getLength()); // length
+    } else if (auto copy = dyn_cast<aps::Copy>(op)) {
+      rewriter.setInsertionPoint(copy);
+      auto newCopy = rewriter.create<aps::Copy>(
+          copy.getLoc(), copy.getDirection(), copy.getCpuAddr(), newArray,
+          copy.getStart(), copy.getLength());
 
-      rewriter.setInsertionPoint(burstLoad);
-      auto newBurstLoad = rewriter.replaceOpWithNewOp<aps::MemBurstLoad>(
-          burstLoad, TypeRange{}, newOperands);
-
-      // Copy all attributes from original operation first
-      for (auto attr : burstLoad->getAttrs()) {
-        newBurstLoad->setAttr(attr.getName(), attr.getValue());
+      for (auto attr : copy->getAttrs()) {
+        newCopy->setAttr(attr.getName(), attr.getValue());
       }
 
-      // Then update partition attributes for the new partitioned array
       SmallVector<mlir::Attribute> dimAttrs, factorAttrs, cyclicAttrs;
       auto ctx = rewriter.getContext();
       for (size_t rank = 0; rank < partition.size(); ++rank) {
@@ -1037,52 +1026,13 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
         }
       }
       if (!dimAttrs.empty()) {
-        newBurstLoad->setAttr("partition_dim_array",
-                              ArrayAttr::get(ctx, dimAttrs));
-        newBurstLoad->setAttr("partition_factor_array",
-                              ArrayAttr::get(ctx, factorAttrs));
-        newBurstLoad->setAttr("partition_cyclic_array",
-                              ArrayAttr::get(ctx, cyclicAttrs));
+        newCopy->setAttr("partition_dim_array", ArrayAttr::get(ctx, dimAttrs));
+        newCopy->setAttr("partition_factor_array",
+                         ArrayAttr::get(ctx, factorAttrs));
+        newCopy->setAttr("partition_cyclic_array",
+                         ArrayAttr::get(ctx, cyclicAttrs));
       }
-    } else if (auto burstStore = dyn_cast<aps::MemBurstStore>(op)) {
-      SmallVector<Value> newOperands;
-      for (auto memref : newArray) {
-        newOperands.push_back(memref);
-      }
-      newOperands.push_back(burstStore.getStart());   // start index
-      newOperands.push_back(burstStore.getCpuAddr()); // cpu_addr
-      newOperands.push_back(burstStore.getLength());  // length
-
-      rewriter.setInsertionPoint(burstStore);
-      auto newBurstStore = rewriter.replaceOpWithNewOp<aps::MemBurstStore>(
-          burstStore, TypeRange{}, newOperands);
-
-      // Copy all attributes from original operation first
-      for (auto attr : burstStore->getAttrs()) {
-        newBurstStore->setAttr(attr.getName(), attr.getValue());
-      }
-
-      // Then update partition attributes for the new partitioned array
-      SmallVector<mlir::Attribute> dimAttrs, factorAttrs, cyclicAttrs;
-      auto ctx = rewriter.getContext();
-      for (size_t rank = 0; rank < partition.size(); ++rank) {
-        if (partition[rank]) {
-          dimAttrs.push_back(
-              mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), rank));
-          factorAttrs.push_back(mlir::IntegerAttr::get(
-              mlir::IntegerType::get(ctx, 32), factorMap.at(rank)));
-          cyclicAttrs.push_back(mlir::IntegerAttr::get(
-              mlir::IntegerType::get(ctx, 32), cyclicMap.at(rank)));
-        }
-      }
-      if (!dimAttrs.empty()) {
-        newBurstStore->setAttr("partition_dim_array",
-                               ArrayAttr::get(ctx, dimAttrs));
-        newBurstStore->setAttr("partition_factor_array",
-                               ArrayAttr::get(ctx, factorAttrs));
-        newBurstStore->setAttr("partition_cyclic_array",
-                               ArrayAttr::get(ctx, cyclicAttrs));
-      }
+      rewriter.eraseOp(copy);
     } else if (auto callOp = dyn_cast<func::CallOp>(op)) {
       auto operands = op->getOperands();
       SmallVector<Value, 4> newOperands;

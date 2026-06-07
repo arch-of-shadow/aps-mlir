@@ -18,7 +18,6 @@ static vec: [i32; 4];
 
 static result: [i32; 4];
 
-static acc: i32;
 // VGEMV3D.VV - Vector-Vector mode
 // Multiplies 4×4 matrix with 4D homogeneous vector
 #[opcode(7'b1111011)]
@@ -28,21 +27,16 @@ rtype vgemv3d_vv(rs1: u5, rs2: u5, rd: u5) {
   let out_addr: u32 = _irf[rs2];    // Address of output
 
   // Burst read for flattened matrix (16 elements)
-  matrix[0 +: ] = _burst_read[addr +: 16];
+  matrix[0 +: ] = _mem[addr +: 16];
 
-  // Burst read for vector (4 elements)
-  vec[0] = _mem[addr + 64];
-  vec[1] = _mem[addr + 64 + 4];
-  vec[2] = _mem[addr + 64 + 8];
-  vec[3] = _mem[addr + 64 + 12];
+  vec[0 +: ] = _mem[addr + 64 +: 4];
 
   // Compute matrix-vector product: result[i] = Σⱼ matrix[i*4+j] * vec[j]
   // [[unroll(4)]]
   with i: u32 = (0, i_) do {
-    acc = 0;  // Reset accumulator for each row
     [[unroll(4)]]
-    with j: u32 = (0, j_) do {
-      acc = acc + matrix[i * 4 + j] * vec[j];
+    with j: u32 = (0, j_) acc: i32 = (0, acc_) do {
+      let acc_: i32 = acc + matrix[i * 4 + j] * vec[j];
       let j_: u32 = j + 1;
     } while (j_ < 4);
     result[i] = acc;

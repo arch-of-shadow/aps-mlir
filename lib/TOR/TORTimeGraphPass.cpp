@@ -130,10 +130,8 @@ void setIntvAttr(mlir::Operation *op, std::pair<int, int> intv) {
   auto startAttr = mlir::IntegerAttr::get(i32, intv.first);
   auto endAttr = mlir::IntegerAttr::get(i32, intv.second);
 
-  op->setAttr("starttime", startAttr);
-  op->setAttr("endtime", endAttr);
-  op->setAttr("ref_starttime", startAttr);
-  op->setAttr("ref_endtime", endAttr);
+  op->setAttr("timegraph_starttime", startAttr);
+  op->setAttr("timegraph_endtime", endAttr);
 }
 
 long long get_attr_num(Attribute attr) {

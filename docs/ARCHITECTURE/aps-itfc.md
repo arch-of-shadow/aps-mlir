@@ -76,11 +76,11 @@ _irf[rd] = result;    // Result Resp
 
 | APS Dialect Op | APS-Itfc Transaction |
 |----------------|---------------------|
-| `aps.readrf` | GPR Req |
-| `aps.writerf` | Result Resp |
-| `aps.memload/memstore` | Scratchpad access |
-| `aps.memburstload/memburststore` | DMA transfer |
-| `aps.cpumemload/cpumemstore` | CPU memory access |
+| `aps.read_irf` | GPR Req |
+| `aps.write_irf` | Result Resp |
+| `aps.read_smem/write_smem` | Scratchpad access |
+| `aps.copy` | DMA transfer |
+| `aps.load/store` | Scalar CPU memory access |
 
 ## Timing Characteristics (RoCC on Rocket)
 

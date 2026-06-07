@@ -5,7 +5,6 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "lower-aps-mem-to-req-collect"
@@ -45,21 +44,6 @@ void setRefTimePair(Operation *op, int startTime, int endTime) {
               IntegerAttr::get(IntegerType::get(ctx, 32), startTime));
   op->setAttr("endtime",
               IntegerAttr::get(IntegerType::get(ctx, 32), endTime));
-}
-
-/// Helper: Check if a value comes from _cpu_memory
-bool isFromCpuMemory(Value memref) {
-  // Trace back to see if this memref comes from a get_global with "_cpu_memory"
-  auto defOp = memref.getDefiningOp();
-  if (!defOp)
-    return false;
-
-  if (auto getGlobal = dyn_cast<memref::GetGlobalOp>(defOp)) {
-    StringRef name = getGlobal.getName();
-    return name.contains("_cpu_memory");
-  }
-
-  return false;
 }
 
 void copyAttrsAndSetRefTime(Operation *from, Operation *to, int startTime,
@@ -143,99 +127,77 @@ struct LowerAPSMemToReqCollectPass
       IRRewriter rewriter(&getContext());
 
       // Collect operations to transform (can't modify while walking)
-      SmallVector<aps::MemLoad> memloads;
-      SmallVector<aps::MemLoad> spmloads;
-      SmallVector<aps::MemStore> memstores;
-      SmallVector<aps::MemBurstLoad> burstloads;
-      SmallVector<aps::MemBurstStore> burststores;
+      SmallVector<aps::ReadSmem> spmloads;
+      SmallVector<aps::LoadBy> gmemLoads;
+      SmallVector<aps::StoreBy> gmemStores;
+      SmallVector<aps::CopyBy> copies;
 
-      if (collectScheduledOps<aps::MemLoad>(funcOp, [&](aps::MemLoad loadOp) {
-            if (isFromCpuMemory(loadOp.getMemref()))
-              memloads.push_back(loadOp);
-            else
-              spmloads.push_back(loadOp);
+      if (collectScheduledOps<aps::ReadSmem>(funcOp, [&](aps::ReadSmem loadOp) {
+            spmloads.push_back(loadOp);
           }).wasInterrupted())
         return signalPassFailure();
 
-      if (collectScheduledOps<aps::MemStore>(
-              funcOp, [&](aps::MemStore storeOp) {
-                if (isFromCpuMemory(storeOp.getMemref()))
-                  memstores.push_back(storeOp);
-              }).wasInterrupted())
+      if (collectScheduledOps<aps::LoadBy>(funcOp, [&](aps::LoadBy loadOp) {
+            gmemLoads.push_back(loadOp);
+          }).wasInterrupted())
         return signalPassFailure();
 
-      if (collectScheduledOps<aps::MemBurstLoad>(
-              funcOp, [&](aps::MemBurstLoad burstOp) {
-                burstloads.push_back(burstOp);
-              }).wasInterrupted())
+      if (collectScheduledOps<aps::StoreBy>(funcOp, [&](aps::StoreBy storeOp) {
+            gmemStores.push_back(storeOp);
+          }).wasInterrupted())
         return signalPassFailure();
 
-      if (collectScheduledOps<aps::MemBurstStore>(
-              funcOp, [&](aps::MemBurstStore burstOp) {
-                burststores.push_back(burstOp);
-              }).wasInterrupted())
+      if (collectScheduledOps<aps::CopyBy>(funcOp, [&](aps::CopyBy copyOp) {
+            copies.push_back(copyOp);
+          }).wasInterrupted())
         return signalPassFailure();
 
-      // Transform memloads
-      for (auto loadOp : memloads) {
-        splitValueProducingMemoryOp<aps::MemLoad, aps::ItfcLoadCollect>(
+      // Transform scalar CPU/global memory loads.
+      for (auto loadOp : gmemLoads) {
+        splitValueProducingMemoryOp<aps::LoadBy, aps::LoadWait>(
             loadOp, rewriter, [&]() {
-              return rewriter.create<aps::ItfcLoadReq>(
+              return rewriter.create<aps::LoadIssue>(
                   loadOp.getLoc(), loadOp.getResult().getType(),
-                  loadOp.getMemref(), loadOp.getIndices());
+                  loadOp.getCpuAddr());
             });
       }
 
       // Transform spm memloads
       for (auto spmLoadOp : spmloads) {
-        splitValueProducingMemoryOp<aps::MemLoad, aps::SpmLoadCollect>(
+        splitValueProducingMemoryOp<aps::ReadSmem, aps::ReadSmemWait>(
             spmLoadOp, rewriter, [&]() {
-              return rewriter.create<aps::SpmLoadReq>(
+              return rewriter.create<aps::ReadSmemIssue>(
                   spmLoadOp.getLoc(), spmLoadOp.getResult().getType(),
                   spmLoadOp.getMemref(), spmLoadOp.getIndices());
             });
       }
 
-      // Transform memstores
-      for (auto storeOp : memstores) {
-        splitSideEffectMemoryOp<aps::MemStore, aps::ItfcStoreCollect>(
+      // Transform scalar CPU/global memory stores.
+      for (auto storeOp : gmemStores) {
+        splitSideEffectMemoryOp<aps::StoreBy, aps::StoreWait>(
             storeOp, rewriter, [&]() {
-              return rewriter.create<aps::ItfcStoreReq>(
+              return rewriter.create<aps::StoreIssue>(
                   storeOp.getLoc(), rewriter.getNoneType(),
-                  storeOp.getValue(), storeOp.getMemref(),
-                  storeOp.getIndices());
+                  storeOp.getValue(), storeOp.getCpuAddr());
             });
       }
 
-      // Transform burst loads
-      for (auto burstOp : burstloads) {
-        splitSideEffectMemoryOp<aps::MemBurstLoad,
-                                aps::ItfcBurstLoadCollect>(
-            burstOp, rewriter, [&]() {
-              return rewriter.create<aps::ItfcBurstLoadReq>(
-                  burstOp.getLoc(), rewriter.getNoneType(),
-                  burstOp.getCpuAddr(), burstOp.getMemrefs(),
-                  burstOp.getStart(), burstOp.getLength());
+      // Transform interface-bound bulk copies.
+      for (auto copyOp : copies) {
+        splitSideEffectMemoryOp<aps::CopyBy, aps::CopyWait>(
+            copyOp, rewriter, [&]() {
+              return rewriter.create<aps::CopyIssue>(
+                  copyOp.getLoc(), rewriter.getNoneType(),
+                  copyOp.getDirection(), copyOp.getItfcAttr().getValue(),
+                  copyOp.getCpuAddr(), copyOp.getMemrefs(),
+                  copyOp.getStart(), copyOp.getLength());
             });
       }
 
-      // Transform burst stores
-      for (auto burstOp : burststores) {
-        splitSideEffectMemoryOp<aps::MemBurstStore,
-                                aps::ItfcBurstStoreCollect>(
-            burstOp, rewriter, [&]() {
-              return rewriter.create<aps::ItfcBurstStoreReq>(
-                  burstOp.getLoc(), rewriter.getNoneType(),
-                  burstOp.getMemrefs(), burstOp.getStart(),
-                  burstOp.getCpuAddr(), burstOp.getLength());
-            });
-      }
-
-      llvm::dbgs() << "Transformed " << memloads.size() << " loads, "
+      llvm::dbgs() << "Transformed " << gmemLoads.size() << " gmem loads, "
                    << spmloads.size() << " spm loads, "
-                   << memstores.size() << " stores, "
-                   << burstloads.size() << " burst loads, "
-                   << burststores.size() << " burst stores\n";
+                   << gmemStores.size() << " gmem stores, "
+                   << copies.size() << " copies\n";
 
       llvm::dbgs() << "Completed function: " << funcOp.getName() << "\n\n";
     }

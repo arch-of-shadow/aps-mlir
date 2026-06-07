@@ -23,9 +23,9 @@ static std::string getCSRPortPrefix(llvm::StringRef csrName) {
 LogicalResult RegisterOpGenerator::generateRule(Operation *op, mlir::OpBuilder &b,
                                               Location loc, int64_t slot,
                                               llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  if (auto readRf = dyn_cast<aps::CpuRfRead>(op)) {
+  if (auto readRf = dyn_cast<aps::ReadIRF>(op)) {
     return generateCpuRfRead(readRf, b, loc, slot, localMap);
-  } else if (auto writeRf = dyn_cast<aps::CpuRfWrite>(op)) {
+  } else if (auto writeRf = dyn_cast<aps::WriteIRF>(op)) {
     return generateCpuRfWrite(writeRf, b, loc, slot, localMap);
   } else if (auto readCSR = dyn_cast<aps::ReadCSR>(op)) {
     return generateReadCSR(readCSR, b, loc, slot, localMap);
@@ -38,21 +38,21 @@ LogicalResult RegisterOpGenerator::generateRule(Operation *op, mlir::OpBuilder &
 }
 
 bool RegisterOpGenerator::canHandle(Operation *op) const {
-  return isa<aps::CpuRfRead, aps::CpuRfWrite, aps::ReadCSR, aps::WriteCSR>(op);
+  return isa<aps::ReadIRF, aps::WriteIRF, aps::ReadCSR, aps::WriteCSR>(op);
 }
 
-LogicalResult RegisterOpGenerator::generateCpuRfRead(aps::CpuRfRead op, mlir::OpBuilder &b,
+LogicalResult RegisterOpGenerator::generateCpuRfRead(aps::ReadIRF op, mlir::OpBuilder &b,
                                                    Location loc, int64_t slot,
                                                    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // PANIC if not in first time slot
   if (slot != 0) {
-    op.emitError("aps.readrf operations must appear only in the first "
+    op.emitError("aps.read_irf operations must appear only in the first "
                  "time slot (slot 0), but found in slot ")
         << slot;
-    llvm::report_fatal_error("readrf must be in first time slot");
+    llvm::report_fatal_error("read_irf must be in first time slot");
   }
 
-  // Get the function argument that this readrf is reading from
+  // Get the function argument that this read_irf is reading from
   Value regArg = op.getRs();
 
   // Map function arguments to rs1/rs2 based on their position in the function
@@ -75,7 +75,7 @@ LogicalResult RegisterOpGenerator::generateCpuRfRead(aps::CpuRfRead op, mlir::Op
   return success();
 }
 
-LogicalResult RegisterOpGenerator::generateCpuRfWrite(aps::CpuRfWrite op, mlir::OpBuilder &b,
+LogicalResult RegisterOpGenerator::generateCpuRfWrite(aps::WriteIRF op, mlir::OpBuilder &b,
                                                     Location loc, int64_t slot,
                                                     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   auto rdvalue = getValueInRule(op.getValue(), op.getOperation(), b, localMap, loc);
@@ -106,7 +106,7 @@ LogicalResult RegisterOpGenerator::generateCpuRfWrite(aps::CpuRfWrite op, mlir::
   }
 
   bbHandler->getRoccInstance()->callMethod("resp_from_user", {bundleValue}, b);
-  // writerf doesn't produce a result, just performs the write
+  // write_irf doesn't produce a result, just performs the write
   return success();
 }
 

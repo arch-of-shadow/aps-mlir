@@ -44,28 +44,26 @@ rtype vcovmat3d_vs(rs1: u5, rs2: u5, rd: u5) {
   let cy: i32 = _mem[out_addr + 36];
   let cz: i32 = _mem[out_addr + 40];
 
-  // Initialize accumulator to zero
-  cov_accum[0] = 0;  // C00 (σ_xx)
-  cov_accum[1] = 0;  // C01 (σ_xy)
-  cov_accum[2] = 0;  // C02 (σ_xz)
-  cov_accum[3] = 0;  // C11 (σ_yy)
-  cov_accum[4] = 0;  // C12 (σ_yz)
-  cov_accum[5] = 0;  // C22 (σ_zz)
-  
   // Burst read all X coordinates (16 values in parallel)
   // Only 1 DMA startup penalty for entire vector
-  points_x[0 +: ] = _burst_read[points_addr +: 16];
+  points_x[0 +: ] = _mem[points_addr +: 16];
 
   // Burst read all Y coordinates
-  points_y[0 +: ] = _burst_read[points_addr + 64 +: 16];
+  points_y[0 +: ] = _mem[points_addr + 64 +: 16];
 
   // Burst read all Z coordinates
-  points_z[0 +: ] = _burst_read[points_addr + 128 +: 16];
+  points_z[0 +: ] = _mem[points_addr + 128 +: 16];
 
   // Process all 16 points with 4-way unrolling for throughput
   // Each iteration computes outer product and accumulates
   [[unroll(2)]]
-  with i: u8 = (0, i + 1)
+  with i: u8 = (0, i_)
+       c00: i32 = (0, c00_)
+       c01: i32 = (0, c01_)
+       c02: i32 = (0, c02_)
+       c11: i32 = (0, c11_)
+       c12: i32 = (0, c12_)
+       c22: i32 = (0, c22_)
   do {
     // Read point coordinates (all available in parallel due to partitioning)
     let x: i32 = points_x[i];
@@ -77,22 +75,21 @@ rtype vcovmat3d_vs(rs1: u5, rs2: u5, rd: u5) {
     let dy: i32 = y - cy;
     let dz: i32 = z - cz;
 
-    // Compute and accumulate outer product (6 MAC operations in parallel)
-    // These are multiply-accumulate operations: cov += d * d
-    cov_accum[0] = cov_accum[0] + dx * dx;  // σ_xx
-    cov_accum[1] = cov_accum[1] + dx * dy;  // σ_xy
-    cov_accum[2] = cov_accum[2] + dx * dz;  // σ_xz
-    cov_accum[3] = cov_accum[3] + dy * dy;  // σ_yy
-    cov_accum[4] = cov_accum[4] + dy * dz;  // σ_yz
-    cov_accum[5] = cov_accum[5] + dz * dz;  // σ_zz
-  } while i + 1 < 16;
+    let c00_: i32 = c00 + dx * dx;
+    let c01_: i32 = c01 + dx * dy;
+    let c02_: i32 = c02 + dx * dz;
+    let c11_: i32 = c11 + dy * dy;
+    let c12_: i32 = c12 + dy * dz;
+    let c22_: i32 = c22 + dz * dz;
+    let i_: u8 = i + 1;
+  } while (i_ < 16);
 
-  _mem[out_addr] = cov_accum[0];
-  _mem[out_addr + 4] = cov_accum[1];
-  _mem[out_addr + 8] = cov_accum[2];
-  _mem[out_addr + 12] = cov_accum[3];
-  _mem[out_addr + 16] = cov_accum[4];
-  _mem[out_addr + 20] = cov_accum[5];
+  _mem[out_addr] = c00;
+  _mem[out_addr + 4] = c01;
+  _mem[out_addr + 8] = c02;
+  _mem[out_addr + 12] = c11;
+  _mem[out_addr + 16] = c12;
+  _mem[out_addr + 20] = c22;
 
   // Return success indicator (non-zero means valid result)
   _irf[rd] = 1;

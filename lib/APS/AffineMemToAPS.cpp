@@ -23,7 +23,7 @@ namespace {
 using namespace mlir;
 using namespace mlir::affine;
 
-// Pattern to convert affine.load to aps.memload
+// Pattern to convert affine.load to aps.read_smem
 struct AffineLoadToAPSMemLoadPattern : public OpRewritePattern<AffineLoadOp> {
   using OpRewritePattern<AffineLoadOp>::OpRewritePattern;
 
@@ -45,20 +45,20 @@ struct AffineLoadToAPSMemLoadPattern : public OpRewritePattern<AffineLoadOp> {
     // Get the result type from the original load
     Type resultType = loadOp.getResult().getType();
 
-    // Create aps.memload with i32-typed indices
-    auto apsLoadOp = rewriter.create<aps::MemLoad>(
+    // Create aps.read_smem with i32-typed indices
+    auto apsLoadOp = rewriter.create<aps::ReadSmem>(
         loc, resultType, loadOp.getMemRef(), i32CastedIndices);
 
     // Replace the affine.load
     rewriter.replaceOp(loadOp, apsLoadOp.getResult());
 
-    LLVM_DEBUG(llvm::dbgs() << "Converted affine.load to aps.memload (indices: "
+    LLVM_DEBUG(llvm::dbgs() << "Converted affine.load to aps.read_smem (indices: "
                             << maybeExpandedMap->size() << ")\n");
     return success();
   }
 };
 
-// Pattern to convert affine.store to aps.memstore
+// Pattern to convert affine.store to aps.write_smem
 struct AffineStoreToAPSMemStorePattern : public OpRewritePattern<AffineStoreOp> {
   using OpRewritePattern<AffineStoreOp>::OpRewritePattern;
 
@@ -77,14 +77,14 @@ struct AffineStoreToAPSMemStorePattern : public OpRewritePattern<AffineStoreOp> 
     SmallVector<Value> i32CastedIndices =
         aps::castMemoryIndicesToI32(rewriter, loc, *maybeExpandedMap);
 
-    // Create aps.memstore with i32-typed indices
-    rewriter.create<aps::MemStore>(loc, storeOp.getValue(),
+    // Create aps.write_smem with i32-typed indices
+    rewriter.create<aps::WriteSmem>(loc, storeOp.getValue(),
                                    storeOp.getMemRef(), i32CastedIndices);
 
     // Erase the affine.store
     rewriter.eraseOp(storeOp);
 
-    LLVM_DEBUG(llvm::dbgs() << "Converted affine.store to aps.memstore (indices: "
+    LLVM_DEBUG(llvm::dbgs() << "Converted affine.store to aps.write_smem (indices: "
                             << maybeExpandedMap->size() << ")\n");
     return success();
   }

@@ -77,6 +77,9 @@ class FlowAnalysisData:
     flow_inputs: "OrderedDict[str, DataType]"
     irf_read_infos: Dict[str, RegisterReadInfo]
     irf_write_infos: Dict[str, RegisterWriteInfo]
+    irf_aliases: Dict[str, str]
+    irf_alias_offsets: Dict[str, int]
+    int_constants: Dict[str, int]
     used_statics: Set[str]
     scratchpad_aliases: Dict[str, "ScratchpadAlias"]
     needs_mem_pointer: bool
@@ -121,6 +124,8 @@ class CTranspiler:
         self.irf_index_usage: Dict[str, int] = {}
         self.required_headers: Set[str] = {"stdint.h"}
         self.irf_aliases: Dict[str, str] = {}
+        self.irf_alias_offsets: Dict[str, int] = {}
+        self.int_constants: Dict[str, int] = {}
 
     def push_decl_scope(self):
         self.declared_var_stack.append(set())
@@ -224,6 +229,8 @@ class CTranspiler:
         self.math_functions = set()
         self.var_types = {}
         self.irf_aliases = {}
+        self.irf_alias_offsets = {}
+        self.int_constants = {}
 
         self.flow_inputs = OrderedDict(flow.inputs)
         for name, dtype in self.flow_inputs.items():
@@ -274,6 +281,9 @@ class CTranspiler:
                 )
                 for k, info in self.irf_write_infos.items()
             },
+            irf_aliases=dict(self.irf_aliases),
+            irf_alias_offsets=dict(self.irf_alias_offsets),
+            int_constants=dict(self.int_constants),
             used_statics=set(self.used_statics),
             scratchpad_aliases={
                 name: ScratchpadAlias(
@@ -346,6 +356,7 @@ class CTranspiler:
 
             if lhs_name:
                 self._register_irf_alias(lhs_name, stmt.rhs)
+                self._register_int_constant(lhs_name, stmt.rhs)
 
             if pending_mem_assignment:
                 index_expr, explicit_type = pending_mem_assignment
@@ -579,11 +590,23 @@ class CTranspiler:
     def _register_irf_alias(self, lhs_name: Optional[str], rhs: cadl_ast.Expr):
         if not lhs_name:
             return
-        key = self._extract_irf_read_key(rhs)
-        if key:
+        pointer_info = self._extract_register_base(rhs)
+        if pointer_info:
+            key, offset = pointer_info
             self.irf_aliases[lhs_name] = key
+            self.irf_alias_offsets[lhs_name] = offset
         else:
             self.irf_aliases.pop(lhs_name, None)
+            self.irf_alias_offsets.pop(lhs_name, None)
+
+    def _register_int_constant(self, lhs_name: Optional[str], rhs: cadl_ast.Expr):
+        if not lhs_name:
+            return
+        value = self.try_eval_constant(rhs)
+        if value is None:
+            self.int_constants.pop(lhs_name, None)
+        else:
+            self.int_constants[lhs_name] = value
 
     def _ensure_register_info(
         self, key: str, index_expr: Optional[cadl_ast.Expr] = None
@@ -620,7 +643,7 @@ class CTranspiler:
         rhs = stmt.rhs
         if not isinstance(rhs, cadl_ast.RangeSliceExpr):
             return
-        if not isinstance(rhs.expr, cadl_ast.IdentExpr) or rhs.expr.name != "_burst_read":
+        if not isinstance(rhs.expr, cadl_ast.IdentExpr) or rhs.expr.name != "_mem":
             return
         pointer_info = self._extract_register_base(rhs.start)
         if not pointer_info:
@@ -654,7 +677,7 @@ class CTranspiler:
         if not isinstance(stmt.lhs, cadl_ast.RangeSliceExpr):
             return
         lhs_expr = stmt.lhs.expr
-        if not isinstance(lhs_expr, cadl_ast.IdentExpr) or lhs_expr.name != "_burst_write":
+        if not isinstance(lhs_expr, cadl_ast.IdentExpr) or lhs_expr.name != "_mem":
             return
         rhs = stmt.rhs
         if not isinstance(rhs, cadl_ast.RangeSliceExpr):
@@ -843,7 +866,7 @@ class CTranspiler:
         if isinstance(expr, cadl_ast.IdentExpr):
             key = self.irf_aliases.get(expr.name)
             if key:
-                return key, 0
+                return key, self.irf_alias_offsets.get(expr.name, 0)
         if isinstance(expr, cadl_ast.IndexExpr) and isinstance(expr.expr, cadl_ast.IdentExpr):
             if expr.expr.name == "_irf" and expr.indices:
                 key, _ = self.register_key(expr.indices[0])
@@ -1268,6 +1291,9 @@ class CTranspiler:
         self.flow_inputs = analysis.flow_inputs
         self.irf_read_infos = analysis.irf_read_infos
         self.irf_write_infos = analysis.irf_write_infos
+        self.irf_aliases = dict(analysis.irf_aliases)
+        self.irf_alias_offsets = dict(analysis.irf_alias_offsets)
+        self.int_constants = dict(analysis.int_constants)
         self.used_statics = analysis.used_statics
         self.scratchpad_aliases = analysis.scratchpad_aliases
         self.needs_mem_pointer = analysis.needs_mem_pointer
@@ -1552,31 +1578,36 @@ class CTranspiler:
     def generate_assign(self, stmt: cadl_ast.AssignStmt):
         """Generate assignment - in CADL, 'let' creates AssignStmt too"""
 
-        # Check if this is an irf alias variable that's only used for scratchpad aliasing
-        # e.g., let addr = _irf[rs1] where addr is only used in _mem or _burst accesses
+        if isinstance(stmt.lhs, cadl_ast.IdentExpr):
+            alias_key = self.irf_aliases.get(stmt.lhs.name)
+            if alias_key:
+                info = self.irf_read_infos.get(alias_key)
+                if info and info.pointer_element_types:
+                    return
+
+        # Check if this is an IRF alias variable used only for memory pointer access.
+        # e.g., let addr = _irf[rs1] where addr is only used in _mem scalar/range accesses
         if isinstance(stmt.lhs, cadl_ast.IdentExpr) and isinstance(stmt.rhs, cadl_ast.IndexExpr):
             if isinstance(stmt.rhs.expr, cadl_ast.IdentExpr) and stmt.rhs.expr.name == "_irf":
                 lhs_name = stmt.lhs.name
                 alias_key = self.irf_aliases.get(lhs_name)
                 if alias_key:
-                    # Check if any scratchpad alias uses this register
-                    has_scratchpad = any(
-                        alias.register_key == alias_key
-                        for alias in self.scratchpad_aliases.values()
-                    )
-                    if has_scratchpad:
-                        # This variable is only used for _mem/_burst accesses that have been optimized away
+                    info = self.irf_read_infos.get(alias_key)
+                    if info and info.pointer_element_types:
+                        # Keep address aliases symbolic once their backing register
+                        # has been promoted to a pointer parameter. Later _mem
+                        # expressions are rewritten through irf_aliases.
                         return
 
         # Special case: burst operations - eliminate them
-        # CADL: bitmask[0 +: ] = _burst_read[base_addr +: 4]
+        # CADL: bitmask[0 +: ] = _mem[base_addr +: 4]
         # High-level: eliminated (arrays already accessible)
         if isinstance(stmt.lhs, cadl_ast.RangeSliceExpr) and isinstance(
             stmt.rhs, cadl_ast.RangeSliceExpr
         ):
             if (
                 isinstance(stmt.rhs.expr, cadl_ast.IdentExpr)
-                and stmt.rhs.expr.name == "_burst_read"
+                and stmt.rhs.expr.name == "_mem"
             ):
                 target_expr = stmt.lhs.expr
                 if (
@@ -1587,11 +1618,11 @@ class CTranspiler:
                 return
 
         # Check if this is burst write - eliminate it
-        # CADL: _burst_write[addr +: size] = array[0 +: ]
+        # CADL: _mem[addr +: size] = array[0 +: ]
         if isinstance(stmt.lhs, cadl_ast.RangeSliceExpr) and isinstance(
             stmt.lhs.expr, cadl_ast.IdentExpr
         ):
-            if stmt.lhs.expr.name == "_burst_write":
+            if stmt.lhs.expr.name == "_mem":
                 rhs_expr = (
                     stmt.rhs.expr if isinstance(stmt.rhs, cadl_ast.RangeSliceExpr) else None
                 )
@@ -1757,6 +1788,16 @@ class CTranspiler:
             return self.generate_literal(expr)
         elif isinstance(expr, cadl_ast.IdentExpr):
             name = expr.name
+            alias_key = self.irf_aliases.get(name)
+            if alias_key:
+                info = self.irf_read_infos.get(alias_key)
+                if info and info.pointer_element_types:
+                    param = self.irf_read_params.get(alias_key)
+                    if param:
+                        offset = self.irf_alias_offsets.get(name, 0)
+                        if offset == 0:
+                            return param
+                        return f"({param} + {offset})"
             if name in self.declared_vars:
                 return name
             if name in self.static_scalar_names:
@@ -1856,6 +1897,8 @@ class CTranspiler:
         if isinstance(expr, cadl_ast.LitExpr):
             if isinstance(expr.literal.lit, cadl_ast.LiteralInner_Fixed):
                 return expr.literal.lit.value
+        if isinstance(expr, cadl_ast.IdentExpr):
+            return self.int_constants.get(expr.name)
         if isinstance(expr, cadl_ast.UnaryExpr):
             if expr.op == cadl_ast.UnaryOp.NEG:
                 inner = self.try_eval_constant(expr.operand)

@@ -130,7 +130,7 @@ public:
       rsc = RDB.getResourceID("memport_RAM_1P");
     } else if (storageType == "RAM_T2P") {
       rsc = RDB.getResourceID("memport_RAM_T2P");
-    } else if (llvm::isa<aps::MemLoad>(op) || llvm::isa<aps::MemStore>(op)) {
+    } else if (llvm::isa<aps::ReadSmem>(op) || llvm::isa<aps::WriteSmem>(op)) {
       // For APS memory operations, use per-memref resources
       // All memories are treated as 1RW (one read or write per cycle)
       rsc = RDB.getOrCreateMemrefResource(memref);
@@ -208,6 +208,9 @@ public:
   OpAbstract *createTLOp(Operation *op, Loop *ParentLoop, BasicBlock *ParentBB,
                          ArrayRef<Value> Results, ArrayRef<Value> Operands,
                          OpAbstract::OpType type) {
+    // TileLink read/write directions share the same physical channels.
+    // Keep one resource while preserving TL_READ_OP/TL_WRITE_OP for dependency
+    // classification.
     int rsc = RDB.getResourceID("tl");
     Operations.push_back(std::make_unique<MAxiOpConcrete>(
         MAxiOpConcrete(op, ParentLoop, ParentBB, rsc, Results, Operands, type)));

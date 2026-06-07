@@ -14,32 +14,27 @@
 #[partition_cyclic_array([1])]
 static data_buf: [i32; 32];
 
-static sum_acc: i32;
-static sum_sq_diff_acc: i32;
-
 #[opcode(7'b0101011)]
 #[funct7(7'b0011011)]
 rtype mean_var_fixed(rs1: u5, rs2: u5, rd: u5) {
     let in_addr: u32 = _irf[rs1];
     let out_addr: u32 = _irf[rs2];
 
-    data_buf[0 +: ] = _burst_read[in_addr +: 32];
+    data_buf[0 +: ] = _mem[in_addr +: 32];
 
-    sum_acc = 0;
     [[unroll(4)]]
-    with i: u32 = (0, i_) do {
-        sum_acc = sum_acc + data_buf[i];
+    with i: u32 = (0, i_) sum_acc: i32 = (0, sum_acc_) do {
+        let sum_acc_: i32 = sum_acc + data_buf[i];
         let i_: u32 = i + 1;
     } while (i_ < 32);
 
     let mean_q: i32 = sum_acc << 3;
 
-    sum_sq_diff_acc = 0;
     [[unroll(4)]]
-    with i: u32 = (0, i_) do {
+    with i: u32 = (0, i_) sum_sq_diff_acc: i32 = (0, sum_sq_diff_acc_) do {
         let sample: i32 = data_buf[i];
         let diff: i32 = (sample << 8) - mean_q;
-        sum_sq_diff_acc = sum_sq_diff_acc + ((diff * diff) >> 8);
+        let sum_sq_diff_acc_: i32 = sum_sq_diff_acc + ((diff * diff) >> 8);
         let i_: u32 = i + 1;
     } while (i_ < 32);
 

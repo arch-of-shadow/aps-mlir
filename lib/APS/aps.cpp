@@ -10,6 +10,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include "APS/APSDialect.cpp.inc"
+#include "APS/APSEnums.cpp.inc"
 #define GET_OP_CLASSES
 #include "APS/APS.cpp.inc"
 
@@ -21,6 +22,198 @@ void APSDialect::initialize() {
 #define GET_OP_LIST
 #include "APS/APS.cpp.inc"
   >();
+}
+
+static Attribute getCopyDirectionAttr(MLIRContext *ctx,
+                                      aps::CopyDirection direction) {
+  return IntegerAttr::get(IntegerType::get(ctx, 32),
+                          static_cast<int32_t>(direction));
+}
+
+static void printCommaSeparatedValues(OpAsmPrinter &p, ValueRange values) {
+  llvm::interleaveComma(values, p, [&](Value value) { p << value; });
+}
+
+static void printCommaSeparatedTypes(OpAsmPrinter &p, TypeRange types) {
+  llvm::interleaveComma(types, p, [&](Type type) { p << type; });
+}
+
+static ParseResult parseCopyPayload(OpAsmParser &parser,
+                                    OperationState &result,
+                                    StringRef directionAttrName) {
+  OpAsmParser::UnresolvedOperand cpuAddr;
+  SmallVector<OpAsmParser::UnresolvedOperand> memrefs;
+  OpAsmParser::UnresolvedOperand start;
+  OpAsmParser::UnresolvedOperand length;
+  Type cpuAddrType;
+  SmallVector<Type> memrefTypes;
+  Type startType;
+  Type lengthType;
+
+  bool isOut = succeeded(parser.parseOptionalLParen());
+  if (isOut) {
+    if (parser.parseOperandList(memrefs) || parser.parseRParen() ||
+        parser.parseLSquare() || parser.parseOperand(start) ||
+        parser.parseRSquare() || parser.parseComma() ||
+        parser.parseOperand(cpuAddr) || parser.parseComma() ||
+        parser.parseOperand(length))
+      return failure();
+  } else {
+    if (parser.parseOperand(cpuAddr) || parser.parseComma() ||
+        parser.parseLParen() || parser.parseOperandList(memrefs) ||
+        parser.parseRParen() || parser.parseLSquare() ||
+        parser.parseOperand(start) || parser.parseRSquare() ||
+        parser.parseComma() || parser.parseOperand(length))
+      return failure();
+  }
+
+  result.addAttribute(directionAttrName,
+                      getCopyDirectionAttr(parser.getContext(),
+                                           isOut ? aps::CopyDirection::Out
+                                                 : aps::CopyDirection::In));
+
+  if (parser.parseOptionalAttrDict(result.attributes) || parser.parseColon())
+    return failure();
+
+  if (isOut) {
+    if (parser.parseLParen() || parser.parseTypeList(memrefTypes) ||
+        parser.parseRParen() || parser.parseComma() ||
+        parser.parseType(startType) || parser.parseComma() ||
+        parser.parseType(cpuAddrType) || parser.parseComma() ||
+        parser.parseType(lengthType))
+      return failure();
+  } else {
+    if (parser.parseType(cpuAddrType) || parser.parseComma() ||
+        parser.parseLParen() || parser.parseTypeList(memrefTypes) ||
+        parser.parseRParen() || parser.parseComma() ||
+        parser.parseType(startType) || parser.parseComma() ||
+        parser.parseType(lengthType))
+      return failure();
+  }
+
+  if (parser.resolveOperand(cpuAddr, cpuAddrType, result.operands) ||
+      parser.resolveOperands(memrefs, memrefTypes, parser.getCurrentLocation(),
+                             result.operands) ||
+      parser.resolveOperand(start, startType, result.operands) ||
+      parser.resolveOperand(length, lengthType, result.operands))
+    return failure();
+
+  return success();
+}
+
+ParseResult Copy::parse(OpAsmParser &parser, OperationState &result) {
+  return parseCopyPayload(parser, result, getDirectionAttrName(result.name));
+}
+
+void Copy::print(OpAsmPrinter &p) {
+  bool isOut = getDirection() == aps::CopyDirection::Out;
+  p << " ";
+  if (isOut) {
+    p << "(";
+    printCommaSeparatedValues(p, getMemrefs());
+    p << ")[" << getStart() << "], " << getCpuAddr() << ", " << getLength();
+  } else {
+    p << getCpuAddr() << ", (";
+    printCommaSeparatedValues(p, getMemrefs());
+    p << ")[" << getStart() << "], " << getLength();
+  }
+
+  p.printOptionalAttrDict((*this)->getAttrs(), {getDirectionAttrName()});
+  p << " : ";
+  if (isOut) {
+    p << "(";
+    printCommaSeparatedTypes(p, getMemrefs().getTypes());
+    p << "), " << getStart().getType() << ", " << getCpuAddr().getType()
+      << ", " << getLength().getType();
+  } else {
+    p << getCpuAddr().getType() << ", (";
+    printCommaSeparatedTypes(p, getMemrefs().getTypes());
+    p << "), " << getStart().getType() << ", " << getLength().getType();
+  }
+}
+
+ParseResult CopyBy::parse(OpAsmParser &parser, OperationState &result) {
+  FlatSymbolRefAttr itfcAttr;
+  if (parser.parseAttribute(itfcAttr, getItfcAttrName(result.name),
+                            result.attributes) ||
+      parser.parseComma())
+    return failure();
+
+  return parseCopyPayload(parser, result, getDirectionAttrName(result.name));
+}
+
+void CopyBy::print(OpAsmPrinter &p) {
+  bool isOut = getDirection() == aps::CopyDirection::Out;
+  p << " " << getItfcAttr() << ", ";
+  if (isOut) {
+    p << "(";
+    printCommaSeparatedValues(p, getMemrefs());
+    p << ")[" << getStart() << "], " << getCpuAddr() << ", " << getLength();
+  } else {
+    p << getCpuAddr() << ", (";
+    printCommaSeparatedValues(p, getMemrefs());
+    p << ")[" << getStart() << "], " << getLength();
+  }
+
+  p.printOptionalAttrDict((*this)->getAttrs(),
+                          {getDirectionAttrName(), getItfcAttrName()});
+  p << " : ";
+  if (isOut) {
+    p << "(";
+    printCommaSeparatedTypes(p, getMemrefs().getTypes());
+    p << "), " << getStart().getType() << ", " << getCpuAddr().getType()
+      << ", " << getLength().getType();
+  } else {
+    p << getCpuAddr().getType() << ", (";
+    printCommaSeparatedTypes(p, getMemrefs().getTypes());
+    p << "), " << getStart().getType() << ", " << getLength().getType();
+  }
+}
+
+ParseResult CopyIssue::parse(OpAsmParser &parser, OperationState &result) {
+  FlatSymbolRefAttr itfcAttr;
+  if (parser.parseAttribute(itfcAttr, getItfcAttrName(result.name),
+                            result.attributes) ||
+      parser.parseComma())
+    return failure();
+
+  if (parseCopyPayload(parser, result, getDirectionAttrName(result.name)))
+    return failure();
+
+  Type requestType;
+  if (parser.parseArrow() || parser.parseType(requestType))
+    return failure();
+  result.addTypes(requestType);
+  return success();
+}
+
+void CopyIssue::print(OpAsmPrinter &p) {
+  bool isOut = getDirection() == aps::CopyDirection::Out;
+  p << " " << getItfcAttr() << ", ";
+  if (isOut) {
+    p << "(";
+    printCommaSeparatedValues(p, getMemrefs());
+    p << ")[" << getStart() << "], " << getCpuAddr() << ", " << getLength();
+  } else {
+    p << getCpuAddr() << ", (";
+    printCommaSeparatedValues(p, getMemrefs());
+    p << ")[" << getStart() << "], " << getLength();
+  }
+
+  p.printOptionalAttrDict((*this)->getAttrs(),
+                          {getDirectionAttrName(), getItfcAttrName()});
+  p << " : ";
+  if (isOut) {
+    p << "(";
+    printCommaSeparatedTypes(p, getMemrefs().getTypes());
+    p << "), " << getStart().getType() << ", " << getCpuAddr().getType()
+      << ", " << getLength().getType();
+  } else {
+    p << getCpuAddr().getType() << ", (";
+    printCommaSeparatedTypes(p, getMemrefs().getTypes());
+    p << "), " << getStart().getType() << ", " << getLength().getType();
+  }
+  p << " -> " << getRequest().getType();
 }
 
 //===----------------------------------------------------------------------===//
@@ -77,9 +270,9 @@ struct FoldGlobalLoadAfterStore : public OpRewritePattern<GlobalLoad> {
         return success();
       }
 
-      if (auto burstLoadOp = dyn_cast<MemBurstLoad>(prevOp)) {
-        if (containsGlobalMemref(burstLoadOp.getMemrefs(),
-                                  loadOp.getGlobalName()))
+      if (auto copyOp = dyn_cast<Copy>(prevOp)) {
+        if (copyOp.getDirection() == CopyDirection::In &&
+            containsGlobalMemref(copyOp.getMemrefs(), loadOp.getGlobalName()))
           return failure();
       }
     }
@@ -127,7 +320,7 @@ void aps::GlobalStore::getCanonicalizationPatterns(RewritePatternSet &results,
 }
 
 //===----------------------------------------------------------------------===//
-// MemLoad Canonicalization
+// ReadSmem Canonicalization
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -152,25 +345,27 @@ static bool isSameMemoryLocation(Value memref1, ValueRange indices1,
 }
 
 static bool mayReadMemref(Operation *op, Value memref) {
-  if (auto loadOp = dyn_cast<MemLoad>(op))
+  if (auto loadOp = dyn_cast<ReadSmem>(op))
     return isSameMemref(loadOp.getMemref(), memref);
-  if (auto burstStoreOp = dyn_cast<MemBurstStore>(op))
-    return containsMemref(burstStoreOp.getMemrefs(), memref);
+  if (auto copyOp = dyn_cast<Copy>(op))
+    return copyOp.getDirection() == CopyDirection::Out &&
+           containsMemref(copyOp.getMemrefs(), memref);
   return false;
 }
 
 static bool mayWriteMemref(Operation *op, Value memref) {
-  if (auto storeOp = dyn_cast<MemStore>(op))
+  if (auto storeOp = dyn_cast<WriteSmem>(op))
     return isSameMemref(storeOp.getMemref(), memref);
-  if (auto burstLoadOp = dyn_cast<MemBurstLoad>(op))
-    return containsMemref(burstLoadOp.getMemrefs(), memref);
+  if (auto copyOp = dyn_cast<Copy>(op))
+    return copyOp.getDirection() == CopyDirection::In &&
+           containsMemref(copyOp.getMemrefs(), memref);
   return false;
 }
 
-struct FoldMemLoadAfterStore : public OpRewritePattern<MemLoad> {
-  using OpRewritePattern<MemLoad>::OpRewritePattern;
+struct FoldMemLoadAfterStore : public OpRewritePattern<ReadSmem> {
+  using OpRewritePattern<ReadSmem>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(MemLoad loadOp,
+  LogicalResult matchAndRewrite(ReadSmem loadOp,
                                  PatternRewriter &rewriter) const override {
     Value loadMemref = loadOp.getMemref();
     ValueRange loadIndices = loadOp.getIndices();
@@ -180,7 +375,7 @@ struct FoldMemLoadAfterStore : public OpRewritePattern<MemLoad> {
       if (prevOp->getNumRegions() > 0)
         return failure();
 
-      if (auto storeOp = dyn_cast<MemStore>(prevOp)) {
+      if (auto storeOp = dyn_cast<WriteSmem>(prevOp)) {
         Value storeMemref = storeOp.getMemref();
         ValueRange storeIndices = storeOp.getIndices();
 
@@ -202,10 +397,10 @@ struct FoldMemLoadAfterStore : public OpRewritePattern<MemLoad> {
   }
 };
 
-struct RemoveDeadMemStore : public OpRewritePattern<MemStore> {
-  using OpRewritePattern<MemStore>::OpRewritePattern;
+struct RemoveDeadMemStore : public OpRewritePattern<WriteSmem> {
+  using OpRewritePattern<WriteSmem>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(MemStore storeOp,
+  LogicalResult matchAndRewrite(WriteSmem storeOp,
                                  PatternRewriter &rewriter) const override {
     Value storeMemref = storeOp.getMemref();
     ValueRange storeIndices = storeOp.getIndices();
@@ -215,7 +410,7 @@ struct RemoveDeadMemStore : public OpRewritePattern<MemStore> {
       if (nextOp->getNumRegions() > 0)
         return failure();
 
-      if (auto nextStoreOp = dyn_cast<MemStore>(nextOp)) {
+      if (auto nextStoreOp = dyn_cast<WriteSmem>(nextOp)) {
         Value nextMemref = nextStoreOp.getMemref();
         ValueRange nextIndices = nextStoreOp.getIndices();
 
@@ -229,7 +424,7 @@ struct RemoveDeadMemStore : public OpRewritePattern<MemStore> {
           return failure();
       }
 
-      if (auto nextLoadOp = dyn_cast<MemLoad>(nextOp)) {
+      if (auto nextLoadOp = dyn_cast<ReadSmem>(nextOp)) {
         Value nextMemref = nextLoadOp.getMemref();
         ValueRange nextIndices = nextLoadOp.getIndices();
 
@@ -250,12 +445,12 @@ struct RemoveDeadMemStore : public OpRewritePattern<MemStore> {
 };
 } // namespace
 
-void aps::MemLoad::getCanonicalizationPatterns(RewritePatternSet &results,
+void aps::ReadSmem::getCanonicalizationPatterns(RewritePatternSet &results,
                                                  MLIRContext *context) {
   results.add<FoldMemLoadAfterStore>(context);
 }
 
-void aps::MemStore::getCanonicalizationPatterns(RewritePatternSet &results,
+void aps::WriteSmem::getCanonicalizationPatterns(RewritePatternSet &results,
                                                   MLIRContext *context) {
   results.add<RemoveDeadMemStore>(context);
 }

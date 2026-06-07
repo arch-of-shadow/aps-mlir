@@ -9,7 +9,7 @@ from pathlib import Path
 from cadl_frontend import cadl_ast, parse_proc
 from cadl_frontend.parser import CADLParseError
 from cadl_frontend.to_c import CTranspiler
-from cadl_frontend.to_mlir import convert_cadl_to_mlir
+from cadl_frontend.to_mlir import convert_cadl_to_mlir, validate_mlir
 
 
 def _read_proc(input_file: str):
@@ -24,19 +24,10 @@ def _write_or_print(text: str, output_file: str | None) -> None:
         print(text)
 
 
-def convert_to_mlir(input_file: str, output_file: str | None,
-                    verify: bool) -> None:
+def convert_to_mlir(input_file: str, output_file: str | None) -> None:
     proc = _read_proc(input_file)
     mlir_text = str(convert_cadl_to_mlir(proc))
-
-    if verify:
-        import circt
-        import circt.ir as ir
-
-        with ir.Context() as ctx:
-            circt.register_dialects(ctx)
-            ir.Module.parse(mlir_text)
-
+    validate_mlir(mlir_text)
     _write_or_print(mlir_text, output_file)
 
 
@@ -77,7 +68,6 @@ def main() -> int:
     mlir_parser = subparsers.add_parser("mlir", help="Convert CADL to MLIR")
     mlir_parser.add_argument("input")
     mlir_parser.add_argument("-o", "--output")
-    mlir_parser.add_argument("--no-verify", action="store_true")
 
     c_parser = subparsers.add_parser("cadl2c", help="Convert CADL to C")
     c_parser.add_argument("input")
@@ -92,7 +82,7 @@ def main() -> int:
 
     try:
         if args.command == "mlir":
-            convert_to_mlir(args.input, args.output, not args.no_verify)
+            convert_to_mlir(args.input, args.output)
         elif args.command == "cadl2c":
             convert_to_c(args.input, args.output)
         elif args.command == "encoding":

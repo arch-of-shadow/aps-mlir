@@ -209,7 +209,7 @@ class TestBurstOperations:
         source = """
         static buffer: [i32; 512];
         rtype test(cpu_addr: u64, offset: u32, count: u32) {
-            buffer[offset +: ] = __burst_read[cpu_addr +: count];
+            buffer[offset +: ] = _mem[cpu_addr +: 8];
         }
         """
         ast = parse_proc(source)
@@ -220,25 +220,25 @@ class TestBurstOperations:
         assert isinstance(assign.lhs, cadl_ast.RangeSliceExpr)
         assert assign.lhs.expr.name == "buffer"
 
-        # RHS: __burst_read range slice
+        # RHS: _mem range slice
         assert isinstance(assign.rhs, cadl_ast.RangeSliceExpr)
-        assert assign.rhs.expr.name == "__burst_read"
+        assert assign.rhs.expr.name == "_mem"
 
     def test_burst_write_basic(self):
         """Test basic burst write operation"""
         source = """
         static buffer: [i32; 512];
         rtype test(cpu_addr: u64, offset: u32, count: u32) {
-            __burst_write[cpu_addr +: count] = buffer[offset +: ];
+            _mem[cpu_addr +: 8] = buffer[offset +: ];
         }
         """
         ast = parse_proc(source)
         flow = ast.flows["test"]
         assign = flow.body[0]
 
-        # LHS: __burst_write range slice
+        # LHS: _mem range slice
         assert isinstance(assign.lhs, cadl_ast.RangeSliceExpr)
-        assert assign.lhs.expr.name == "__burst_write"
+        assert assign.lhs.expr.name == "_mem"
 
         # RHS: buffer range slice
         assert isinstance(assign.rhs, cadl_ast.RangeSliceExpr)
@@ -249,8 +249,8 @@ class TestBurstOperations:
         source = """
         static buffer: [i32; 512];
         rtype test(cpu_addr: u64, offset: u32, count: u32) {
-            buffer[offset +: ] = __burst_read[cpu_addr +: count];
-            __burst_write[cpu_addr +: count] = buffer[offset +: ];
+            buffer[offset +: ] = _mem[cpu_addr +: 8];
+            _mem[cpu_addr +: 8] = buffer[offset +: ];
         }
         """
         ast = parse_proc(source)
@@ -262,7 +262,7 @@ class TestBurstOperations:
         source = """
         static buffer: [i32; 512];
         rtype test(cpu_addr: u64, offset: u32) {
-            buffer[offset +: 64] = __burst_read[cpu_addr +: 64];
+            buffer[offset +: 64] = _mem[cpu_addr +: 64];
         }
         """
         ast = parse_proc(source)
@@ -277,7 +277,7 @@ class TestBurstOperations:
         source = """
         static buffer: [i32; 512];
         rtype test(cpu_addr: u64, base: u32, count: u32) {
-            buffer[base * 2 +: count] = __burst_read[cpu_addr + 0x1000 +: count];
+            buffer[base * 2 +: 8] = _mem[cpu_addr + 0x1000 +: 8];
         }
         """
         ast = parse_proc(source)
@@ -295,8 +295,8 @@ class TestBurstOperations:
         source = """
         static scratch: [i32; 512];
         rtype dma_transfer(cpu_addr: u64, offset: u32, count: u32) {
-            scratch[offset +: ] = __burst_read[cpu_addr +: count];
-            __burst_write[cpu_addr +: count] = scratch[offset +: ];
+            scratch[offset +: ] = _mem[cpu_addr +: 8];
+            _mem[cpu_addr +: 8] = scratch[offset +: ];
         }
         """
         ast = parse_proc(source)

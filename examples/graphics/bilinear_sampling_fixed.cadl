@@ -39,9 +39,9 @@ rtype bilinear_sampling_fixed(rs1: u5, rs2: u5, rd: u5) {
     let tex_stride: u32 = 4;
     let max_coord: u32 = 2;
 
-    coord_u[0 +: ] = _burst_read[in_addr +: 16];
-    coord_v[0 +: ] = _burst_read[in_addr + plane_bytes +: 16];
-    texture_r[0 +: ] = _burst_read[in_addr + plane_bytes + plane_bytes +: 16];
+    coord_u[0 +: ] = _mem[in_addr +: 16];
+    coord_v[0 +: ] = _mem[in_addr + plane_bytes +: 16];
+    texture_r[0 +: ] = _mem[in_addr + plane_bytes + plane_bytes +: 16];
 
     with row: u32 = (0, row_) do {
         [[unroll(4)]]
@@ -68,6 +68,6 @@ rtype bilinear_sampling_fixed(rs1: u5, rs2: u5, rd: u5) {
         let row_: u32 = row + 1;
     } while (row_ < 4);
 
-    _burst_write[out_addr +: 16] = sample_r[0 +: ];
+    _mem[out_addr +: 16] = sample_r[0 +: ];
     _irf[rd] = 0;
 }

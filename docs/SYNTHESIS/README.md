@@ -37,10 +37,10 @@ rtype hello(rs1: u5, rs2: u5, rd: u5) {
 ```mlir
 func.func @hello(%rs1: i5, %rs2: i5, %rd: i5)
     attributes {opcode = 43 : i32, funct7 = 0 : i32} {
-  %0 = aps.readrf %rs1 : i5 -> i32
-  %1 = aps.readrf %rs2 : i5 -> i32
+  %0 = aps.read_irf %rs1 : i5 -> i32
+  %1 = aps.read_irf %rs2 : i5 -> i32
   %2 = arith.addi %0, %1 : i32
-  aps.writerf %rd, %2 : i5, i32
+  aps.write_irf %rd, %2 : i5, i32
   return
 }
 ```
@@ -67,10 +67,10 @@ Lowers scheduled MLIR to CMT2 dialect, then to FIRRTL and SystemVerilog via CIRC
 
 | Operation | Description |
 |-----------|-------------|
-| `aps.readrf` | Read from register file (GPR Req) |
-| `aps.writerf` | Write to register file (Result Resp) |
-| `aps.memload/memstore` | Scratchpad memory access |
-| `aps.memburstload/memburststore` | Burst DMA transfer |
+| `aps.read_irf` | Read from register file (GPR Req) |
+| `aps.write_irf` | Write to register file (Result Resp) |
+| `aps.read_smem/memstore` | Scratchpad memory access |
+| `aps.copy` | Bulk DMA transfer |
 
 ## Optimization Directives
 
@@ -101,6 +101,7 @@ static matrix: [i32; 16];
 
 - [cadl-language.md](cadl-language.md) - CADL language reference
 - [aps-e2e-flow.md](aps-e2e-flow.md) - Current `aps-e2e` synthesis flow and refactor contract
+- [aquas-ir-op-mapping.md](aquas-ir-op-mapping.md) - Current APS operation to three-level Aquas-IR operation mapping plan
 - [aps-to-cmt2-fifo-flow.md](aps-to-cmt2-fifo-flow.md) - Current implementation: code-level explanation of block, slot, and loop FIFO transfer in `aps-to-cmt2`
 - [aps-to-cmt2-scope-fifo-model.md](aps-to-cmt2-scope-fifo-model.md) - Target design note for non-pipeline block-owned boundaries and pipeline scope-owned FIFOs
 - [aps-to-cmt2-transfer-model.md](aps-to-cmt2-transfer-model.md) - Clean split between non-pipeline block-owned entry/exit and pipeline scope-owned FIFO bundles

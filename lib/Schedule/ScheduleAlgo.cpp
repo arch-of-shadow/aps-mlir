@@ -212,7 +212,7 @@ namespace scheduling {
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
 
-            } else if (auto readRfOp = llvm::dyn_cast<aps::CpuRfRead>(op)) {
+            } else if (auto readRfOp = llvm::dyn_cast<aps::ReadIRF>(op)) {
                 // Handle APS CPU register file read as a regular operation
                 Value result = readRfOp.getResult();
                 SmallVector<Value, 4> operands;
@@ -293,7 +293,7 @@ namespace scheduling {
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
 
-            } else if (auto writeRfOp = llvm::dyn_cast<aps::CpuRfWrite>(op)) {
+            } else if (auto writeRfOp = llvm::dyn_cast<aps::WriteIRF>(op)) {
                 // Handle APS CPU register file write as a regular operation
                 SmallVector<Value, 4> operands;
                 operands.push_back(writeRfOp.getRd());
@@ -537,8 +537,8 @@ namespace scheduling {
                 );
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
-            } else if (auto apsMemLoadOp = llvm::dyn_cast<aps::MemLoad>(op)) {
-                // Handle aps.memload
+            } else if (auto apsMemLoadOp = llvm::dyn_cast<aps::ReadSmem>(op)) {
+                // Handle aps.read_smem
                 Value result = apsMemLoadOp.getResult();
                 OpAbstract *newOpA = createMemOp(
                     &op, parentLoop, lastHead,
@@ -552,8 +552,8 @@ namespace scheduling {
                 ValueMap[result] = newOpA;
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
-            } else if (auto apsMemStoreOp = llvm::dyn_cast<aps::MemStore>(op)) {
-                // Handle aps.memstore
+            } else if (auto apsMemStoreOp = llvm::dyn_cast<aps::WriteSmem>(op)) {
+                // Handle aps.write_smem
                 Value mem = apsMemStoreOp.getMemref();
                 std::vector<Value> operands{apsMemStoreOp.getIndices().begin(), apsMemStoreOp.getIndices().end()};
                 operands.push_back(apsMemStoreOp.getValue());
@@ -569,33 +569,49 @@ namespace scheduling {
                 );
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
-            } else if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op)) {
-                // Handle aps.memburstload - TileLink burst read
-                std::vector<Value> operands{
-                    memBurstLoadOp.getCpuAddr(),
-                    memBurstLoadOp.getStart(),
-                    memBurstLoadOp.getLength()
-                };
-                OpAbstract *newOpA = createTLOp(
+            } else if (auto loadOp = llvm::dyn_cast<aps::LoadBy>(op)) {
+                Value result = loadOp.getResult();
+                OpAbstract *newOpA = createMAxiOp(
                     &op, parentLoop, lastHead,
-                    std::vector<Value>{},  // No result
-                    operands,
-                    OpAbstract::OpType::TL_READ_OP
+                    std::vector<Value>{result},
+                    std::vector<Value>{loadOp.getCpuAddr()},
+                    OpAbstract::OpType::M_AXI_READ_OP
+                );
+                ValueMap[result] = newOpA;
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
+            } else if (auto storeOp = llvm::dyn_cast<aps::StoreBy>(op)) {
+                OpAbstract *newOpA = createMAxiOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{},
+                    std::vector<Value>{storeOp.getValue(), storeOp.getCpuAddr()},
+                    OpAbstract::OpType::M_AXI_WRITE_OP
                 );
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
-            } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op)) {
-                // Handle aps.memburststore - TileLink burst write
-                std::vector<Value> operands{
-                    memBurstStoreOp.getStart(),
-                    memBurstStoreOp.getCpuAddr(),
-                    memBurstStoreOp.getLength()
-                };
+            } else if (auto copyOp = llvm::dyn_cast<aps::CopyBy>(op)) {
+                std::vector<Value> operands;
+                OpAbstract::OpType opType;
+                if (copyOp.getDirection() == aps::CopyDirection::Out) {
+                    operands = {
+                        copyOp.getStart(),
+                        copyOp.getCpuAddr(),
+                        copyOp.getLength()
+                    };
+                    opType = OpAbstract::OpType::TL_WRITE_OP;
+                } else {
+                    operands = {
+                        copyOp.getCpuAddr(),
+                        copyOp.getStart(),
+                        copyOp.getLength()
+                    };
+                    opType = OpAbstract::OpType::TL_READ_OP;
+                }
                 OpAbstract *newOpA = createTLOp(
                     &op, parentLoop, lastHead,
-                    std::vector<Value>{},  // No result
+                    std::vector<Value>{},
                     operands,
-                    OpAbstract::OpType::TL_WRITE_OP
+                    opType
                 );
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
@@ -808,7 +824,11 @@ namespace scheduling {
                     continue;
                 }
 
-                if (mAxiOp1->isRead() && mAxiOp2->isRead()) {
+                bool scalarLoadPair =
+                    llvm::isa<aps::LoadBy>(opA1->getOp()) &&
+                    llvm::isa<aps::LoadBy>(opA2->getOp());
+                if (mAxiOp1->isRead() && mAxiOp2->isRead() &&
+                    !scalarLoadPair) {
                     // No data dependency if both read
                     continue;
                 }
@@ -908,6 +928,12 @@ namespace scheduling {
                         mAxiOp1 = OperationMap[op1]->getMAxiOp();
                     }
                     addDependency(Dependence(mAxiOp1, mAxiOp2, distance, Dependence::D_WAW));
+                } else if (scalarLoadPair) {
+                    // HellaCache scalar responses are consumed in issue order.
+                    // Keep scalar aps.load_by operations ordered so load_wait
+                    // binds responses to the intended SSA results.
+                    addDependency(Dependence(mAxiOp1, mAxiOp2, distance,
+                                             Dependence::D_RAR));
                 }
             }
         }
@@ -920,6 +946,9 @@ namespace scheduling {
         // This is needed because memrefs in different blocks may have different SSA values
         // (from different memref.get_global operations) but refer to the same global symbol
         auto isSameGlobalMemref = [](Value memref1, Value memref2) -> bool {
+            if (!memref1 || !memref2)
+                return false;
+
             // Direct SSA value comparison
             if (memref1 == memref2)
                 return true;
@@ -1080,20 +1109,10 @@ namespace scheduling {
                     op2->getType() != OpAbstract::OpType::TL_WRITE_OP)
                     continue;
 
-                // Check if memrefs match
-                // For aps.memburstload/aps.memburststore, we need to check all variadic memrefs
+                // Check all copy memrefs after array partitioning.
                 bool memrefMatches = false;
-                if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op2->getOp())) {
-                    // Check if any of the burst load's memrefs match
-                    for (auto memref : memBurstLoadOp.getMemrefs()) {
-                        if (isSameGlobalMemref(memop1->getMemRef(), memref)) {
-                            memrefMatches = true;
-                            break;
-                        }
-                    }
-                } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op2->getOp())) {
-                    // Check if any of the burst store's memrefs match
-                    for (auto memref : memBurstStoreOp.getMemrefs()) {
+                if (auto copyOp = llvm::dyn_cast<aps::CopyBy>(op2->getOp())) {
+                    for (auto memref : copyOp.getMemrefs()) {
                         if (isSameGlobalMemref(memop1->getMemRef(), memref)) {
                             memrefMatches = true;
                             break;
@@ -1189,20 +1208,10 @@ namespace scheduling {
                 if (memop2 == nullptr || op1.get() == op2.get())
                     continue;
 
-                // Check if memrefs match
-                // For aps.memburstload/aps.memburststore, we need to check all variadic memrefs
+                // Check all copy memrefs after array partitioning.
                 bool memrefMatches = false;
-                if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op1->getOp())) {
-                    // Check if any of the burst load's memrefs match
-                    for (auto memref : memBurstLoadOp.getMemrefs()) {
-                        if (isSameGlobalMemref(memref, memop2->getMemRef())) {
-                            memrefMatches = true;
-                            break;
-                        }
-                    }
-                } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op1->getOp())) {
-                    // Check if any of the burst store's memrefs match
-                    for (auto memref : memBurstStoreOp.getMemrefs()) {
+                if (auto copyOp = llvm::dyn_cast<aps::CopyBy>(op1->getOp())) {
+                    for (auto memref : copyOp.getMemrefs()) {
                         if (isSameGlobalMemref(memref, memop2->getMemRef())) {
                             memrefMatches = true;
                             break;

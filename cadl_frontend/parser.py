@@ -218,7 +218,7 @@ class CADLTransformer(Transformer):
             if isinstance(expr, cadl_ast.RangeSliceExpr):
                 # Check if this is a burst operation
                 if isinstance(expr.expr, cadl_ast.IdentExpr):
-                    if expr.expr.name in ("_burst_read", "_burst_write"):
+                    if expr.expr.name == "_mem":
                         if expr.length is None:
                             raise ValueError(
                                 f"Burst operation on {side_name} must have explicit length"

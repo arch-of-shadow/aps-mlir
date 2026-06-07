@@ -306,10 +306,20 @@ static Value castMappedValue(OpBuilder &builder, Location loc, Value value,
   return castIntegerValue(builder, loc, value, targetType);
 }
 
-static Value lookupAndCastMappedValue(OpBuilder &builder, Location loc,
-                                      IRMapping &mapping, Value oldValue) {
-  return castMappedValue(builder, loc, mapping.lookupOrDefault(oldValue),
-                         oldValue.getType());
+static Type lowerIndexScalarType(OpBuilder &builder, Type type) {
+  if (type.isIndex())
+    return builder.getI32Type();
+  return type;
+}
+
+static std::pair<Value, Value>
+lookupAndCastMappedOperandsToType(OpBuilder &builder, Location loc,
+                                  IRMapping &mapping, Value oldLhs,
+                                  Value oldRhs, Type targetType) {
+  return {castMappedValue(builder, loc, mapping.lookupOrDefault(oldLhs),
+                          targetType),
+          castMappedValue(builder, loc, mapping.lookupOrDefault(oldRhs),
+                          targetType)};
 }
 
 static Value castToIndex(OpBuilder &builder, Location loc, Value value) {
@@ -459,17 +469,19 @@ public:
           for (Operation &bodyOp : op.getBody()->without_terminator()) {
             if (auto castOp = dyn_cast<arith::IndexCastOp>(bodyOp)) {
               Value input = mapping.lookupOrDefault(castOp.getIn());
+              Type targetType =
+                  lowerIndexScalarType(builder, castOp.getResult().getType());
               Value replacement =
-                  castMappedValue(builder, castOp.getLoc(), input,
-                                  castOp.getResult().getType());
+                  castMappedValue(builder, castOp.getLoc(), input, targetType);
               mapping.map(castOp.getResult(), replacement);
               continue;
             }
             if (auto addOp = dyn_cast<arith::AddIOp>(bodyOp)) {
-              Value lhs = lookupAndCastMappedValue(builder, addOp.getLoc(),
-                                                   mapping, addOp.getLhs());
-              Value rhs = lookupAndCastMappedValue(builder, addOp.getLoc(),
-                                                   mapping, addOp.getRhs());
+              Type resultType =
+                  lowerIndexScalarType(builder, addOp.getResult().getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, addOp.getLoc(), mapping, addOp.getLhs(),
+                  addOp.getRhs(), resultType);
               auto replacement =
                   builder.create<arith::AddIOp>(addOp.getLoc(), lhs, rhs);
               replacement->setAttrs(addOp->getAttrs());
@@ -477,10 +489,11 @@ public:
               continue;
             }
             if (auto subOp = dyn_cast<arith::SubIOp>(bodyOp)) {
-              Value lhs = lookupAndCastMappedValue(builder, subOp.getLoc(),
-                                                   mapping, subOp.getLhs());
-              Value rhs = lookupAndCastMappedValue(builder, subOp.getLoc(),
-                                                   mapping, subOp.getRhs());
+              Type resultType =
+                  lowerIndexScalarType(builder, subOp.getResult().getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, subOp.getLoc(), mapping, subOp.getLhs(),
+                  subOp.getRhs(), resultType);
               auto replacement =
                   builder.create<arith::SubIOp>(subOp.getLoc(), lhs, rhs);
               replacement->setAttrs(subOp->getAttrs());
@@ -488,21 +501,59 @@ public:
               continue;
             }
             if (auto mulOp = dyn_cast<arith::MulIOp>(bodyOp)) {
-              Value lhs = lookupAndCastMappedValue(builder, mulOp.getLoc(),
-                                                   mapping, mulOp.getLhs());
-              Value rhs = lookupAndCastMappedValue(builder, mulOp.getLoc(),
-                                                   mapping, mulOp.getRhs());
+              Type resultType =
+                  lowerIndexScalarType(builder, mulOp.getResult().getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, mulOp.getLoc(), mapping, mulOp.getLhs(),
+                  mulOp.getRhs(), resultType);
               auto replacement =
                   builder.create<arith::MulIOp>(mulOp.getLoc(), lhs, rhs);
               replacement->setAttrs(mulOp->getAttrs());
               mapping.map(mulOp.getResult(), replacement.getResult());
               continue;
             }
+            if (auto shlOp = dyn_cast<arith::ShLIOp>(bodyOp)) {
+              Type resultType =
+                  lowerIndexScalarType(builder, shlOp.getResult().getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, shlOp.getLoc(), mapping, shlOp.getLhs(),
+                  shlOp.getRhs(), resultType);
+              auto replacement =
+                  builder.create<arith::ShLIOp>(shlOp.getLoc(), lhs, rhs);
+              replacement->setAttrs(shlOp->getAttrs());
+              mapping.map(shlOp.getResult(), replacement.getResult());
+              continue;
+            }
+            if (auto shrOp = dyn_cast<arith::ShRUIOp>(bodyOp)) {
+              Type resultType =
+                  lowerIndexScalarType(builder, shrOp.getResult().getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, shrOp.getLoc(), mapping, shrOp.getLhs(),
+                  shrOp.getRhs(), resultType);
+              auto replacement =
+                  builder.create<arith::ShRUIOp>(shrOp.getLoc(), lhs, rhs);
+              replacement->setAttrs(shrOp->getAttrs());
+              mapping.map(shrOp.getResult(), replacement.getResult());
+              continue;
+            }
+            if (auto shrOp = dyn_cast<arith::ShRSIOp>(bodyOp)) {
+              Type resultType =
+                  lowerIndexScalarType(builder, shrOp.getResult().getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, shrOp.getLoc(), mapping, shrOp.getLhs(),
+                  shrOp.getRhs(), resultType);
+              auto replacement =
+                  builder.create<arith::ShRSIOp>(shrOp.getLoc(), lhs, rhs);
+              replacement->setAttrs(shrOp->getAttrs());
+              mapping.map(shrOp.getResult(), replacement.getResult());
+              continue;
+            }
             if (auto cmpOp = dyn_cast<arith::CmpIOp>(bodyOp)) {
-              Value lhs = lookupAndCastMappedValue(builder, cmpOp.getLoc(),
-                                                   mapping, cmpOp.getLhs());
-              Value rhs = lookupAndCastMappedValue(builder, cmpOp.getLoc(),
-                                                   mapping, cmpOp.getRhs());
+              Type operandType =
+                  lowerIndexScalarType(builder, cmpOp.getLhs().getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, cmpOp.getLoc(), mapping, cmpOp.getLhs(),
+                  cmpOp.getRhs(), operandType);
               auto replacement = builder.create<arith::CmpIOp>(
                   cmpOp.getLoc(), cmpOp.getPredicate(), lhs, rhs);
               mapping.map(cmpOp.getResult(), replacement.getResult());

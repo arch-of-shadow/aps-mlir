@@ -93,7 +93,7 @@ Expected MLIR shape:
   %else = arith.addi %b, %c1 : i32
   scf.yield %else : i32
 }
-aps.writerf ..., %x1
+aps.write_irf ..., %x1
 ```
 
 If only one branch edits an outer variable, the other branch yields the original
@@ -142,4 +142,3 @@ The following are intentionally not part of the first implementation:
 - Merging globals, constants, memories, or register-file aliases.
 - `break`, `continue`, and early `return` inside `if`.
 - Type-changing assignment across branches.
-

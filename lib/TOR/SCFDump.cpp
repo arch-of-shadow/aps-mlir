@@ -285,13 +285,13 @@ namespace {
                 j["guard"] = get_value(storeOp.getGuard());
             } else if (isa<tor::StreamCreateOp, tor::StreamReadOp, tor::StreamWriteOp>(op)) {
 
-            } else if (auto readRfOp = dyn_cast<aps::CpuRfRead>(op)) {
+            } else if (auto readRfOp = dyn_cast<aps::ReadIRF>(op)) {
                 j["op_type"] = "readrf";
                 j["name"] = get_dump(readRfOp);
                 j["type"] = get_type(readRfOp.getResult().getType());
                 j["operands"] = json::array();
                 j["operands"].push_back(get_value(readRfOp.getOperand()));
-            } else if (auto writeRfOp = dyn_cast<aps::CpuRfWrite>(op)) {
+            } else if (auto writeRfOp = dyn_cast<aps::WriteIRF>(op)) {
                 j["op_type"] = "writerf";
                 j["operands"] = json::array();
                 j["operands"].push_back(get_value(writeRfOp.getOperand(0)));
@@ -301,8 +301,8 @@ namespace {
                 j["op_type"] = "memdeclare";
                 j["name"] = get_dump(memDeclareOp);
                 j["type"] = get_type(memDeclareOp.getResult().getType());
-            } else if (auto memLoadOp = dyn_cast<aps::MemLoad>(op)) {
-                // Handle aps.memload
+            } else if (auto memLoadOp = dyn_cast<aps::ReadSmem>(op)) {
+                // Handle aps.read_smem
                 j["op_type"] = "memload";
                 j["name"] = get_dump(memLoadOp);
                 j["memory"] = get_value(memLoadOp.getMemref());
@@ -311,8 +311,8 @@ namespace {
                     j["indices"].push_back(get_value(idx));
                 }
                 j["type"] = get_type(memLoadOp.getResult().getType());
-            } else if (auto memStoreOp = dyn_cast<aps::MemStore>(op)) {
-                // Handle aps.memstore
+            } else if (auto memStoreOp = dyn_cast<aps::WriteSmem>(op)) {
+                // Handle aps.write_smem
                 j["op_type"] = "memstore";
                 j["memory"] = get_value(memStoreOp.getMemref());
                 j["value"] = get_value(memStoreOp.getValue());
@@ -320,16 +320,17 @@ namespace {
                 for (auto idx : memStoreOp.getIndices()) {
                     j["indices"].push_back(get_value(idx));
                 }
-            } else if (auto memBurstLoadOp = dyn_cast<aps::MemBurstLoad>(op)) {
-                // Handle aps.memburstload - burst load from CPU to APS scratchpad
-                j["op_type"] = "memburstload";
-                j["cpu_addr"] = get_value(memBurstLoadOp.getCpuAddr());
-                // Handle multiple memrefs (after array partitioning)
-                for (auto memref : memBurstLoadOp.getMemrefs()) {
+            } else if (auto copyOp = dyn_cast<aps::Copy>(op)) {
+                // Handle aps.copy - bulk copy between CPU/global memory and scratchpad.
+                j["op_type"] = "copy";
+                j["direction"] =
+                    copyOp.getDirection() == aps::CopyDirection::Out ? "out" : "in";
+                j["cpu_addr"] = get_value(copyOp.getCpuAddr());
+                for (auto memref : copyOp.getMemrefs()) {
                     j["memory"].push_back(get_value(memref));
                 }
-                j["start"] = get_value(memBurstLoadOp.getStart());
-                j["length"] = get_value(memBurstLoadOp.getLength());
+                j["start"] = get_value(copyOp.getStart());
+                j["length"] = get_value(copyOp.getLength());
             } else if (auto globalLoadOp = dyn_cast<aps::GlobalLoad>(op)) {
                 // Handle aps.globalload - load a scalar global variable
                 j["op_type"] = "globalload";
@@ -340,24 +341,14 @@ namespace {
                 j["memory"] = globalStoreOp.getGlobalName();
                 j["value"] = get_value(globalStoreOp.getValue());
             } else if (auto readCSROp = dyn_cast<aps::ReadCSR>(op)) {
-                // Handle aps.readcsr - read a custom CSR register
+                // Handle aps.read_csr - read a custom CSR register
                 j["op_type"] = "readcsr";
                 j["memory"] = readCSROp.getGlobalName();
             } else if (auto writeCSROp = dyn_cast<aps::WriteCSR>(op)) {
-                // Handle aps.writecsr - write a custom CSR register
+                // Handle aps.write_csr - write a custom CSR register
                 j["op_type"] = "writecsr";
                 j["memory"] = writeCSROp.getGlobalName();
                 j["value"] = get_value(writeCSROp.getValue());
-            } else if (auto memBurstStoreOp = dyn_cast<aps::MemBurstStore>(op)) {
-                // Handle aps.memburststore - burst store from APS scratchpad to CPU
-                j["op_type"] = "memburststore";
-                // Handle multiple memrefs (after array partitioning)
-                for (auto memref : memBurstStoreOp.getMemrefs()) {
-                    j["memory"].push_back(get_value(memref));
-                }
-                j["start"] = get_value(memBurstStoreOp.getStart());
-                j["cpu_addr"] = get_value(memBurstStoreOp.getCpuAddr());
-                j["length"] = get_value(memBurstStoreOp.getLength());
             } else if (auto allocaOp = dyn_cast<memref::AllocaOp>(op)) {
                 // Handle memref.alloca - stack allocation
                 j["op_type"] = "alloca";

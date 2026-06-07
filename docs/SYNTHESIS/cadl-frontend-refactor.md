@@ -203,9 +203,9 @@ Methods:
 
 Responsibilities:
 
-- Lower `_irf[...]` to `aps.readrf` / `aps.writerf`.
-- Lower scratchpad/global memory indexing to `aps.memload` / `aps.memstore`.
-- Lower range/burst assignments to `aps.memburstload` / `aps.memburststore`.
+- Lower `_irf[...]` to `aps.read_irf` / `aps.write_irf`.
+- Lower scratchpad/global memory indexing to `aps.read_smem` / `aps.write_smem`.
+- Lower range/burst assignments to `aps.copy`.
 
 This is the core frontend contract with `aps-e2e`. It should be refactored carefully with golden MLIR tests.
 The implementation now lives in `MemoryEmitter` in `to_mlir/memory.py`, with converter compatibility methods kept during migration.
@@ -383,7 +383,7 @@ ExprEmitter
 
 MemoryEmitter
   uses state.globals and state.symbols
-  emits aps.readrf / aps.memload / aps.memstore / burst ops
+  emits aps.read_irf / aps.read_smem / aps.write_smem / aps.copy
 ```
 
 Example sketch:
@@ -495,11 +495,11 @@ Tighten checkers in this order:
 2. Add small structured helpers that parse generated MLIR with CIRCT and inspect operation counts/names.
 3. Add focused checks for important frontend contracts:
    - flow function name and `opcode` / `funct7` attributes,
-   - `_irf[...]` read/write producing `aps.readrf` / `aps.writerf`,
-   - `_mem[...]` producing `_cpu_memory` plus `aps.memload` / `aps.memstore`,
+   - `_irf[...]` read/write producing `aps.read_irf` / `aps.write_irf`,
+   - `_mem[...]` producing `_cpu_memory` plus `aps.read_smem` / `aps.write_smem`,
    - scalar static read producing `aps.globalload`,
-   - array static read/write producing `memref.get_global` plus `aps.memload` / `aps.memstore`,
-   - burst syntax producing `aps.memburstload` / `aps.memburststore`,
+   - array static read/write producing `memref.get_global` plus `aps.read_smem` / `aps.write_smem`,
+   - burst syntax producing `aps.copy`,
    - partition attributes preserved on `memref.global`.
 4. Add pure unit tests for helpers once extracted:
    - symbol lookup/shadowing,

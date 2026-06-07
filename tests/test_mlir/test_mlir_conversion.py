@@ -33,15 +33,15 @@ class TestBasicMLIRConversion:
         """)
         mlir.assert_func("flow_add", function_type="(i32, i32, i32) -> ()")
         mlir.assert_op_count("arith.addi", exactly=1)
-        mlir.assert_op_count("aps.writerf", exactly=1)
+        mlir.assert_op_count("aps.write_irf", exactly=1)
         mlir.assert_operand_types("arith.addi", ["i32", "i32"])
         mlir.assert_result_types("arith.addi", ["i32"])
         addi = mlir.single_op("arith.addi")
-        writerf = mlir.single_op("aps.writerf")
+        write_irf = mlir.single_op("aps.write_irf")
         mlir.assert_operand_producer(addi, 0, None)
         mlir.assert_operand_producer(addi, 1, None)
-        mlir.assert_operand_producer(writerf, 1, "arith.addi")
-        mlir.assert_result_has_user(addi, "aps.writerf")
+        mlir.assert_operand_producer(write_irf, 1, "arith.addi")
+        mlir.assert_result_has_user(addi, "aps.write_irf")
 
     def test_multiple_operations(self):
         mlir = verify_mlir("""
@@ -56,7 +56,7 @@ class TestBasicMLIRConversion:
         mlir.assert_op_count("arith.addi", exactly=1)
         mlir.assert_op_count("arith.muli", exactly=1)
         mlir.assert_op_count("arith.subi", exactly=1)
-        mlir.assert_op_count("aps.writerf", exactly=1)
+        mlir.assert_op_count("aps.write_irf", exactly=1)
 
     def test_bitwise_operations(self):
         mlir = verify_mlir("""
@@ -117,13 +117,13 @@ class TestRegisterFileMLIR:
         }
         """)
         mlir.assert_func("flow_test", function_type="(i5, i5) -> ()")
-        mlir.assert_op_count("aps.readrf", exactly=1)
-        mlir.assert_op_count("aps.writerf", exactly=1)
-        mlir.assert_operand_types("aps.readrf", ["i5"])
-        mlir.assert_result_types("aps.readrf", ["i32"])
-        writerf = mlir.single_op("aps.writerf")
-        mlir.assert_operand_producer(writerf, 1, "aps.readrf")
-        mlir.assert_result_has_user(mlir.single_op("aps.readrf"), "aps.writerf")
+        mlir.assert_op_count("aps.read_irf", exactly=1)
+        mlir.assert_op_count("aps.write_irf", exactly=1)
+        mlir.assert_operand_types("aps.read_irf", ["i5"])
+        mlir.assert_result_types("aps.read_irf", ["i32"])
+        write_irf = mlir.single_op("aps.write_irf")
+        mlir.assert_operand_producer(write_irf, 1, "aps.read_irf")
+        mlir.assert_result_has_user(mlir.single_op("aps.read_irf"), "aps.write_irf")
 
     def test_irf_arithmetic(self):
         mlir = verify_mlir("""
@@ -134,14 +134,14 @@ class TestRegisterFileMLIR:
         }
         """)
         mlir.assert_func("flow_add")
-        mlir.assert_op_count("aps.readrf", exactly=2)
+        mlir.assert_op_count("aps.read_irf", exactly=2)
         mlir.assert_op_count("arith.addi", exactly=1)
-        mlir.assert_op_count("aps.writerf", exactly=1)
+        mlir.assert_op_count("aps.write_irf", exactly=1)
         addi = mlir.single_op("arith.addi")
-        writerf = mlir.single_op("aps.writerf")
-        mlir.assert_operand_producer(addi, 0, "aps.readrf")
-        mlir.assert_operand_producer(addi, 1, "aps.readrf")
-        mlir.assert_operand_producer(writerf, 1, "arith.addi")
+        write_irf = mlir.single_op("aps.write_irf")
+        mlir.assert_operand_producer(addi, 0, "aps.read_irf")
+        mlir.assert_operand_producer(addi, 1, "aps.read_irf")
+        mlir.assert_operand_producer(write_irf, 1, "arith.addi")
 
     def test_irf_complex(self):
         mlir = verify_mlir("""
@@ -154,18 +154,18 @@ class TestRegisterFileMLIR:
         }
         """)
         mlir.assert_func("flow_complex")
-        mlir.assert_op_count("aps.readrf", exactly=3)
+        mlir.assert_op_count("aps.read_irf", exactly=3)
         mlir.assert_op_count("arith.addi", exactly=1)
         mlir.assert_op_count("arith.muli", exactly=1)
-        mlir.assert_op_count("aps.writerf", exactly=1)
+        mlir.assert_op_count("aps.write_irf", exactly=1)
         addi = mlir.single_op("arith.addi")
         muli = mlir.single_op("arith.muli")
-        writerf = mlir.single_op("aps.writerf")
-        mlir.assert_operand_producer(addi, 0, "aps.readrf")
-        mlir.assert_operand_producer(addi, 1, "aps.readrf")
+        write_irf = mlir.single_op("aps.write_irf")
+        mlir.assert_operand_producer(addi, 0, "aps.read_irf")
+        mlir.assert_operand_producer(addi, 1, "aps.read_irf")
         mlir.assert_operand_producer(muli, 0, "arith.addi")
-        mlir.assert_operand_producer(muli, 1, "aps.readrf")
-        mlir.assert_operand_producer(writerf, 1, "arith.muli")
+        mlir.assert_operand_producer(muli, 1, "aps.read_irf")
+        mlir.assert_operand_producer(write_irf, 1, "arith.muli")
 
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
@@ -177,16 +177,14 @@ class TestMemoryMLIR:
             _irf[rd] = value;
         }
         """)
-        mlir.assert_global("_cpu_memory", type_="memref<1024xi32>")
-        mlir.assert_op_count("memref.get_global", exactly=1)
-        mlir.assert_op_count("aps.memload", exactly=1)
-        mlir.assert_operand_types("aps.memload", ["memref<1024xi32>", "i32"])
-        mlir.assert_result_types("aps.memload", ["i32"])
-        load = mlir.single_op("aps.memload")
-        writerf = mlir.single_op("aps.writerf")
-        mlir.assert_operand_producer(load, 0, "memref.get_global")
-        mlir.assert_operand_producer(load, 1, None)
-        mlir.assert_operand_producer(writerf, 1, "aps.memload")
+        mlir.assert_op_count("memref.get_global", exactly=0)
+        mlir.assert_op_count("aps.load", exactly=1)
+        mlir.assert_operand_types("aps.load", ["i32"])
+        mlir.assert_result_types("aps.load", ["i32"])
+        load = mlir.single_op("aps.load")
+        write_irf = mlir.single_op("aps.write_irf")
+        mlir.assert_operand_producer(load, 0, None)
+        mlir.assert_operand_producer(write_irf, 1, "aps.load")
 
     def test_mem_write(self):
         mlir = verify_mlir("""
@@ -194,14 +192,12 @@ class TestMemoryMLIR:
             _mem[addr] = value;
         }
         """)
-        mlir.assert_global("_cpu_memory", type_="memref<1024xi32>")
-        mlir.assert_op_count("memref.get_global", exactly=1)
-        mlir.assert_op_count("aps.memstore", exactly=1)
-        mlir.assert_operand_types("aps.memstore", ["i32", "memref<1024xi32>", "i32"])
-        store = mlir.single_op("aps.memstore")
+        mlir.assert_op_count("memref.get_global", exactly=0)
+        mlir.assert_op_count("aps.store", exactly=1)
+        mlir.assert_operand_types("aps.store", ["i32", "i32"])
+        store = mlir.single_op("aps.store")
         mlir.assert_operand_producer(store, 0, None)
-        mlir.assert_operand_producer(store, 1, "memref.get_global")
-        mlir.assert_operand_producer(store, 2, None)
+        mlir.assert_operand_producer(store, 1, None)
 
     def test_mem_and_irf(self):
         mlir = verify_mlir("""
@@ -212,10 +208,23 @@ class TestMemoryMLIR:
             _irf[rd] = result;
         }
         """)
-        mlir.assert_op_count("aps.readrf", exactly=1)
-        mlir.assert_op_count("aps.memload", exactly=1)
+        mlir.assert_op_count("aps.read_irf", exactly=1)
+        mlir.assert_op_count("aps.load", exactly=1)
         mlir.assert_op_count("arith.addi", exactly=1)
-        mlir.assert_op_count("aps.writerf", exactly=1)
+        mlir.assert_op_count("aps.write_irf", exactly=1)
+
+    def test_burst_copy_directions(self):
+        mlir = verify_mlir("""
+        static buffer: [i32; 512];
+        rtype test(cpu_addr: u64, offset: u32) {
+            buffer[offset +: 8] = _mem[cpu_addr +: 8];
+            _mem[cpu_addr +: 8] = buffer[offset +: ];
+        }
+        """)
+        mlir.assert_global("buffer", type_="memref<512xi32>")
+        mlir.assert_op_count("aps.copy", exactly=2)
+        assert "aps.copy %arg0, (%0)[%arg1]" in mlir.text
+        assert "aps.copy (%0)[%arg1], %arg0" in mlir.text
 
     def test_no_memory_when_unused(self):
         mlir = verify_mlir("""
@@ -227,8 +236,8 @@ class TestMemoryMLIR:
         """)
         mlir.assert_no_op("memref.global")
         mlir.assert_no_op("memref.get_global")
-        mlir.assert_no_op("aps.memload")
-        mlir.assert_no_op("aps.memstore")
+        mlir.assert_no_op("aps.read_smem")
+        mlir.assert_no_op("aps.write_smem")
 
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
@@ -249,8 +258,8 @@ class TestStaticMLIR:
         )
         mlir.assert_op_count("aps.globalload", exactly=1)
         mlir.assert_op_attr("aps.globalload", "global_name", "@counter")
-        mlir.assert_no_op("aps.memload")
-        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "aps.globalload")
+        mlir.assert_no_op("aps.read_smem")
+        mlir.assert_operand_producer(mlir.single_op("aps.write_irf"), 1, "aps.globalload")
 
     def test_static_array(self):
         mlir = verify_mlir("""
@@ -262,9 +271,9 @@ class TestStaticMLIR:
         """)
         mlir.assert_global("buffer", type_="memref<1024xi32>", attrs={"var_name": '"buffer"'})
         mlir.assert_op_count("memref.get_global", exactly=1)
-        mlir.assert_op_count("aps.memstore", exactly=1)
-        mlir.assert_operand_types("aps.memstore", ["i32", "memref<1024xi32>", "i32"])
-        store = mlir.single_op("aps.memstore")
+        mlir.assert_op_count("aps.write_smem", exactly=1)
+        mlir.assert_operand_types("aps.write_smem", ["i32", "memref<1024xi32>", "i32"])
+        store = mlir.single_op("aps.write_smem")
         mlir.assert_operand_producer(store, 1, "memref.get_global")
 
     def test_static_array_bare_identifier_is_rejected(self):
@@ -326,11 +335,11 @@ class TestCSRRegisterMLIR:
             type_="memref<i32>",
             attrs={"csr_address": "2049 : i32", "var_name": '"cfg"'},
         )
-        mlir.assert_op_count("aps.readcsr", exactly=1)
-        mlir.assert_op_attr("aps.readcsr", "global_name", "@cfg")
-        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "aps.readcsr")
+        mlir.assert_op_count("aps.read_csr", exactly=1)
+        mlir.assert_op_attr("aps.read_csr", "global_name", "@cfg")
+        mlir.assert_operand_producer(mlir.single_op("aps.write_irf"), 1, "aps.read_csr")
 
-    def test_csr_register_store_uses_writecsr(self):
+    def test_csr_register_store_uses_write_csr(self):
         mlir = verify_mlir("""
         #[csr_address(0x801)]
         register cfg: u32;
@@ -344,8 +353,8 @@ class TestCSRRegisterMLIR:
             type_="memref<i32>",
             attrs={"csr_address": "2049 : i32", "var_name": '"cfg"'},
         )
-        mlir.assert_op_count("aps.writecsr", exactly=1)
-        mlir.assert_op_attr("aps.writecsr", "global_name", "@cfg")
+        mlir.assert_op_count("aps.write_csr", exactly=1)
+        mlir.assert_op_attr("aps.write_csr", "global_name", "@cfg")
 
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
@@ -361,9 +370,9 @@ class TestControlFlowMLIR:
         mlir.assert_op_count("arith.select", exactly=1)
         mlir.assert_result_types("arith.select", ["i32"])
         select = mlir.single_op("arith.select")
-        writerf = mlir.single_op("aps.writerf")
+        write_irf = mlir.single_op("aps.write_irf")
         mlir.assert_operand_producer(select, 0, "arith.cmpi")
-        mlir.assert_operand_producer(writerf, 1, "arith.select")
+        mlir.assert_operand_producer(write_irf, 1, "arith.select")
 
     def test_nested_if(self):
         mlir = verify_mlir("""
@@ -450,7 +459,7 @@ class TestControlFlowMLIR:
         mlir.assert_region_terminator_operand_producers(
             if_op, [["arith.addi"], ["arith.addi"]]
         )
-        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "scf.if")
+        mlir.assert_operand_producer(mlir.single_op("aps.write_irf"), 1, "scf.if")
 
     def test_if_statement_without_else_yields_original_value(self):
         mlir = verify_mlir("""
@@ -475,7 +484,7 @@ class TestControlFlowMLIR:
         mlir.assert_region_terminator_operand_producers(
             if_op, [["arith.addi"], [None]]
         )
-        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "scf.if")
+        mlir.assert_operand_producer(mlir.single_op("aps.write_irf"), 1, "scf.if")
 
     def test_if_statement_side_effects_do_not_create_results(self):
         mlir = verify_mlir("""
@@ -488,7 +497,7 @@ class TestControlFlowMLIR:
         }
         """)
         mlir.assert_op_count("scf.if", exactly=1)
-        mlir.assert_op_count("aps.writerf", exactly=2)
+        mlir.assert_op_count("aps.write_irf", exactly=2)
         mlir.assert_result_types("scf.if", [])
         if_op = mlir.single_op("scf.if")
         mlir.assert_operand_producer(if_op, 0, "arith.cmpi")
@@ -527,8 +536,8 @@ class TestLoopMLIR:
         mlir.assert_operand_producer(loop, 0, "arith.constant")
         mlir.assert_operand_producer(loop, 1, "arith.constant")
         mlir.assert_operand_producer(loop, 2, "arith.constant")
-        mlir.assert_operand_producer(loop, 3, "aps.readrf")
-        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "scf.for")
+        mlir.assert_operand_producer(loop, 3, "aps.read_irf")
+        mlir.assert_operand_producer(mlir.single_op("aps.write_irf"), 1, "scf.for")
 
     def test_dynamic_bound_do_while_lowers_to_scf_for(self):
         mlir = verify_mlir("""
@@ -565,11 +574,37 @@ class TestLoopMLIR:
         )
 
         mlir.assert_operand_producer(loop, 0, "arith.constant")
-        mlir.assert_operand_producer(loop, 1, "aps.readrf")
+        mlir.assert_operand_producer(loop, 1, "aps.read_irf")
         mlir.assert_operand_producer(loop, 2, "arith.constant")
-        mlir.assert_operand_producer(loop, 3, "aps.readrf")
-        mlir.assert_operand_producer(loop, 4, "aps.readrf")
-        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "scf.for")
+        mlir.assert_operand_producer(loop, 3, "aps.read_irf")
+        mlir.assert_operand_producer(loop, 4, "aps.read_irf")
+        mlir.assert_operand_producer(mlir.single_op("aps.write_irf"), 1, "scf.for")
+
+    def test_unrolled_i16_loop_carried_accumulator(self):
+        mlir = verify_mlir("""
+        rtype loop_i16_acc(rd: u5) {
+            [[unroll(4)]]
+            with i: u32 = (0, i_) acc: i16 = (0, acc_) do {
+                let next: i16 = acc + 1;
+                let acc_: i16 = next;
+                let i_: u32 = i + 1;
+            } while (i_ < 4);
+
+            _irf[rd] = acc;
+        }
+        """)
+        mlir.assert_func("flow_loop_i16_acc", function_type="(i5) -> ()")
+        mlir.assert_op_count("scf.for", exactly=1)
+        mlir.assert_no_op("scf.while")
+        mlir.assert_op_count("scf.yield", exactly=1)
+
+        loop = mlir.single_op("scf.for")
+        mlir.assert_operand_types("scf.for", ["i32", "i32", "i32", "i16"])
+        mlir.assert_result_types("scf.for", ["i16"])
+        mlir.assert_region_block_arg_types(loop, [["i32", "i16"]])
+        mlir.assert_region_terminator_operand_producers(
+            loop, [["arith.trunci"]]
+        )
 
 
 @pytest.mark.skipif(not MLIR_AVAILABLE, reason="MLIR/CIRCT bindings not available")
@@ -585,14 +620,14 @@ class TestComplexExamples:
         }
         """)
         mlir.assert_func("flow_add", opcode=11, funct7=0, function_type="(i5, i5, i5) -> ()")
-        mlir.assert_op_count("aps.readrf", exactly=2)
+        mlir.assert_op_count("aps.read_irf", exactly=2)
         mlir.assert_op_count("arith.addi", exactly=1)
-        mlir.assert_op_count("aps.writerf", exactly=1)
+        mlir.assert_op_count("aps.write_irf", exactly=1)
         addi = mlir.single_op("arith.addi")
-        writerf = mlir.single_op("aps.writerf")
-        mlir.assert_operand_producer(addi, 0, "aps.readrf")
-        mlir.assert_operand_producer(addi, 1, "aps.readrf")
-        mlir.assert_operand_producer(writerf, 1, "arith.addi")
+        write_irf = mlir.single_op("aps.write_irf")
+        mlir.assert_operand_producer(addi, 0, "aps.read_irf")
+        mlir.assert_operand_producer(addi, 1, "aps.read_irf")
+        mlir.assert_operand_producer(write_irf, 1, "arith.addi")
 
     def test_memory_accumulate(self):
         mlir = verify_mlir("""
@@ -610,13 +645,9 @@ class TestComplexExamples:
         }
         """)
         mlir.assert_func("flow_accum", opcode=91, funct7=0)
-        mlir.assert_global("_cpu_memory", type_="memref<1024xi32>")
-        mlir.assert_op_count("aps.memload", exactly=4)
-        mlir.assert_op_count("aps.memstore", exactly=1)
+        mlir.assert_op_count("aps.load", exactly=4)
+        mlir.assert_op_count("aps.store", exactly=1)
         mlir.assert_op_count("arith.addi", at_least=7)
-        for load in mlir.ops_named("aps.memload"):
-            mlir.assert_operand_producer(load, 0, "memref.get_global")
-        mlir.assert_operand_producer(mlir.single_op("aps.memstore"), 1, "memref.get_global")
 
     def test_crc8_simplified(self):
         mlir = verify_mlir("""
@@ -660,7 +691,7 @@ class TestMLIRStructure:
         """)
         for op_name in ["arith.addi", "arith.muli", "arith.subi"]:
             mlir.assert_result_types(op_name, ["i32"])
-        mlir.assert_op_count("aps.writerf", exactly=1)
+        mlir.assert_op_count("aps.write_irf", exactly=1)
 
     def test_type_consistency(self):
         mlir = verify_mlir("""
@@ -673,4 +704,4 @@ class TestMLIRStructure:
         mlir.assert_func("flow_typed", function_type="(i32, i32, i32, i5) -> ()")
         mlir.assert_operand_types("arith.addi", ["i32", "i32"])
         mlir.assert_result_types("arith.addi", ["i32"])
-        mlir.assert_operand_producer(mlir.single_op("aps.writerf"), 1, "arith.addi")
+        mlir.assert_operand_producer(mlir.single_op("aps.write_irf"), 1, "arith.addi")

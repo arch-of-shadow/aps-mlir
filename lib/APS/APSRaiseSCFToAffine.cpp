@@ -82,7 +82,7 @@ static SmallVector<Value> materializeIndexIndices(PatternRewriter &rewriter,
 static LogicalResult cloneOrConvertBodyOp(PatternRewriter &rewriter,
                                           Operation &op, IRMapping &mapping) {
   Location loc = op.getLoc();
-  if (auto load = dyn_cast<aps::MemLoad>(op)) {
+  if (auto load = dyn_cast<aps::ReadSmem>(op)) {
     SmallVector<Value> indices =
         materializeIndexIndices(rewriter, loc, load.getIndices(), mapping);
     auto newLoad = rewriter.create<memref::LoadOp>(
@@ -92,7 +92,7 @@ static LogicalResult cloneOrConvertBodyOp(PatternRewriter &rewriter,
     return success();
   }
 
-  if (auto store = dyn_cast<aps::MemStore>(op)) {
+  if (auto store = dyn_cast<aps::WriteSmem>(op)) {
     SmallVector<Value> indices =
         materializeIndexIndices(rewriter, loc, store.getIndices(), mapping);
     auto newStore = rewriter.create<memref::StoreOp>(

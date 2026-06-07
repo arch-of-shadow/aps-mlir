@@ -1305,7 +1305,7 @@ SDCSolver *SDCSchedule::formulateSDC() {
   // burst maxi and normal maxi should be considered together
   addMAxiConstr(SDC);
 
-  // Add constraints for aps.readrf and aps.writerf operations
+  // Add constraints for aps.read_irf and aps.write_irf operations
   // readrf should be early, writerf should be at the end
   llvm::SmallVector<SDCOpWrapper *> writeRfOps;
   llvm::SmallVector<SDCOpWrapper *> readRfOps;
@@ -1316,9 +1316,9 @@ SDCSolver *SDCSchedule::formulateSDC() {
       continue;
     for (auto op : BB->getOperations()) {
       auto sdcOp = llvm::dyn_cast<SDCOpWrapper>(op);
-      if (llvm::isa<aps::CpuRfWrite>(sdcOp->getOp())) {
+      if (llvm::isa<aps::WriteIRF>(sdcOp->getOp())) {
         writeRfOps.push_back(sdcOp);
-      } else if (llvm::isa<aps::CpuRfRead>(sdcOp->getOp())) {
+      } else if (llvm::isa<aps::ReadIRF>(sdcOp->getOp())) {
         readRfOps.push_back(sdcOp);
       } else if (!llvm::isa<arith::ConstantOp, memref::GetGlobalOp, tor::ReturnOp>(sdcOp->getOp())) {
         // Collect non-constant, non-global, non-return operations
@@ -2073,8 +2073,9 @@ void SDCSchedule::assignSlotAttrAfterSchedule() {
     }
   }
 
-  // TileLink channel assignment based on time interval overlap
-  // Two TileLink ops need different channels if their active intervals overlap
+  // TileLink channel assignment based on time interval overlap.
+  // Copy-in and copy-out share the same "tl" resource/channels, so overlapping
+  // TileLink ops need different channels regardless of direction.
   if (RDB.hasResource("tl")) {
     auto tlId = RDB.getResourceID("tl");
     int numChannels = RDB.getAmount(tlId);

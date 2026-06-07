@@ -96,8 +96,8 @@ public:
     M_AXI_READ_REQUEST_OP, /// axi_read_request
     M_AXI_WRITE_REQUEST_OP, /// axi_write_request
     M_AXI_RESPONSE_OP, /// axi_write_response
-    TL_READ_OP, /// TileLink read (aps.memburstload)
-    TL_WRITE_OP, /// TileLink write (aps.memburststore)
+    TL_READ_OP, /// TileLink copy-in semantics (aps.copy_by in)
+    TL_WRITE_OP, /// TileLink copy-out semantics (aps.copy_by out)
   };
 
   virtual MemOpConcrete *getMemOp() = 0;
@@ -318,33 +318,29 @@ public:
       memref = mAxiWriteRequestOp.getMemref();
       request = mAxiWriteRequestOp.getResult();
       length = getOpLength(mAxiWriteRequestOp.getLength());
-    } else if (auto memBurstLoadOp = llvm::dyn_cast<aps::MemBurstLoad>(op)) {
-      // APS memory burst load operation
-      // For scheduling purposes, use the first memref
-      // (all partitions of the same array should have the same scheduling constraints)
-      auto memrefs = memBurstLoadOp.getMemrefs();
+    } else if (auto loadOp = llvm::dyn_cast<aps::LoadBy>(op)) {
+      addr = loadOp.getCpuAddr();
+    } else if (auto storeOp = llvm::dyn_cast<aps::StoreBy>(op)) {
+      addr = storeOp.getCpuAddr();
+    } else if (auto copyOp = llvm::dyn_cast<aps::CopyBy>(op)) {
+      auto memrefs = copyOp.getMemrefs();
       if (!memrefs.empty()) {
         memref = *memrefs.begin();
       }
-      addr = memBurstLoadOp.getStart();
-      length = getOpLength(memBurstLoadOp.getLength());
-    } else if (auto memBurstStoreOp = llvm::dyn_cast<aps::MemBurstStore>(op)) {
-      // APS memory burst store operation
-      // For scheduling purposes, use the first memref
-      // (all partitions of the same array should have the same scheduling constraints)
-      auto memrefs = memBurstStoreOp.getMemrefs();
-      if (!memrefs.empty()) {
-        memref = *memrefs.begin();
-      }
-      addr = memBurstStoreOp.getStart();
-      length = getOpLength(memBurstStoreOp.getLength());
+      addr = copyOp.getStart();
+      length = getOpLength(copyOp.getLength());
     }
 
-    // Check if memref is defined by an operation (not a BlockArgument)
-    if (auto defOp = memref.getDefiningOp()) {
-      if (auto mAxiCreateOp = llvm::dyn_cast<tor::AXICreateOp>(defOp)) {
-        if (mAxiCreateOp->hasAttr("bus")) {
-          bus = dyn_cast<StringAttr>(mAxiCreateOp->getAttr("bus")).getValue().str();
+    // Scalar TileLink ops do not have an associated scratchpad memref.
+    if (memref) {
+      // Check if memref is defined by an operation (not a BlockArgument)
+      if (auto defOp = memref.getDefiningOp()) {
+        if (auto mAxiCreateOp = llvm::dyn_cast<tor::AXICreateOp>(defOp)) {
+          if (mAxiCreateOp->hasAttr("bus")) {
+            bus = dyn_cast<StringAttr>(mAxiCreateOp->getAttr("bus"))
+                      .getValue()
+                      .str();
+          }
         }
       }
     }
@@ -414,8 +410,8 @@ public:
                 int resource, ArrayRef<Value> R, ArrayRef<Value> O, OpType type)
       : OpConcrete(op, ParentLoop, ParentBB, resource, R, O, type) {
     assert(llvm::isa<tor::LoadOp>(op) || llvm::isa<tor::StoreOp>(op) ||
-           llvm::isa<tor::GuardedStoreOp>(op) || llvm::isa<aps::MemLoad>(op) ||
-           llvm::isa<aps::MemStore>(op) || llvm::isa<mlir::memref::LoadOp>(op) ||
+           llvm::isa<tor::GuardedStoreOp>(op) || llvm::isa<aps::ReadSmem>(op) ||
+           llvm::isa<aps::WriteSmem>(op) || llvm::isa<mlir::memref::LoadOp>(op) ||
            llvm::isa<mlir::memref::StoreOp>(op));
 
     if (auto loadOp = llvm::dyn_cast<tor::LoadOp>(op)) {
@@ -433,13 +429,13 @@ public:
       addr = storeOp.getOperand(
           3); // the first index is the address in the memory bank
       partitionIndices = storeOp.getIndices().drop_front(1);
-    } else if (auto apsLoadOp = llvm::dyn_cast<aps::MemLoad>(op)) {
+    } else if (auto apsLoadOp = llvm::dyn_cast<aps::ReadSmem>(op)) {
       memref = apsLoadOp.getMemref();
       if (apsLoadOp.getIndices().size() > 0) {
         addr = apsLoadOp.getIndices()[0]; // first index is the address
         partitionIndices = apsLoadOp.getIndices().drop_front(1);
       }
-    } else if (auto apsStoreOp = llvm::dyn_cast<aps::MemStore>(op)) {
+    } else if (auto apsStoreOp = llvm::dyn_cast<aps::WriteSmem>(op)) {
       memref = apsStoreOp.getMemref();
       if (apsStoreOp.getIndices().size() > 0) {
         addr = apsStoreOp.getIndices()[0]; // first index is the address

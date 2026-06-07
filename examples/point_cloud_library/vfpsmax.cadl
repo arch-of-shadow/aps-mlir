@@ -42,7 +42,7 @@ rtype vfpsmax_v(rs1: u5, rs2: u5, rd: u5) {
   let vl: u32 = 16;            // Vector length
 
   // Burst read distances from memory into input buffer
-  reduction_vals_in[0 +: ] = _burst_read[addr +: 16];
+  reduction_vals_in[0 +: ] = _mem[addr +: 16];
 
   // Initialize indices [0, 1, 2, ..., VL-1]
   [[unroll(4)]]

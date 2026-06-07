@@ -301,15 +301,15 @@ struct IndexCastOpConversion : public OpConversionPattern<IndexCastOp> {
 };
 
 // APS dialect operations conversion
-struct CpuRfReadConversion : public OpConversionPattern<aps::CpuRfRead> {
-  using OpConversionPattern<aps::CpuRfRead>::OpConversionPattern;
+struct CpuRfReadConversion : public OpConversionPattern<aps::ReadIRF> {
+  using OpConversionPattern<aps::ReadIRF>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(aps::CpuRfRead op, aps::CpuRfRead::Adaptor adaptor,
+  matchAndRewrite(aps::ReadIRF op, aps::ReadIRF::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Clone the operation and add timing attributes
     rewriter.setInsertionPoint(op);
-    auto newOp = rewriter.create<aps::CpuRfRead>(
+    auto newOp = rewriter.create<aps::ReadIRF>(
         op.getLoc(), op.getResult().getType(), adaptor.getOperands());
 
     // Copy existing attributes
@@ -344,19 +344,19 @@ struct CpuRfReadConversion : public OpConversionPattern<aps::CpuRfRead> {
   }
 };
 
-struct CpuRfWriteConversion : public OpConversionPattern<aps::CpuRfWrite> {
-  using OpConversionPattern<aps::CpuRfWrite>::OpConversionPattern;
+struct CpuRfWriteConversion : public OpConversionPattern<aps::WriteIRF> {
+  using OpConversionPattern<aps::WriteIRF>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(aps::CpuRfWrite op, aps::CpuRfWrite::Adaptor adaptor,
+  matchAndRewrite(aps::WriteIRF op, aps::WriteIRF::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Clone the operation and add timing attributes
     rewriter.setInsertionPoint(op);
     auto operands = adaptor.getOperands();
-    // CpuRfWrite expects two operands: rd (address) and value (data)
-    assert(operands.size() == 2 && "CpuRfWrite expects 2 operands");
+    // WriteIRF expects two operands: rd (address) and value (data)
+    assert(operands.size() == 2 && "WriteIRF expects 2 operands");
     auto newOp =
-        rewriter.create<aps::CpuRfWrite>(op.getLoc(), operands[0], operands[1]);
+        rewriter.create<aps::WriteIRF>(op.getLoc(), operands[0], operands[1]);
 
     // Copy existing attributes
     for (auto attr : op->getAttrs()) {
@@ -1312,10 +1312,10 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
       target.addIllegalOp<scf::IfOp, scf::WhileOp>();
 
       // APS operations need timing attributes
-      target.addDynamicallyLegalOp<aps::CpuRfRead>([](aps::CpuRfRead op) {
+      target.addDynamicallyLegalOp<aps::ReadIRF>([](aps::ReadIRF op) {
         return op->hasAttr("starttime") && op->hasAttr("endtime");
       });
-      target.addDynamicallyLegalOp<aps::CpuRfWrite>([](aps::CpuRfWrite op) {
+      target.addDynamicallyLegalOp<aps::WriteIRF>([](aps::WriteIRF op) {
         return op->hasAttr("starttime") && op->hasAttr("endtime");
       });
 

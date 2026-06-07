@@ -33,11 +33,11 @@ SmallVector<Value> castIndicesToIndex(OpBuilder &builder, Location loc,
   return indexCastedIndices;
 }
 
-// Pattern to convert aps.memload to memref.load
-struct APSMemLoadToMemRefLoadPattern : public OpRewritePattern<aps::MemLoad> {
-  using OpRewritePattern<aps::MemLoad>::OpRewritePattern;
+// Pattern to convert aps.read_smem to memref.load
+struct APSMemLoadToMemRefLoadPattern : public OpRewritePattern<aps::ReadSmem> {
+  using OpRewritePattern<aps::ReadSmem>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(aps::MemLoad memLoadOp,
+  LogicalResult matchAndRewrite(aps::ReadSmem memLoadOp,
                                 PatternRewriter &rewriter) const override {
     Location loc = memLoadOp.getLoc();
 
@@ -49,19 +49,19 @@ struct APSMemLoadToMemRefLoadPattern : public OpRewritePattern<aps::MemLoad> {
     auto loadOp = rewriter.create<LoadOp>(
         loc, memLoadOp.getMemref(), indexCastedIndices);
 
-    // Replace the aps.memload
+    // Replace the aps.read_smem
     rewriter.replaceOp(memLoadOp, loadOp.getResult());
 
-    LLVM_DEBUG(llvm::dbgs() << "Converted aps.memload to memref.load\n");
+    LLVM_DEBUG(llvm::dbgs() << "Converted aps.read_smem to memref.load\n");
     return success();
   }
 };
 
-// Pattern to convert aps.memstore to memref.store
-struct APSMemStoreToMemRefStorePattern : public OpRewritePattern<aps::MemStore> {
-  using OpRewritePattern<aps::MemStore>::OpRewritePattern;
+// Pattern to convert aps.write_smem to memref.store
+struct APSMemStoreToMemRefStorePattern : public OpRewritePattern<aps::WriteSmem> {
+  using OpRewritePattern<aps::WriteSmem>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(aps::MemStore memStoreOp,
+  LogicalResult matchAndRewrite(aps::WriteSmem memStoreOp,
                                 PatternRewriter &rewriter) const override {
     Location loc = memStoreOp.getLoc();
 
@@ -73,10 +73,10 @@ struct APSMemStoreToMemRefStorePattern : public OpRewritePattern<aps::MemStore> 
     rewriter.create<StoreOp>(loc, memStoreOp.getValue(),
                              memStoreOp.getMemref(), indexCastedIndices);
 
-    // Erase the aps.memstore
+    // Erase the aps.write_smem
     rewriter.eraseOp(memStoreOp);
 
-    LLVM_DEBUG(llvm::dbgs() << "Converted aps.memstore to memref.store\n");
+    LLVM_DEBUG(llvm::dbgs() << "Converted aps.write_smem to memref.store\n");
     return success();
   }
 };

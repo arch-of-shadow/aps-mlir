@@ -81,14 +81,8 @@ struct AutoBurstPartitionPass
     };
 
     moduleOp.walk([&](Operation *op) {
-      if (auto burstLoad = dyn_cast<aps::MemBurstLoad>(op)) {
-        for (Value memref : burstLoad.getMemrefs())
-          collectMemref(memref);
-        return;
-      }
-
-      if (auto burstStore = dyn_cast<aps::MemBurstStore>(op)) {
-        for (Value memref : burstStore.getMemrefs())
+      if (auto copy = dyn_cast<aps::Copy>(op)) {
+        for (Value memref : copy.getMemrefs())
           collectMemref(memref);
       }
     });

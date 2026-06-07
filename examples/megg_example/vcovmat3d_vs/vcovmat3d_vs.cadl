@@ -58,13 +58,13 @@ rtype vcovmat3d_vs(rs1: u5, rs2: u5, rd: u5) {
 
   // Burst read all X coordinates (16 values in parallel)
   // Only 1 DMA startup penalty for entire vector
-  points_x[0 +: ] = _burst_read[points_addr +: 16];
+  points_x[0 +: ] = _mem[points_addr +: 16];
 
   // Burst read all Y coordinates
-  points_y[0 +: ] = _burst_read[points_addr + 64 +: 16];
+  points_y[0 +: ] = _mem[points_addr + 64 +: 16];
 
   // Burst read all Z coordinates
-  points_z[0 +: ] = _burst_read[points_addr + 128 +: 16];
+  points_z[0 +: ] = _mem[points_addr + 128 +: 16];
 
   // Process all 16 points with 4-way unrolling for throughput
   // Each iteration computes outer product and accumulates
@@ -94,7 +94,7 @@ rtype vcovmat3d_vs(rs1: u5, rs2: u5, rd: u5) {
   } while i_ < 16;
 
   // Burst write accumulated covariance matrix (8 values including metadata)
-  _burst_write[out_addr +: 8] = cov_accum[0 +: ];
+  _mem[out_addr +: 8] = cov_accum[0 +: ];
 
   // Return success indicator (non-zero means valid result)
   _irf[rd] = 1;

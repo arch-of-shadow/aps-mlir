@@ -34,7 +34,7 @@ rtype csr_partition_loop(rs1: u5, rs2: u5, rd: u5) {
     let gain: u32 = _csr[gain_cfg];
     let bias: u32 = _csr[bias_cfg];
 
-    in_px[0 +: ] = _burst_read[in_addr +: 16];
+    in_px[0 +: ] = _mem[in_addr +: 16];
 
     [[unroll(4)]]
     with i: u32 = (0, i_) do {
@@ -43,6 +43,6 @@ rtype csr_partition_loop(rs1: u5, rs2: u5, rd: u5) {
         let i_: u32 = i + 1;
     } while (i_ < 16);
 
-    _burst_write[out_addr +: 16] = out_px[0 +: ];
+    _mem[out_addr +: 16] = out_px[0 +: ];
     _irf[rd] = 0;
 }

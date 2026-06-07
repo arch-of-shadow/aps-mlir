@@ -136,7 +136,7 @@ def test_scf_to_tor_legalizes_residual_u8_for_without_conversion_error(
         """
 module {
   func.func @flow_iv_u8_loop(%arg0: i5, %arg1: i5) attributes {funct7 = 122 : i32, opcode = 91 : i32} {
-    %0 = aps.readrf %arg0 : i5 -> i32
+    %0 = aps.read_irf %arg0 : i5 -> i32
     %c0_i8 = arith.constant 0 : i8
     %c8_i32 = arith.constant 8 : i32
     %ub = arith.trunci %c8_i32 : i32 to i8
@@ -146,7 +146,7 @@ module {
       %next = arith.addi %sum, %i32 : i32
       scf.yield %next : i32
     }
-    aps.writerf %arg1, %1 : i5, i32
+    aps.write_irf %arg1, %1 : i5, i32
     return
   }
 }
@@ -358,9 +358,9 @@ module {
     %c4 = arith.constant 4 : i32
     %c1 = arith.constant 1 : i32
     scf.for %i = %c0 to %c4 step %c1 : i32 {
-      %v = aps.memload %mem[%i] : memref<16xi32>, i32 -> i32
+      %v = aps.read_smem %mem[%i] : memref<16xi32>, i32 -> i32
       %next = arith.addi %v, %x : i32
-      aps.memstore %next, %mem[%i] : i32, memref<16xi32>, i32
+      aps.write_smem %next, %mem[%i] : i32, memref<16xi32>, i32
     }
     return
   }
@@ -372,8 +372,8 @@ module {
     assert "affine.for" in output
     assert "affine.load" in output
     assert "affine.store" in output
-    assert "aps.memload" not in output
-    assert "aps.memstore" not in output
+    assert "aps.read_smem" not in output
+    assert "aps.write_smem" not in output
     assert "memref.load" not in output
     assert "memref.store" not in output
 
@@ -407,8 +407,8 @@ def test_dynamic_step_loop_keeps_aps_memory_unchanged(tmp_path: Path):
 module {
   func.func @dynamic_step_aps_mem(%mem: memref<16xi32>, %lb: i32, %ub: i32, %step: i32) {
     scf.for %i = %lb to %ub step %step : i32 {
-      %v = aps.memload %mem[%i] : memref<16xi32>, i32 -> i32
-      aps.memstore %v, %mem[%i] : i32, memref<16xi32>, i32
+      %v = aps.read_smem %mem[%i] : memref<16xi32>, i32 -> i32
+      aps.write_smem %v, %mem[%i] : i32, memref<16xi32>, i32
     }
     return
   }
@@ -418,8 +418,8 @@ module {
 
     assert "affine.for" not in output
     assert "scf.for" in output
-    assert "aps.memload" in output
-    assert "aps.memstore" in output
+    assert "aps.read_smem" in output
+    assert "aps.write_smem" in output
     assert "memref.load" not in output
     assert "memref.store" not in output
 
@@ -454,7 +454,7 @@ def test_scf_to_tor_supports_negative_step_loop(tmp_path: Path):
         """
 module {
   func.func @negative_step(%arg0: i5, %arg1: i5) attributes {funct7 = 123 : i32, opcode = 91 : i32} {
-    %0 = aps.readrf %arg0 : i5 -> i32
+    %0 = aps.read_irf %arg0 : i5 -> i32
     %c4 = arith.constant 4 : i4
     %c0 = arith.constant 0 : i4
     %cm1 = arith.constant -1 : i4
@@ -463,7 +463,7 @@ module {
       %next = arith.addi %sum, %i32 : i32
       scf.yield %next : i32
     }
-    aps.writerf %arg1, %1 : i5, i32
+    aps.write_irf %arg1, %1 : i5, i32
     return
   }
 }
@@ -489,7 +489,7 @@ def test_aps_to_cmt2_supports_negative_step_loop(tmp_path: Path):
         """
 module {
   func.func @negative_step(%arg0: i5, %arg1: i5) attributes {funct7 = 123 : i32, opcode = 91 : i32} {
-    %0 = aps.readrf %arg0 : i5 -> i32
+    %0 = aps.read_irf %arg0 : i5 -> i32
     %c4 = arith.constant 4 : i4
     %c0 = arith.constant 0 : i4
     %cm1 = arith.constant -1 : i4
@@ -498,7 +498,7 @@ module {
       %next = arith.addi %sum, %i32 : i32
       scf.yield %next : i32
     }
-    aps.writerf %arg1, %1 : i5, i32
+    aps.write_irf %arg1, %1 : i5, i32
     return
   }
 }

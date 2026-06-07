@@ -29,21 +29,16 @@ using namespace circt::firrtl;
 LogicalResult MemoryOpGenerator::generateRule(
     Operation *op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  if (auto spmLoadReq = dyn_cast<aps::SpmLoadReq>(op)) {
+  if (auto spmLoadReq = dyn_cast<aps::ReadSmemIssue>(op)) {
     return generateSpmLoadReq(spmLoadReq, b, loc, slot, localMap);
-  } else if (auto spmLoadCollect = dyn_cast<aps::SpmLoadCollect>(op)) {
+  } else if (auto spmLoadCollect = dyn_cast<aps::ReadSmemWait>(op)) {
     return generateSpmLoadCollect(spmLoadCollect, b, loc, slot, localMap);
-  } else if (auto memStore = dyn_cast<aps::MemStore>(op)) {
+  } else if (auto memStore = dyn_cast<aps::WriteSmem>(op)) {
     return generateMemStore(memStore, b, loc, slot, localMap);
-  } else if (auto burstLoadReq = dyn_cast<aps::ItfcBurstLoadReq>(op)) {
-    return generateBurstLoadReq(burstLoadReq, b, loc, slot, localMap);
-  } else if (auto burstLoadCollect = dyn_cast<aps::ItfcBurstLoadCollect>(op)) {
-    return generateBurstLoadCollect(burstLoadCollect, b, loc, slot, localMap);
-  } else if (auto burstStoreReq = dyn_cast<aps::ItfcBurstStoreReq>(op)) {
-    return generateBurstStoreReq(burstStoreReq, b, loc, slot, localMap);
-  } else if (auto burstStoreCollect =
-                 dyn_cast<aps::ItfcBurstStoreCollect>(op)) {
-    return generateBurstStoreCollect(burstStoreCollect, b, loc, slot, localMap);
+  } else if (auto copyIssue = dyn_cast<aps::CopyIssue>(op)) {
+    return generateCopyIssue(copyIssue, b, loc, slot, localMap);
+  } else if (auto copyWait = dyn_cast<aps::CopyWait>(op)) {
+    return generateCopyWait(copyWait, b, loc, slot, localMap);
   } else if (auto globalLoad = dyn_cast<aps::GlobalLoad>(op)) {
     return generateGlobalMemLoad(globalLoad, b, loc, slot, localMap);
   } else if (auto globalStore = dyn_cast<aps::GlobalStore>(op)) {
@@ -57,11 +52,10 @@ LogicalResult MemoryOpGenerator::generateRule(
 }
 
 bool MemoryOpGenerator::canHandle(Operation *op) const {
-  return isa<aps::MemStore, aps::ItfcBurstLoadReq,
-             aps::ItfcBurstLoadCollect, aps::ItfcBurstStoreReq,
-             aps::ItfcBurstStoreCollect, memref::GetGlobalOp,
+  return isa<aps::WriteSmem, aps::CopyIssue, aps::CopyWait,
+             memref::GetGlobalOp,
              aps::GlobalStore, aps::GlobalLoad,
-             aps::SpmLoadReq, aps::SpmLoadCollect>(op);
+             aps::ReadSmemIssue, aps::ReadSmemWait>(op);
 }
 
 LogicalResult MemoryOpGenerator::generateGlobalMemLoad(
@@ -103,7 +97,7 @@ LogicalResult MemoryOpGenerator::generateGlobalMemStore(
 }
 
 LogicalResult MemoryOpGenerator::generateSpmLoadReq(
-    aps::SpmLoadReq op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    aps::ReadSmemIssue op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // PANIC if no indices provided
   if (op.getIndices().empty()) {
@@ -135,14 +129,14 @@ LogicalResult MemoryOpGenerator::generateSpmLoadReq(
   auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
   if (!memrefType) {
     op.emitError("Memory reference is not memref type");
-    llvm::report_fatal_error("SpmLoadReq: invalid memref type");
+    llvm::report_fatal_error("ReadSmemIssue: invalid memref type");
   }
 
   // Calculate required address bit width from array size: ceil(log2(size))
   auto shape = memrefType.getShape();
   if (shape.empty() || shape[0] <= 0) {
     op.emitError("Memref must have valid array size");
-    llvm::report_fatal_error("SpmLoadReq: invalid memref shape");
+    llvm::report_fatal_error("ReadSmemIssue: invalid memref shape");
   }
   int64_t arraySize = shape[0];
   unsigned addrWidth = arraySize <= 1 ? 1 : (unsigned)std::ceil(std::log2(arraySize));
@@ -161,20 +155,20 @@ LogicalResult MemoryOpGenerator::generateSpmLoadReq(
       mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
       mlir::ArrayAttr(), mlir::ArrayAttr());
 
-  // Store dummy token - the actual data will be collected in SpmLoadCollect
+  // Store dummy token - the actual data will be collected in ReadSmemWait
   localMap[op.getResult()] = UInt::constant(1, 1, b, loc).getValue();
   return success();
 }
 
 LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
-    aps::SpmLoadCollect op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    aps::ReadSmemWait op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // Get the request token's defining operation to find the memory bank info
   Value request = op.getRequest();
-  auto reqOp = request.getDefiningOp<aps::SpmLoadReq>();
+  auto reqOp = request.getDefiningOp<aps::ReadSmemIssue>();
   if (!reqOp) {
-    op.emitError("SPM load collect must have SpmLoadReq as input");
-    llvm::report_fatal_error("SpmLoadCollect: invalid request token");
+    op.emitError("SPM load collect must have ReadSmemIssue as input");
+    llvm::report_fatal_error("ReadSmemWait: invalid request token");
   }
 
   // Get the memory reference from the request operation
@@ -195,7 +189,7 @@ LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
   auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
   if (!memrefType) {
     op.emitError("Memory reference is not memref type");
-    llvm::report_fatal_error("SpmLoadCollect: invalid memref type");
+    llvm::report_fatal_error("ReadSmemWait: invalid memref type");
   }
 
   // Get element type for result width
@@ -203,7 +197,7 @@ LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
   auto intType = dyn_cast<mlir::IntegerType>(elementType);
   if (!intType) {
     op.emitError("Memref element type is not integer");
-    llvm::report_fatal_error("SpmLoadCollect: memref element must be integer type");
+    llvm::report_fatal_error("ReadSmemWait: memref element must be integer type");
   }
   unsigned resultWidth = intType.getWidth();
 
@@ -222,7 +216,7 @@ LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
 }
 
 LogicalResult MemoryOpGenerator::generateMemStore(
-    aps::MemStore op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    aps::WriteSmem op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // PANIC if no indices provided
   if (op.getIndices().empty()) {
@@ -262,7 +256,7 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
   if (!memrefType) {
     op.emitError("Memory reference is not memref type");
-    llvm::report_fatal_error("MemStore: invalid memref type");
+    llvm::report_fatal_error("WriteSmem: invalid memref type");
   }
 
   // Get element type for data width
@@ -270,7 +264,7 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   auto intType = dyn_cast<mlir::IntegerType>(elementType);
   if (!intType) {
     op.emitError("Memref element type is not integer");
-    llvm::report_fatal_error("MemStore: memref element must be integer type");
+    llvm::report_fatal_error("WriteSmem: memref element must be integer type");
   }
   unsigned dataWidth = intType.getWidth();
 
@@ -278,7 +272,7 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   auto shape = memrefType.getShape();
   if (shape.empty() || shape[0] <= 0) {
     op.emitError("Memref must have valid array size");
-    llvm::report_fatal_error("MemStore: invalid memref shape");
+    llvm::report_fatal_error("WriteSmem: invalid memref shape");
   }
   int64_t arraySize = shape[0];
   unsigned addrWidth = arraySize <= 1 ? 1 : (unsigned)std::ceil(std::log2(arraySize));
@@ -301,8 +295,8 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   return success();
 }
 
-LogicalResult MemoryOpGenerator::generateBurstLoadReq(
-    aps::ItfcBurstLoadReq op, mlir::OpBuilder &b, Location loc, int64_t slot,
+LogicalResult MemoryOpGenerator::generateCopyIssue(
+    aps::CopyIssue op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   Value cpuAddr = op.getCpuAddr();
   Value memRef = op.getMemrefs()[0];
@@ -313,7 +307,7 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   // Get the global memory reference name
   auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(memRef.getDefiningOp());
   if (!getGlobalOp) {
-    op.emitError("Burst load request must use global memory reference");
+    op.emitError("Copy issue must use global memory reference");
     return failure();
   }
   auto globalName = getGlobalOp.getName().str();
@@ -360,8 +354,8 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   // Use getValueInRule to get start with proper FIRRTL conversion
   auto startValue = getValueInRule(start, op.getOperation(), b, localMap, loc);
   if (failed(startValue)) {
-    op.emitError("Failed to get start for burst load");
-    llvm::report_fatal_error("Burst load start resolution failed");
+    op.emitError("Failed to get start for copy issue");
+    llvm::report_fatal_error("Copy issue start resolution failed");
   }
 
   auto startSig = Signal(*startValue, &b, loc).bits(31, 0);
@@ -393,8 +387,8 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   auto cpuAddrValue =
       getValueInRule(cpuAddr, op.getOperation(), b, localMap, loc);
   if (failed(cpuAddrValue)) {
-    op.emitError("Failed to get cpuAddr for burst load");
-    llvm::report_fatal_error("Burst load cpuAddr resolution failed");
+    op.emitError("Failed to get cpuAddr for copy issue");
+    llvm::report_fatal_error("Copy issue cpuAddr resolution failed");
   }
 
   // Call DMA interface
@@ -419,7 +413,10 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   }
   auto strideYValue = UInt::constant(strideY, 8, b, loc);
 
-  dmaItfc->callMethod("cpu_to_isax_ch" + std::to_string(tl_id),
+  std::string methodName =
+      op.getDirection() == aps::CopyDirection::Out ? "isax_to_cpu_ch"
+                                                   : "cpu_to_isax_ch";
+  dmaItfc->callMethod(methodName + std::to_string(tl_id),
                       {*cpuAddrValue, localAddr.bits(31, 0).getValue(),
                        realCpuLength.bits(3, 0).getValue(),
                        strideXValue.getValue(),
@@ -430,145 +427,8 @@ LogicalResult MemoryOpGenerator::generateBurstLoadReq(
   return success();
 }
 
-LogicalResult MemoryOpGenerator::generateBurstLoadCollect(
-    aps::ItfcBurstLoadCollect op, mlir::OpBuilder &b, Location loc,
-    int64_t slot, llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  auto dmaItfc = bbHandler->getDmaInterface();
-  if (dmaItfc) {
-    auto tl_id = op->getAttrOfType<IntegerAttr>("tl_channel").getInt();
-    dmaItfc->callMethod("poll_for_idle_ch" + std::to_string(tl_id), {}, b);
-  }
-  return success();
-}
-
-LogicalResult MemoryOpGenerator::generateBurstStoreReq(
-    aps::ItfcBurstStoreReq op, mlir::OpBuilder &b, Location loc, int64_t slot,
-    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  Value cpuAddr = op.getCpuAddr();
-  Value memRef = op.getMemrefs()[0];
-  Value start = op.getStart();
-  Value numOfElements = op.getLength();
-
-  // Get the global memory reference name
-  auto getGlobalOp = dyn_cast<memref::GetGlobalOp>(memRef.getDefiningOp());
-  if (!getGlobalOp) {
-    op.emitError("Burst store request must use global memory reference");
-    return failure();
-  }
-  auto globalName = getGlobalOp.getName().str();
-
-  // Find the corresponding memory entry using the pre-built map with prefix matching
-  const MemoryEntryInfo *targetMemEntry = nullptr;
-  if (!globalName.empty()) {
-    auto &memEntryMap = bbHandler->getMemEntryMap();
-    
-    // First try exact match
-    auto exactIt = memEntryMap.find(globalName);
-    if (exactIt != memEntryMap.end()) {
-      targetMemEntry = &exactIt->second;
-    } else {
-      // If exact match fails, try prefix matching with underscore
-      llvm::SmallVector<const MemoryEntryInfo *, 4> matchingEntries;
-      
-      for (auto &entry : memEntryMap) {
-        std::string key = entry.first.str();
-        // Check if the map key starts with globalName + "_"
-        if (globalName.rfind( key + "_", 0) == 0) {
-          targetMemEntry = &entry.second;
-        }
-      }
-    }
-  }
-
-  if (!targetMemEntry) {
-    op.emitError("Failed to find target memory entry!");
-    return failure();
-  }
-
-  // Get element type and size from the memory entry info
-  int elementSizeBytes =
-      (targetMemEntry->dataWidth + 7) / 8; // Convert bits to bytes, rounding up
-
-  // Calculate localAddr: baseAddress + (start * numOfElements *
-  // elementSizeBytes)
-  uint32_t baseAddress = targetMemEntry->baseAddress;
-
-  // Use getValueInRule to get start with proper FIRRTL conversion
-  auto startValue = getValueInRule(start, op.getOperation(), b, localMap, loc);
-  if (failed(startValue)) {
-    op.emitError("Failed to get start for burst store");
-    llvm::report_fatal_error("Burst store start resolution failed");
-  }
-
-  // Calculate offset: start * numOfElements * elementSizeBytes
-  auto baseAddrConst = UInt::constant(baseAddress, 32, b, loc);
-  auto startSig = Signal(*startValue, &b, loc);
-  auto elementSizeBytesConst = UInt::constant(elementSizeBytes, 32, b, loc);
-  Signal localAddr = baseAddrConst + startSig * elementSizeBytesConst;
-
-  // Calculate total burst length: elementSizeBytes * numOfElements, rounded up
-  // to nearest power of 2
-  auto numElementsOp = numOfElements.getDefiningOp<arith::ConstantOp>();
-  if (!numElementsOp) {
-    op.emitError("Number of elements must be a constant");
-    return failure();
-  }
-  auto numElementsAttr = numElementsOp.getValue();
-  auto numElements =
-      dyn_cast<IntegerAttr>(numElementsAttr).getValue().getZExtValue();
-
-  uint64_t totalBurstLength = (uint64_t)elementSizeBytes * numElements;
-  uint32_t roundedTotalBurstLength =
-      bbHandler->roundUpToPowerOf2((uint32_t)totalBurstLength);
-  // TileLink size field expects log2 of transfer size (N where size = 2^N)
-  uint32_t tlSizeField = bbHandler->log2Floor(roundedTotalBurstLength);
-  if (tlSizeField == 0) {
-    op->emitError("Got 0 when attempt to call burst store!");
-  }
-  auto realCpuLength = UInt::constant(tlSizeField, 32, b, loc);
-
-  // Use getValueInRule to get cpuAddr with proper FIRRTL conversion
-  auto cpuAddrValue =
-      getValueInRule(cpuAddr, op.getOperation(), b, localMap, loc);
-  if (failed(cpuAddrValue)) {
-    op.emitError("Failed to get cpuAddr for burst store");
-    llvm::report_fatal_error("Burst store cpuAddr resolution failed");
-  }
-
-  // Call DMA interface
-  auto dmaItfc = bbHandler->getDmaInterface();
-  if (!dmaItfc) {
-    op.emitError("DMA interface not available");
-    return failure();
-  }
-
-  auto tl_id = op->getAttrOfType<IntegerAttr>("tl_channel").getInt();
-  auto strideXAttr = op->getAttrOfType<IntegerAttr>("stride_x");
-  int64_t strideX = 0;
-  if (strideXAttr) {
-    strideX = strideXAttr.getInt();
-  }
-  auto strideXValue = UInt::constant(strideX, 8, b, loc);
-  auto strideYAttr = op->getAttrOfType<IntegerAttr>("stride_y");
-  int64_t strideY = 0;
-  if (strideYAttr) {
-    strideY = strideYAttr.getInt();
-  }
-  auto strideYValue = UInt::constant(strideY, 8, b, loc);
-
-  dmaItfc->callMethod("isax_to_cpu_ch" + std::to_string(tl_id),
-                      {*cpuAddrValue, localAddr.bits(31, 0).getValue(),
-                       realCpuLength.bits(3, 0).getValue(),
-                      strideXValue.getValue(),
-                      strideYValue.getValue()},
-                      b);
-
-  localMap[op.getResult()] = UInt::constant(1, 1, b, loc).getValue();
-  return success();
-}
-
-LogicalResult MemoryOpGenerator::generateBurstStoreCollect(
-    aps::ItfcBurstStoreCollect op, mlir::OpBuilder &b, Location loc,
+LogicalResult MemoryOpGenerator::generateCopyWait(
+    aps::CopyWait op, mlir::OpBuilder &b, Location loc,
     int64_t slot, llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   auto dmaItfc = bbHandler->getDmaInterface();
   if (dmaItfc) {

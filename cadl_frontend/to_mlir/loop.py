@@ -416,10 +416,11 @@ class LoopTransformer:
         # Collect initial values for loop-carried variables (iter_args)
         init_values = []
         for binding in pattern.other_bindings:
+            var_type = self.converter.convert_cadl_type(binding.ty)
             if binding.init:
                 init_val = self.converter._convert_expr(binding.init)
+                init_val = self.converter.expr_emitter.cast_type(init_val, var_type)
             else:
-                var_type = self.converter.convert_cadl_type(binding.ty)
                 init_val = arith.ConstantOp(var_type, 0).result
             init_values.append(init_val)
 
@@ -488,6 +489,9 @@ class LoopTransformer:
                 else:
                     # Evaluate next expression
                     next_val = self.converter._convert_expr(binding.next)
+                next_val = self.converter.expr_emitter.cast_type(
+                    next_val, self.converter.convert_cadl_type(binding.ty)
+                )
                 next_values.append(next_val)
 
             # Yield next values
@@ -526,14 +530,15 @@ class LoopTransformer:
         loop_var_types = []
 
         for binding in stmt.bindings:
+            var_type = self.converter.convert_cadl_type(binding.ty)
             # Convert initial value if provided
             if binding.init:
                 init_val = self.converter._convert_expr(binding.init)
+                init_val = self.converter.expr_emitter.cast_type(init_val, var_type)
                 init_values.append(init_val)
-                loop_var_types.append(init_val.type)
+                loop_var_types.append(var_type)
             else:
                 # Default initialization for the type
-                var_type = self.converter.convert_cadl_type(binding.ty)
                 zero_val = arith.ConstantOp(var_type, 0).result
                 init_values.append(zero_val)
                 loop_var_types.append(var_type)
@@ -603,6 +608,9 @@ class LoopTransformer:
                         next_val = self.converter.get_symbol(binding.next.name)
                     else:
                         next_val = self.converter._convert_expr(binding.next)
+                    next_val = self.converter.expr_emitter.cast_type(
+                        next_val, self.converter.convert_cadl_type(binding.ty)
+                    )
                     next_values.append(next_val)
                 else:
                     # Keep current value if no next expression

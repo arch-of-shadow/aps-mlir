@@ -42,10 +42,10 @@ static bool hasMemoryConflict(Value memref, int64_t cycle, Block *block,
       continue;
 
     // Check if it accesses the same memref (any index)
-    if (auto memload = dyn_cast<aps::MemLoad>(&op)) {
+    if (auto memload = dyn_cast<aps::ReadSmem>(&op)) {
       if (memload.getMemref() == memref)
         return true;
-    } else if (auto memstore = dyn_cast<aps::MemStore>(&op)) {
+    } else if (auto memstore = dyn_cast<aps::WriteSmem>(&op)) {
       if (memstore.getMemref() == memref)
         return true;
     }
@@ -57,11 +57,11 @@ struct DuplicateMemLoadsPass : public DuplicateMemLoadsBase<DuplicateMemLoadsPas
   void runOnOperation() override {
     auto func = getOperation();
 
-    LLVM_DEBUG(llvm::dbgs() << "\n=== MemLoad Duplication Pass ===\n");
+    LLVM_DEBUG(llvm::dbgs() << "\n=== ReadSmem Duplication Pass ===\n");
 
     // Collect all memload ops and their users
-    SmallVector<aps::MemLoad> memloads;
-    func.walk([&](aps::MemLoad memload) {
+    SmallVector<aps::ReadSmem> memloads;
+    func.walk([&](aps::ReadSmem memload) {
       memloads.push_back(memload);
     });
 
@@ -109,7 +109,7 @@ struct DuplicateMemLoadsPass : public DuplicateMemLoadsBase<DuplicateMemLoadsPas
       }
 
       // For each unique time where we can duplicate, create one duplicate memload
-      llvm::DenseMap<int64_t, aps::MemLoad> timeToClone;
+      llvm::DenseMap<int64_t, aps::ReadSmem> timeToClone;
 
       for (auto [user, time] : usersToFix) {
         if (timeToClone.count(time))
@@ -118,7 +118,7 @@ struct DuplicateMemLoadsPass : public DuplicateMemLoadsBase<DuplicateMemLoadsPas
         // Create a duplicate memload at this time
         // IMPORTANT: Insert BEFORE the user operation
         OpBuilder builder(user);
-        auto newMemload = builder.create<aps::MemLoad>(
+        auto newMemload = builder.create<aps::ReadSmem>(
             memload.getLoc(),
             memload.getResult().getType(),
             memref,

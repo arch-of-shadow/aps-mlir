@@ -1,5 +1,10 @@
 add_mlir_dialect(APS aps)
 
+set(LLVM_TARGET_DEFINITIONS APS.td)
+mlir_tablegen(APSEnums.h.inc -gen-enum-decls)
+mlir_tablegen(APSEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(MLIRAPSEnumsIncGen)
+
 set(LLVM_TARGET_DEFINITIONS Passes.td)
 mlir_tablegen(Passes.h.inc -gen-pass-decls -name APS)
 mlir_tablegen(Passes.capi.h.inc -gen-pass-capi-header --prefix APS)

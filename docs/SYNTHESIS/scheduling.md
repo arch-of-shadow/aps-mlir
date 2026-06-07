@@ -99,10 +99,10 @@ Burst operations must execute consecutively with constraints `t[i] - t[i-1] = 1`
 After scheduling, each operation has timing attributes:
 
 ```mlir
-%0 = aps.readrf %arg0 {st = 0, end = 1}    // Cycles 0-1
-%1 = aps.readrf %arg1 {st = 0, end = 1}    // Cycles 0-1 (parallel)
+%0 = aps.read_irf %arg0 {st = 0, end = 1}    // Cycles 0-1
+%1 = aps.read_irf %arg1 {st = 0, end = 1}    // Cycles 0-1 (parallel)
 %2 = tor.addi %0 %1 {st = 1, end = 2}      // Cycles 1-2
-aps.writerf %arg2, %2 {st = 1, end = 2}    // Cycles 1-2
+aps.write_irf %arg2, %2 {st = 1, end = 2}    // Cycles 1-2
 ```
 
 ## Performance Characteristics
