@@ -87,6 +87,14 @@ cmd = "bash $PIXI_PROJECT_ROOT/scripts/compile.sh {{ cadl }} {{ test_c }} {{ out
 args = ["test_c", "output"]
 cmd = "riscv32-unknown-elf-gcc -std=gnu99 -O3 -Wall -Wextra -fno-common -fno-builtin-printf -march=rv32imaf_zicsr_zifencei -mabi=ilp32f -mcmodel=medany -specs=htif_nano.specs -static -T htif.ld -I$MEGGINCLUDE -o {{ output }} {{ test_c }} -lm"
 
+# APS Spike + Verilator co-sim
+[tasks.aps-cosim-clean]
+cmd = "make -C $PIXI_PROJECT_ROOT/tools/aps-cosim clean"
+
+[tasks.aps-cosim-run]
+args = [{ arg = "elf" }, { arg = "rtl" }, { arg = "extra_args", default = "" }]
+cmd = "bash -lc 'rtl=\"$1\"; elf=\"$2\"; extra=\"$3\"; if [[ \"$rtl\" = /* ]]; then rtl_path=\"$rtl\"; else rtl_path=\"$PIXI_PROJECT_ROOT/$rtl\"; fi; make -j -C \"$PIXI_PROJECT_ROOT/tools/aps-cosim\" spike RTL=\"$rtl_path\" TOP=main && \"$PIXI_PROJECT_ROOT/tools/aps-cosim/obj_dir_spike/Vmain\" $extra \"$elf\"' -- '{{ rtl }}' '{{ elf }}' '{{ extra_args }}'"
+
 [dependencies]
 cmake = ">=4.1.1,<5"
 python = ">=3.12,<3.13"
