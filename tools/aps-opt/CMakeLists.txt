@@ -11,7 +11,18 @@ target_link_libraries(aps-e2e PRIVATE
         CIRCTComb
         CIRCTECMT2
         CIRCTCmt2
+        CIRCTCmt2ToFIRRTL
+        CIRCTFirtool
         CIRCTFIRRTL
+        CIRCTHW
+        CIRCTOM
+        CIRCTSeq
+        CIRCTSim
+        CIRCTSV
+        CIRCTVerif
+        CIRCTLTL
+        CIRCTDebug
+        CIRCTEmit
         
         ${LP_SOLVE_LIB}
         nlohmann_json::nlohmann_json

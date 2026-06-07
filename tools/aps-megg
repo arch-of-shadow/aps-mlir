@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Unified APS Megg command-line entrypoint."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import re
+import runpy
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from cadl_frontend import cadl_ast, parse_proc
+from cadl_frontend.to_c import CTranspiler
+from megg.e2e_compiler import E2ECompiler
+
+LOG = logging.getLogger("aps-megg")
+
+
+def run_command(cmd: list[str]) -> None:
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        return
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+    raise SystemExit(result.returncode)
+
+
+def strip_module_attrs(mlir_path: Path) -> None:
+    text = mlir_path.read_text()
+    pattern = re.compile(
+        r"^(\s*module)\s+attributes\s*\{.*?\}\s*\{",
+        re.DOTALL | re.MULTILINE,
+    )
+    cleaned_text, count = pattern.subn(r"\1 {", text, count=1)
+    if count:
+        mlir_path.write_text(cleaned_text)
+
+
+def extract_encoding(cadl_file: Path, output_file: Path) -> None:
+    proc = parse_proc(cadl_file.read_text(), str(cadl_file))
+    encoding = {}
+
+    for flow_name, flow in proc.flows.items():
+        flow_encoding = {}
+        for attr_name in ("opcode", "funct3", "funct7"):
+            attr_value = flow.attrs.get(attr_name)
+            if not isinstance(attr_value, cadl_ast.LitExpr):
+                continue
+            lit_inner = attr_value.literal.lit
+            if isinstance(lit_inner, cadl_ast.LiteralInner_Fixed):
+                flow_encoding[attr_name] = f"0x{lit_inner.value:X}"
+        if flow_encoding:
+            encoding[flow_name] = flow_encoding
+
+    output_file.write_text(json.dumps(encoding, indent=2))
+
+
+def move_if_exists(src: Path, dst: Path) -> None:
+    if src.exists():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dst))
+
+
+def compile_cadl(args: argparse.Namespace) -> int:
+    cadl_file = Path(args.cadl).resolve()
+    test_c_file = Path(args.test_c).resolve()
+    output = Path(args.output)
+    output_dir = output.parent
+    intermediate_dir = output_dir / "compile_logs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    intermediate_dir.mkdir(parents=True, exist_ok=True)
+
+    if not cadl_file.exists():
+        raise FileNotFoundError(cadl_file)
+    if not test_c_file.exists():
+        raise FileNotFoundError(test_c_file)
+
+    cadl_basename = cadl_file.stem
+    pattern_c = intermediate_dir / f"{cadl_basename}.c"
+    pattern_mlir = intermediate_dir / f"{cadl_basename}.mlir"
+    encoding_json = intermediate_dir / f"{cadl_basename}.json"
+
+    print("=== Megg Compilation Pipeline ===")
+    print(f"  CADL:   {cadl_file}")
+    print(f"  Test C: {test_c_file}")
+    print(f"  Output: {output}")
+    print()
+
+    print("[1/4] Converting CADL to C...")
+    pattern_c.write_text(CTranspiler().transpile(cadl_file))
+    print(f"  Created: {pattern_c}")
+
+    print("[2/4] Converting C to MLIR...")
+    cgeist = shutil.which("cgeist")
+    if not cgeist:
+        raise FileNotFoundError("cgeist")
+    run_command([cgeist, "-S", "-O3", str(pattern_c), "-o", str(pattern_mlir)])
+    strip_module_attrs(pattern_mlir)
+    print(f"  Created: {pattern_mlir}")
+
+    print("[3/4] Extracting encoding JSON...")
+    extract_encoding(cadl_file, encoding_json)
+    print(f"  Created: {encoding_json}")
+
+    print("[4/4] Running Megg E2E compilation...")
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+    compiler = E2ECompiler(
+        source_file=str(test_c_file),
+        custom_instr_mlir=str(pattern_mlir),
+        output=str(output),
+        encoding_json=str(encoding_json),
+        keep_intermediate=True,
+        verbose=args.verbose,
+        handson=args.handson,
+    )
+    if not compiler.compile():
+        return 1
+
+    output_basename = output.with_suffix("").name
+    move_if_exists(output_dir / f"{output_basename}.asm",
+                   intermediate_dir / f"{cadl_basename}.asm")
+    move_if_exists(output_dir / f"{output_basename}.stats.json",
+                   intermediate_dir / f"{cadl_basename}.stats.json")
+    move_if_exists(output_dir / f"{output_basename}.snapshots.json",
+                   intermediate_dir / f"{cadl_basename}.snapshots.json")
+
+    print()
+    print("=== Compilation Complete ===")
+    print(f"  Executable:   {output}")
+    print(f"  Pattern C:    {pattern_c}")
+    print(f"  Pattern MLIR: {pattern_mlir}")
+    print(f"  Encoding:     {encoding_json}")
+    for label, path in (
+        ("Assembly", intermediate_dir / f"{cadl_basename}.asm"),
+        ("Stats", intermediate_dir / f"{cadl_basename}.stats.json"),
+        ("Snapshots", intermediate_dir / f"{cadl_basename}.snapshots.json"),
+    ):
+        if path.exists():
+            print(f"  {label}:     {path}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or argv[0] != "compile":
+        runpy.run_module("megg.cli", run_name="__main__")
+        return 0
+
+    parser = argparse.ArgumentParser(
+        prog="aps-megg compile",
+        description="Compile CADL custom instructions plus a C test to RISC-V.",
+    )
+    parser.add_argument("cadl")
+    parser.add_argument("test_c")
+    parser.add_argument("output")
+    parser.add_argument("--handson", action="store_true")
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args(argv[1:])
+
+    try:
+        return compile_cadl(args)
+    except FileNotFoundError as exc:
+        print(f"File not found: {exc}", file=sys.stderr)
+    except Exception as exc:
+        LOG.error("aps-megg compile failed: %s", exc)
+        if args.verbose:
+            raise
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

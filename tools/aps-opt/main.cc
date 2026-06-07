@@ -2,9 +2,21 @@
 #include "APS/Passes.h"
 #include "TOR/Passes.h"
 #include "TOR/TORDialect.h"
+#include "circt/Conversion/Passes.h"
+#include "circt/Dialect/Debug/DebugDialect.h"
+#include "circt/Dialect/Emit/EmitDialect.h"
+#include "circt/Dialect/FIRRTL/CHIRRTLDialect.h"
 #include "circt/Dialect/Cmt2/Cmt2Dialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/FIRRTL/FIRRTLDialect.h"
+#include "circt/Dialect/HW/HWDialect.h"
+#include "circt/Dialect/LTL/LTLDialect.h"
+#include "circt/Dialect/OM/OMDialect.h"
+#include "circt/Dialect/SV/SVDialect.h"
+#include "circt/Dialect/Seq/SeqDialect.h"
+#include "circt/Dialect/Sim/SimDialect.h"
+#include "circt/Dialect/Verif/VerifDialect.h"
+#include "circt/Firtool/Firtool.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -47,8 +59,8 @@ llvm::cl::alias inputFileShort("i", llvm::cl::desc("Alias for --input"),
                                llvm::cl::cat(apsE2ECategory),
                                llvm::cl::NotHidden);
 llvm::cl::opt<std::string> outputFile(
-    "output", llvm::cl::desc("Output CMT2 MLIR file path"),
-    llvm::cl::value_desc("file"), llvm::cl::Required,
+    "output", llvm::cl::desc("Output file path"),
+    llvm::cl::value_desc("file"), llvm::cl::init("-"),
     llvm::cl::cat(apsE2ECategory));
 llvm::cl::alias outputFileShort("o", llvm::cl::desc("Alias for --output"),
                                 llvm::cl::aliasopt(outputFile),
@@ -68,17 +80,51 @@ llvm::cl::opt<bool> printIrAfterAll(
     "print-ir-after-all", llvm::cl::desc("Print IR after each pass"),
     llvm::cl::init(false), llvm::cl::cat(apsE2ECategory));
 
+enum class ExportFormat {
+  Cmt2,
+  Firrtl,
+  Sv,
+};
+
+llvm::cl::opt<ExportFormat> exportFormat(
+    "export", llvm::cl::desc("Select the output stage"),
+    llvm::cl::values(
+        clEnumValN(ExportFormat::Cmt2, "cmt2", "Full CMT2 MLIR"),
+        clEnumValN(ExportFormat::Firrtl, "firrtl", "FIRRTL MLIR"),
+        clEnumValN(ExportFormat::Sv, "sv", "SystemVerilog")),
+    llvm::cl::init(ExportFormat::Cmt2), llvm::cl::cat(apsE2ECategory));
+
+llvm::cl::opt<std::string> dumpCmt2File(
+    "dump-cmt2",
+    llvm::cl::desc("Also write full CMT2 MLIR before later export stages"),
+    llvm::cl::value_desc("file"), llvm::cl::init(""),
+    llvm::cl::cat(apsE2ECategory));
+
 void registerDialects(DialectRegistry &registry) {
   registry.insert<affine::AffineDialect, LLVM::LLVMDialect,
                   memref::MemRefDialect, arith::ArithDialect, scf::SCFDialect,
                   tor::TORDialect, func::FuncDialect, math::MathDialect,
                   vector::VectorDialect, aps::APSDialect,
+                  circt::chirrtl::CHIRRTLDialect,
                   circt::comb::CombDialect, circt::cmt2::Cmt2Dialect,
-                  circt::firrtl::FIRRTLDialect>();
+                  circt::debug::DebugDialect, circt::emit::EmitDialect,
+                  circt::firrtl::FIRRTLDialect, circt::hw::HWDialect,
+                  circt::ltl::LTLDialect, circt::om::OMDialect,
+                  circt::seq::SeqDialect, circt::sim::SimDialect,
+                  circt::sv::SVDialect, circt::verif::VerifDialect>();
 }
 
 void addCanonicalize(PassManager &pm) {
   pm.addPass(createCanonicalizerPass());
+}
+
+void enablePrintIrAfterAll(PassManager &pm) {
+  pm.enableIRPrinting(
+      /*shouldPrintBeforePass=*/[](Pass *, Operation *) { return false; },
+      /*shouldPrintAfterPass=*/[](Pass *, Operation *) { return true; },
+      /*printModuleScope=*/true,
+      /*printAfterOnlyOnChange=*/false,
+      /*printAfterOnlyOnFailure=*/false);
 }
 
 void buildApsE2EPipeline(PassManager &pm, double clock,
@@ -129,6 +175,61 @@ bool fileExists(llvm::StringRef path) {
   return std::filesystem::exists(std::filesystem::path(path.str()));
 }
 
+LogicalResult writeModuleToFile(ModuleOp module, llvm::StringRef path) {
+  std::string errorMessage;
+  std::unique_ptr<llvm::ToolOutputFile> output =
+      openOutputFile(path, &errorMessage);
+  if (!output) {
+    llvm::errs() << "[ERROR] failed to open output file " << path
+                 << ": " << errorMessage << "\n";
+    return failure();
+  }
+
+  module->print(output->os());
+  output->os() << '\n';
+  output->keep();
+  return success();
+}
+
+LogicalResult lowerCmt2ToFirrtl(ModuleOp module) {
+  PassManager pm = PassManager::on<ModuleOp>(module.getContext());
+  if (printIrAfterAll)
+    enablePrintIrAfterAll(pm);
+  pm.addPass(circt::createLowerCmt2ToFIRRTLPass());
+  return pm.run(module.getOperation());
+}
+
+LogicalResult exportSystemVerilog(ModuleOp module, llvm::StringRef outputPath,
+                                  llvm::StringRef inputPath) {
+  std::string errorMessage;
+  std::unique_ptr<llvm::ToolOutputFile> output =
+      openOutputFile(outputPath, &errorMessage);
+  if (!output) {
+    llvm::errs() << "[ERROR] failed to open output file " << outputPath
+                 << ": " << errorMessage << "\n";
+    return failure();
+  }
+
+  circt::firtool::FirtoolOptions options;
+  options.setOutputFilename(outputPath);
+
+  PassManager pm = PassManager::on<ModuleOp>(module.getContext());
+  if (printIrAfterAll)
+    enablePrintIrAfterAll(pm);
+  if (failed(circt::firtool::populatePreprocessTransforms(pm, options)) ||
+      failed(circt::firtool::populateCHIRRTLToLowFIRRTL(pm, options)) ||
+      failed(circt::firtool::populateLowFIRRTLToHW(pm, options, inputPath)) ||
+      failed(circt::firtool::populateHWToSV(pm, options)) ||
+      failed(circt::firtool::populateExportVerilog(pm, options, output->os())))
+    return failure();
+
+  if (failed(pm.run(module.getOperation())))
+    return failure();
+
+  output->keep();
+  return success();
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -167,14 +268,8 @@ int main(int argc, char **argv) {
   }
 
   PassManager pm = PassManager::on<ModuleOp>(&context);
-  if (printIrAfterAll) {
-    pm.enableIRPrinting(
-        /*shouldPrintBeforePass=*/[](Pass *, Operation *) { return false; },
-        /*shouldPrintAfterPass=*/[](Pass *, Operation *) { return true; },
-        /*printModuleScope=*/true,
-        /*printAfterOnlyOnChange=*/false,
-        /*printAfterOnlyOnFailure=*/false);
-  }
+  if (printIrAfterAll)
+    enablePrintIrAfterAll(pm);
 
   buildApsE2EPipeline(pm, clockPeriod, resourceFile);
 
@@ -183,17 +278,34 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  std::string errorMessage;
-  std::unique_ptr<llvm::ToolOutputFile> output =
-      openOutputFile(resolvedOutput, &errorMessage);
-  if (!output) {
-    llvm::errs() << "[ERROR] failed to open output file " << resolvedOutput
-                 << ": " << errorMessage << "\n";
+  if (!dumpCmt2File.empty() &&
+      failed(writeModuleToFile(*module, dumpCmt2File)))
     return EXIT_FAILURE;
+
+  switch (exportFormat) {
+  case ExportFormat::Cmt2:
+    if (failed(writeModuleToFile(*module, resolvedOutput)))
+      return EXIT_FAILURE;
+    break;
+  case ExportFormat::Firrtl:
+    if (failed(lowerCmt2ToFirrtl(*module))) {
+      llvm::errs() << "[ERROR] lower-cmt2-to-firrtl failed\n";
+      return EXIT_FAILURE;
+    }
+    if (failed(writeModuleToFile(*module, resolvedOutput)))
+      return EXIT_FAILURE;
+    break;
+  case ExportFormat::Sv:
+    if (failed(lowerCmt2ToFirrtl(*module))) {
+      llvm::errs() << "[ERROR] lower-cmt2-to-firrtl failed\n";
+      return EXIT_FAILURE;
+    }
+    if (failed(exportSystemVerilog(*module, resolvedOutput, resolvedInput))) {
+      llvm::errs() << "[ERROR] native SystemVerilog export failed\n";
+      return EXIT_FAILURE;
+    }
+    break;
   }
 
-  module->print(output->os());
-  output->os() << '\n';
-  output->keep();
   return EXIT_SUCCESS;
 }

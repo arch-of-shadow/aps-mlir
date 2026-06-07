@@ -23,6 +23,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED YES)
 
 project(aps_mlir LANGUAGES C CXX)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 # MLIR LLVM CIRCT should be found from ./circt/build
 set(CIRCT_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/circt/build")
 set(MLIR_DIR "${CIRCT_BUILD_DIR}/lib/cmake/mlir")
@@ -33,6 +35,7 @@ find_package(MLIR REQUIRED CONFIG)
 message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
+include(OrToolsPixiDeps)
 find_package(ortools CONFIG)
 if (ortools_FOUND)
     message(STATUS "Found OR-Tools: ${ortools_LIBDIR}")
@@ -48,7 +51,6 @@ else()
 endif()
 
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 list(APPEND CMAKE_MODULE_PATH "${CIRCT_CMAKE_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
