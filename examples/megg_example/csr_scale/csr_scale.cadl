@@ -1,0 +1,25 @@
+// rs1/rs2 carry CPU memory pointers; gain and bias arrive through CSRs.
+#[csr_address(0x801)]
+register gain_cfg: u32;
+#[csr_address(0x802)]
+register bias_cfg: u32;
+
+static input: [u32; 4];
+static output: [u32; 4];
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0011110)]
+rtype csr_scale(rs1: u5, rs2: u5) {
+    let src: u32 = _irf[rs1];
+    let dst: u32 = _irf[rs2];
+    let gain: u32 = _csr[gain_cfg];
+    let bias: u32 = _csr[bias_cfg];
+    input[0 +: ] = _mem[src +: 4];
+
+    with i: u32 = (0, i_) do {
+        output[i] = input[i] * gain + bias;
+        let i_: u32 = i + 1;
+    } while (i_ < 4);
+
+    _mem[dst +: 4] = output[0 +: ];
+}

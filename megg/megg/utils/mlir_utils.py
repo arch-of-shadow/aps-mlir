@@ -1,32 +1,33 @@
-"""
-MLIR Utilities for Megg
-Provides Python-friendly wrappers for MLIR operations including parsing,
-transformation, and optimization.
-"""
+"""MLIR Utilities for Megg"""
 from __future__ import annotations
-from typing import Optional, Union, List
-from pathlib import Path
+
 import logging
+import os
 from enum import IntEnum
+from pathlib import Path
+from typing import List, Optional, Union
+
 from megg.mlir_utils import (
-    MLIRModule, PassManager, MLIROperation, MLIRRegion, MLIRBlock, MLIRValue,
-    MLIRType, MLIRFunctionType
+    MLIRBlock,
+    MLIRFunctionType,
+    MLIRModule,
+    MLIROperation,
+    MLIRRegion,
+    MLIRType,
+    MLIRValue,
+    PassManager,
 )
 
 logger = logging.getLogger(__name__)
 
-
 class OperationType(IntEnum):
     """Operation type enumeration matching C++ enum"""
-    # Module
     MODULE = 0
 
-    # Function operations
     FUNC_FUNC = 1
     FUNC_CALL = 2
     FUNC_RETURN = 3
 
-    # Arithmetic operations
     ARITH_ADD = 4
     ARITH_SUB = 5
     ARITH_MUL = 6
@@ -44,17 +45,14 @@ class OperationType(IntEnum):
     ARITH_NEGF = 18
     ARITH_SELECT = 19
 
-    # Logical operations
     ARITH_ANDI = 20
     ARITH_ORI = 21
     ARITH_XORI = 22
 
-    # Shift operations
     ARITH_SHLI = 60
     ARITH_SHRSI = 61
     ARITH_SHRUI = 62
 
-    # Cast operations
     ARITH_INDEX_CAST = 23
     ARITH_SITOFP = 24
     ARITH_UITOFP = 25
@@ -65,7 +63,6 @@ class OperationType(IntEnum):
     ARITH_TRUNCI = 30
     ARITH_BITCAST = 31
 
-    # Affine operations
     AFFINE_FOR = 32
     AFFINE_IF = 33
     AFFINE_LOAD = 34
@@ -73,14 +70,12 @@ class OperationType(IntEnum):
     AFFINE_YIELD = 36
     AFFINE_APPLY = 37
 
-    # SCF operations
     SCF_FOR = 38
     SCF_IF = 39
     SCF_WHILE = 40
     SCF_YIELD = 41
     SCF_CONDITION = 42
 
-    # Memory operations
     MEMREF_ALLOC = 43
     MEMREF_ALLOCA = 52
     MEMREF_DEALLOC = 44
@@ -90,14 +85,10 @@ class OperationType(IntEnum):
     MEMREF_GET_GLOBAL = 48
     MEMREF_GLOBAL = 49
 
-    # LLVM operations
     LLVM_CALL = 50
     LLVM_RETURN = 51
-    
 
-    # Unknown
     UNKNOWN = 99
-
 
 class MType:
     """Wrapper for MLIR Type"""
@@ -108,7 +99,6 @@ class MType:
     def __str__(self) -> str:
         """Get string representation of the type"""
         return str(self._type)
-
 
 class MFunctionType(MType):
     """Wrapper for MLIR FunctionType"""
@@ -125,7 +115,6 @@ class MFunctionType(MType):
         """Get result types"""
         return [MType(t) for t in self._func_type.get_results()]
 
-
 class MValue:
     """Wrapper for MLIR Value"""
 
@@ -136,7 +125,6 @@ class MValue:
         """Compare MValue objects based on underlying MLIR value pointer"""
         if not isinstance(other, MValue):
             return False
-        # Compare underlying C++ pointers
         return self._value.get_ptr() == other._value.get_ptr()
 
     def __hash__(self):
@@ -166,14 +154,14 @@ class MValue:
         """Get string representation of the value"""
         return str(self._value)
 
-
 class MModule:
-    "MLIRModule cpp wrapper"
+    """MLIRModule cpp wrapper"""
 
     def __init__(self, source: Optional[str] = None):
         self._module = MLIRModule()
         if source is not None:
-            self._module.parse_from_string(source)
+            if not self._module.parse_from_string(source):
+                raise ValueError("Invalid MLIR module")
 
     @classmethod
     def parse(cls, mlir_text: str) -> MModule:
@@ -188,12 +176,12 @@ class MModule:
             raise FileNotFoundError(f"MLIR file not found: {filepath}")
         instance = cls()
         success = instance._module.parse_from_file(str(filepath))
-        instance._is_loaded = success
+        if not success:
+            raise ValueError(f"Invalid MLIR file: {filepath}")
         return instance
 
     @staticmethod
     def save_mlir(mod: MModule, file: str):
-        import os
         if not os.path.isdir(os.path.dirname(file)):
             raise RuntimeError(f"{file} is not a valid path")
         with open(file, "w") as f:
@@ -206,18 +194,25 @@ class MModule:
     def to_string(self) -> str:
         return self._module.to_string()
 
-    def walk_operations(self) -> None:
-        self._module.walk_operations()
-
     def get_operations(self) -> List[MOperation]:
         """Get all operations in the module"""
         ops = self._module.get_operations()
-        return [MOperation(op) for op in ops]
+        return [self._owned_operation(op) for op in ops]
 
     def get_functions(self) -> List[MOperation]:
         """Get all function operations in the module"""
         funcs = self._module.get_functions()
-        return [MOperation(func) for func in funcs]
+        return [self._owned_operation(func) for func in funcs]
+
+    def _owned_operation(self, operation):
+        result = MOperation(operation)
+        result._module_owner = self
+        return result
+
+    def empty_like(self):
+        result = MModule()
+        result._module = self._module.empty_like()
+        return result
 
     def append_to_module(self, op):
         if hasattr(op, '_op'):
@@ -252,13 +247,6 @@ class MModule:
                         return True
         return False
 
-    def clear(self):
-        """Clear all cached references to prevent memory leaks and dangling pointers."""
-        # self._cached_operations = []
-        # self._cached_functions = []
-        import gc
-        gc.collect()
-
     def validate(self) -> bool:
         return self._module.validate()
 
@@ -268,12 +256,6 @@ class MModule:
     def __iter__(self):
         """Iterate over all operations in the module"""
         return iter(self.get_operations())
-
-    @property
-    def is_loaded(self) -> bool:
-        """Check if module was loaded successfully"""
-        return getattr(self, '_is_loaded', True)
-
 
 class MRegion:
     """Wrapper for MLIR Region"""
@@ -303,12 +285,10 @@ class MRegion:
         """Iterate over blocks in the region"""
         return iter(self.get_blocks())
 
-
 class MBlock:
     """Wrapper for MLIR Block"""
 
     def __init__(self, block: MLIRBlock):
-        # Check if already wrapped - unwrap if needed
         if isinstance(block, MBlock):
             block = block._block
         self._block = block
@@ -351,7 +331,6 @@ class MBlock:
     def get_parent_op(self):
         return self._block.get_parent_op()
 
-
 class MOperation:
     """Wrapper for MLIR Operation"""
 
@@ -377,15 +356,6 @@ class MOperation:
     def get_function_type(self) -> Optional[MFunctionType]:
         func_type = self._op.get_function_type()
         return MFunctionType(func_type) if func_type else None
-
-    def cast_to_module(self) -> Optional[MModule]:
-        cpp_module = self._op.cast_to_module()
-        if cpp_module is None:
-            return None
-
-        module = MModule()
-        module._module = cpp_module
-        return module
 
     @property
     def num_operands(self) -> int:
@@ -469,29 +439,16 @@ class MOperation:
         """Get string representation of the operation"""
         return str(self._op)
 
-
 class MLIRPassManager:
-    "MLIRPassManager cpp wrapper"
+    """MLIRPassManager cpp wrapper"""
 
     def __init__(self, module: MModule):
-        if not module.is_loaded:
-            raise ValueError("PassManager requires a loaded module")
         self._pass_manager = PassManager(module._module)
         self._module = module
 
     @staticmethod
     def _normalize_function_target(function: MOperation):
-        """Convert function target to Operation pointer.
-
-        Args:
-            function: Can be:
-                - None: No function filtering (returns None)
-                - str: Function symbol name - will be converted to Operation* by finding the function
-                - MOperation: Function operation object - returns its Operation*
-
-        Returns:
-            MLIROperation pointer or None
-        """
+        """Convert function target to Operation pointer."""
         if function is None:
             return None
         if isinstance(function, MOperation):
@@ -505,13 +462,7 @@ class MLIRPassManager:
         loop_op: MOperation,
         unroll_factor: int = 4,
     ) -> None:
-        """Register affine loop unrolling passes for a specific loop operation.
-
-        Args:
-            function: `MOperation` to limit unrolling scope (None = all functions)
-            loop_op: Target loop operation (MOperation) to unroll (None = all loops)
-            unroll_factor: Factor used when unrolling eligible loops.
-        """
+        """Register affine loop unrolling passes for a specific loop operation."""
         func_ref = function._op if function is not None else None
         loop_ref = loop_op._op if loop_op is not None else None
         self._pass_manager.register_affine_loop_unroll_passes(
@@ -524,13 +475,7 @@ class MLIRPassManager:
         loop_op: MOperation,
         unroll_jam_factor: int = 4,
     ) -> None:
-        """Register affine loop unroll-and-jam passes for a specific loop operation.
-
-        Args:
-            function: `MOperation` to limit unroll-jam scope (None = all functions)
-            loop_op: Target loop operation (MOperation) to unroll-jam (None = all loops)
-            unroll_jam_factor: Factor used when unroll-jamming eligible loops.
-        """
+        """Register affine loop unroll-and-jam passes for a specific loop operation."""
         func_ref = function._op if function is not None else None
         loop_ref = loop_op._op if loop_op is not None else None
         self._pass_manager.register_affine_loop_unroll_jam_passes(
@@ -543,13 +488,7 @@ class MLIRPassManager:
         loop_op: MOperation,
         default_tile_size: int = 32,
     ) -> None:
-        """Register affine loop tiling pass for a specific loop operation.
-
-        Args:
-            function: `MOperation` to limit tiling scope (None = all functions)
-            loop_op: Target loop operation (MOperation) to tile (None = all loops)
-            default_tile_size: Tile size to use
-        """
+        """Register affine loop tiling pass for a specific loop operation."""
         func_ref = function._op if function is not None else None
         loop_ref = loop_op._op if loop_op is not None else None
         self._pass_manager.register_affine_loop_tiling_pass(
@@ -562,13 +501,7 @@ class MLIRPassManager:
         loop_name: str = "",
         unroll_jam_factor: int = 4,
     ) -> None:
-        """Register affine loop unroll-and-jam pass for a specific loop by name.
-
-        Args:
-            function: Function name or `MOperation` to limit scope (None/"" = all functions)
-            loop_name: Only unroll-jam the loop with this name (empty = all loops)
-            unroll_jam_factor: Unroll-and-jam factor to use
-        """
+        """Register affine loop unroll-and-jam pass for a specific loop by name."""
         target_function = self._normalize_function_target(function)
         self._pass_manager.register_affine_loop_unroll_jam_pass(
             target_function, loop_name, unroll_jam_factor

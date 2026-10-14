@@ -159,6 +159,60 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
 pixi run mlir examples/features/csr_partition_loop.cadl out.mlir  # Convert to MLIR
 ```
 
+## CSR Parameters in MEGG
+
+Declare an instruction's configuration input as a CSR and read it with
+`_csr[name]`:
+
+```rust
+#[csr_address(0x801)]
+register gain_cfg: u32;
+```
+
+During semantic alignment, MEGG converts each CSR read into a value parameter
+after the two `rs1`/`rs2` parameters in the generated C pattern. Repeated reads
+of the same CSR share one parameter. Application C uses ordinary values and
+computations; it does not need to write the CSR explicitly.
+
+The instruction encoding JSON carries `csr_inputs` entries with the CSR name,
+address, and original pattern argument index. Matching records the values bound
+to those parameters, including constants and computed expressions. When a
+selected custom instruction is lowered, MEGG emits `csrrw x0, address, value`
+for each bound CSR, followed by the R-type instruction. These operations share
+one side-effecting inline assembly block with a memory clobber. Only the first
+two pattern parameters supply `rs1` and `rs2`; CSR parameters supply the setup
+writes. Unused source registers and void destinations use `x0`.
+The RoCC `xd` flag (bit 2 of `funct3`) is derived from the emitted result:
+value-producing calls set it, while void calls clear it even if encoding
+metadata specifies `funct3 = 0x7`. The `xs1`/`xs2` bits are preserved.
+
+An instruction's input expressions must be available before the region it
+replaces. A CSR input such as `gain + i`, where `i` belongs to the replaced
+loop, prevents that offload and keeps the software loop. An outer-loop value
+can configure an instruction replacing only an inner loop. The matcher checks
+the expressions selected by the extraction cost model; memory reads and other
+effects are conservatively rejected as inputs that would need hoisting.
+
+Integer matching also recovers subtraction patterns after constant folding,
+using negation modulo the operand width. Reconstruction exceptions fail the
+compilation with a function-specific diagnostic instead of silently omitting
+the function from the output module.
+
+The current target is RV32: CSR parameters must have scalar integer types of
+at most 32 bits and literal writable 12-bit addresses. CSR writes inside CADL
+matching patterns are unsupported. Each selected instruction invocation sets
+its CSR inputs; writes are not cached or hoisted across invocations.
+
+For a memory loop with two CSR parameters:
+
+```bash
+pixi run compile examples/megg_example/csr_scale/csr_scale.cadl \
+  examples/megg_example/csr_scale/test_csr_scale.c /tmp/csr_scale.elf
+```
+
+Executing that binary requires hardware implementing the declared CSRs and
+custom instruction.
+
 ## Best Practices
 
 1. Use explicit bit widths for all operations

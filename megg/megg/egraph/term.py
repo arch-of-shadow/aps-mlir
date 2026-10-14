@@ -1,17 +1,11 @@
 # mypy: disable-error-code="empty-body,"
 from __future__ import annotations
+
 import egglog
-from egglog import StringLike, eq, EGraph, rewrite, vars_, Vec
+
 
 class LitTerm(egglog.Expr):
-    """
-    (datatype Lit
-        (Int i64)
-        (Float f64)
-        (Complex Lit Lit)
-        (APFixed i64 i64)
-    )
-    """
+    """(datatype Lit"""
     @egglog.method(egg_fn = "Int")
     @classmethod
     def int(cls, value: egglog.i64) -> LitTerm: ...
@@ -19,23 +13,9 @@ class LitTerm(egglog.Expr):
     @egglog.method(egg_fn = "Float")
     @classmethod
     def float(cls, value: egglog.f64) -> LitTerm: ...
-    # temporarily disable Complex and APFixed until we need them
-    # @egglog.method(egg_fn = "APFixed")
-    # @classmethod
-    # def apfixed(cls, integer: egglog.i64, fractional: egglog.i64) -> LitTerm: ...
 
-
-
-# Create the Term class with directly defined methods
 class Term(egglog.Expr):
-    """
-    (datatype Term
-        (Lit Term)
-        (Arg i64)
-        (<UnaryOp> Term <attr>*)
-        (<BinaryOp> Term Term <attr>*)
-    )
-    """
+    """(datatype Term"""
     @egglog.method(egg_fn = "Lit")
     @classmethod
     def lit(cls, lit: LitTerm, type: egglog.String) -> Term: ...
@@ -56,16 +36,10 @@ class Term(egglog.Expr):
     @classmethod
     def block_arg(cls, block_id: egglog.i64, index: egglog.i64, type: egglog.String) -> Term: ...
 
-    # ---------------------------
-    # Unary arithmetic operations
-    # ---------------------------
     @egglog.method(egg_fn="Neg")
     @classmethod
     def neg(cls, expr: Term, type: egglog.String) -> Term: ...
 
-    # ---------------------------
-    # Binary arithmetic operations
-    # ---------------------------
     @egglog.method(egg_fn="Add")
     @classmethod
     def add(cls, expr: Term, other: Term, type: egglog.String) -> Term: ...
@@ -86,9 +60,6 @@ class Term(egglog.Expr):
     @classmethod
     def rem(cls, expr: Term, other: Term, type: egglog.String) -> Term: ...
 
-    # ---------------------------
-    # Logical operations (bitwise)
-    # ---------------------------
     @egglog.method(egg_fn="And")
     @classmethod
     def and_(cls, expr: Term, other: Term, type: egglog.String) -> Term: ...
@@ -101,9 +72,6 @@ class Term(egglog.Expr):
     @classmethod
     def xor_(cls, expr: Term, other: Term, type: egglog.String) -> Term: ...
 
-    # ---------------------------
-    # Shift operations
-    # ---------------------------
     @egglog.method(egg_fn="Shl")
     @classmethod
     def shl(cls, expr: Term, other: Term, type: egglog.String) -> Term: ...
@@ -116,9 +84,6 @@ class Term(egglog.Expr):
     @classmethod
     def shrui(cls, expr: Term, other: Term, type: egglog.String) -> Term: ...
 
-    # ---------------------------
-    # Cast operations
-    # ---------------------------
     @egglog.method(egg_fn="IndexCast")
     @classmethod
     def index_cast(cls, expr: Term, type: egglog.String) -> Term: ...
@@ -155,9 +120,6 @@ class Term(egglog.Expr):
     @classmethod
     def bitcast(cls, expr: Term, type: egglog.String) -> Term: ...
 
-    # ---------------------------
-    # Comparison operations
-    # ---------------------------
     @egglog.method(egg_fn="Cmp")
     @classmethod
     def cmp(cls, lhs: Term, rhs: Term, predicate: egglog.String, type: egglog.String) -> Term: ...
@@ -166,9 +128,6 @@ class Term(egglog.Expr):
     @classmethod
     def select(cls, cond: Term, true_value: Term, false_value: Term, type: egglog.String) -> Term: ...
 
-    # ---------------------------
-    # Control flow operations
-    # ---------------------------
     @egglog.method(egg_fn="If")
     @classmethod
     def if_(cls, cond: Term, then_branch: Term, else_branch: Term, type: egglog.String) -> Term: ...
@@ -218,9 +177,6 @@ class Term(egglog.Expr):
     @classmethod
     def affine_yield(cls, values: egglog.Vec[Term], type: egglog.String) -> Term: ...
 
-    # ---------------------------
-    # Basic MemRef operations
-    # ---------------------------
     @egglog.method(egg_fn="MemRefAlloc")
     @classmethod
     def alloc(cls, type: egglog.String) -> Term: ...
@@ -241,24 +197,19 @@ class Term(egglog.Expr):
     @classmethod
     def load(cls, memref: Term, index: Term, type: egglog.String) -> Term: ...
 
-    # Return operations (for func.return)
     @egglog.method(egg_fn="Return")
     @classmethod
     def return_(cls, values: egglog.Vec[Term], type: egglog.String) -> Term: ...
     
-    # Condition operations (for cond_br)
     @egglog.method(egg_fn="Condition")
     @classmethod
     def condition(cls, value: Term, iter_vars: egglog.Vec[Term], type: egglog.String) -> Term: ...
 
-
 def safe_id_merge(existing, new):
-    # 遇到冲突时保留前者
     return existing
 
 @egglog.function(egg_fn="id_of", merge=safe_id_merge)
 def id_of(term: Term) -> egglog.i64: ...
-
 
 @egglog.function
 def eclass_ty(t: Term) -> egglog.String:

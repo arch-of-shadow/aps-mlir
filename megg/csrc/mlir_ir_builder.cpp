@@ -11,7 +11,6 @@ namespace megg {
 
 MLIRIRBuilder::MLIRIRBuilder() {
   context = new mlir::MLIRContext();
-  // Register all necessary dialects
   context->loadDialect<mlir::func::FuncDialect>();
   context->loadDialect<mlir::arith::ArithDialect>();
   context->loadDialect<mlir::affine::AffineDialect>();
@@ -31,7 +30,6 @@ MLIRIRBuilder::createFunction(const std::string &name,
                 mlir::LLVM::LinkageAttr::get(getContext(),
                                              mlir::LLVM::Linkage::External));
 
-  // Create entry block
   auto *entryBlock = func.addEntryBlock();
   builder->setInsertionPointToStart(entryBlock);
 
@@ -62,7 +60,6 @@ void MLIRIRBuilder::restoreInsertionPoint(mlir::OpBuilder::InsertPoint ip) {
   builder->restoreInsertionPoint(ip);
 }
 
-// Type creation
 mlir::Type MLIRIRBuilder::getI1Type() { return builder->getI1Type(); }
 
 mlir::Type MLIRIRBuilder::getI32Type() { return builder->getI32Type(); }
@@ -90,17 +87,14 @@ MLIRIRBuilder::getFunctionType(const std::vector<mlir::Type> &inputs,
   return builder->getFunctionType(inputs, results);
 }
 
-// LLVM dialect types
 mlir::Type MLIRIRBuilder::getLLVMPtrType() {
   return mlir::LLVM::LLVMPointerType::get(getContext());
 }
 
-// LLVM dialect operations
 mlir::Value MLIRIRBuilder::createPtrToInt(const mlir::Value& ptr, mlir::Type intType) {
   return builder->create<mlir::LLVM::PtrToIntOp>(getLoc(), intType, ptr);
 }
 
-// Arithmetic operations
 mlir::Value MLIRIRBuilder::createConstantI32(int32_t value) {
   auto type = getI32Type();
   auto attr = builder->getIntegerAttr(type, value);
@@ -189,7 +183,6 @@ mlir::Value MLIRIRBuilder::createRemF(const mlir::Value &lhs,
   return builder->create<mlir::arith::RemFOp>(getLoc(), lhs, rhs);
 }
 
-// Logical operations (bitwise)
 mlir::Value MLIRIRBuilder::createAndI(const mlir::Value &lhs,
                                       const mlir::Value &rhs) {
   return builder->create<mlir::arith::AndIOp>(getLoc(), lhs, rhs);
@@ -205,7 +198,6 @@ mlir::Value MLIRIRBuilder::createXorI(const mlir::Value &lhs,
   return builder->create<mlir::arith::XOrIOp>(getLoc(), lhs, rhs);
 }
 
-// Shift operations
 mlir::Value MLIRIRBuilder::createShlI(const mlir::Value &lhs,
                                       const mlir::Value &rhs) {
   return builder->create<mlir::arith::ShLIOp>(getLoc(), lhs, rhs);
@@ -221,11 +213,9 @@ mlir::Value MLIRIRBuilder::createShrUII(const mlir::Value &lhs,
   return builder->create<mlir::arith::ShRUIOp>(getLoc(), lhs, rhs);
 }
 
-// Comparison operations
 mlir::Value MLIRIRBuilder::createCmpI(const std::string &predicate,
                                       const mlir::Value &lhs,
                                       const mlir::Value &rhs) {
-  // Convert string predicate to enum
   mlir::arith::CmpIPredicate pred;
   if (predicate == "eq")
     pred = mlir::arith::CmpIPredicate::eq;
@@ -256,7 +246,6 @@ mlir::Value MLIRIRBuilder::createCmpI(const std::string &predicate,
 mlir::Value MLIRIRBuilder::createCmpF(const std::string &predicate,
                                       const mlir::Value &lhs,
                                       const mlir::Value &rhs) {
-  // Convert string predicate to enum
   mlir::arith::CmpFPredicate pred;
   if (predicate == "oeq")
     pred = mlir::arith::CmpFPredicate::OEQ;
@@ -347,7 +336,6 @@ mlir::Value MLIRIRBuilder::createBitcast(const mlir::Value &value,
   return builder->create<mlir::arith::BitcastOp>(getLoc(), targetType, value);
 }
 
-// Control flow
 mlir::Operation *
 MLIRIRBuilder::createReturn(const std::vector<mlir::Value> &values) {
   return builder->create<mlir::func::ReturnOp>(getLoc(), values);
@@ -358,7 +346,6 @@ MLIRIRBuilder::createFuncReturn(const std::vector<mlir::Value> &values) {
   return builder->create<mlir::func::ReturnOp>(getLoc(), values);
 }
 
-// Affine operations
 mlir::affine::AffineForOp MLIRIRBuilder::createAffineFor(int64_t lowerBound,
                                                          int64_t upperBound,
                                                          int64_t step) {
@@ -373,7 +360,6 @@ MLIRIRBuilder::createAffineYield(const std::vector<mlir::Value> &values) {
   return builder->create<mlir::affine::AffineYieldOp>(getLoc(), values);
 }
 
-// SCF operations
 mlir::scf::ForOp MLIRIRBuilder::createSCFFor(
     const mlir::Value &lowerBound, const mlir::Value &upperBound,
     const mlir::Value &step, const std::vector<mlir::Value> &iterArgs) {
@@ -390,13 +376,11 @@ MLIRIRBuilder::createSCFIf(const mlir::Value &condition,
   auto ifOp = builder->create<mlir::scf::IfOp>(getLoc(), resultTypes, condition,
                                                hasElse);
 
-  // The then region should already have a block, but let's ensure it
   auto &thenRegion = ifOp.getThenRegion();
   if (thenRegion.empty()) {
     thenRegion.emplaceBlock();
   }
 
-  // Initialize the else region if needed
   if (hasElse) {
     auto &elseRegion = ifOp.getElseRegion();
     if (elseRegion.empty()) {
@@ -414,7 +398,6 @@ MLIRIRBuilder::createSCFWhile(const std::vector<mlir::Type> &resultTypes,
   auto whileOp =
       builder->create<mlir::scf::WhileOp>(getLoc(), resultTypes, initVals);
 
-  // Initialize the before region with a block and arguments
   auto &beforeRegion = whileOp.getBefore();
   if (beforeRegion.empty()) {
     auto *beforeBlock = new mlir::Block();
@@ -424,7 +407,6 @@ MLIRIRBuilder::createSCFWhile(const std::vector<mlir::Type> &resultTypes,
     beforeRegion.push_back(beforeBlock);
   }
 
-  // Initialize the after region with a block and arguments
   auto &afterRegion = whileOp.getAfter();
   if (afterRegion.empty()) {
     auto *afterBlock = new mlir::Block();
@@ -434,7 +416,6 @@ MLIRIRBuilder::createSCFWhile(const std::vector<mlir::Type> &resultTypes,
     afterRegion.push_back(afterBlock);
   }
 
-  // Set insertion point to the before block (condition block)
   builder->setInsertionPointToStart(&beforeRegion.front());
 
   return whileOp;
@@ -485,7 +466,6 @@ mlir::Value MLIRIRBuilder::createMemRefExtractAlignedPointerAsIndex(
       getLoc(), memref);
 }
 
-// Block operations
 mlir::Block *
 MLIRIRBuilder::createBlock(mlir::Region *region,
                            const std::vector<mlir::Type> &argTypes) {
@@ -499,15 +479,12 @@ MLIRIRBuilder::createBlock(mlir::Region *region,
 mlir::Block *
 MLIRIRBuilder::createBlockAtStart(mlir::Region *region,
                                   const std::vector<mlir::Type> &argTypes) {
-  // Create block at the beginning of the region
   mlir::Block &block = region->emplaceBlock();
 
-  // Add arguments
   for (auto type : argTypes) {
     block.addArgument(type, getLoc());
   }
 
-  // Set insertion point to the new block
   builder->setInsertionPointToStart(&block);
   return &block;
 }
@@ -515,15 +492,12 @@ MLIRIRBuilder::createBlockAtStart(mlir::Region *region,
 mlir::Block *
 MLIRIRBuilder::createBlockAtEnd(mlir::Region *region,
                                 const std::vector<mlir::Type> &argTypes) {
-  // emplaceBlock always adds at the end by default
   mlir::Block &block = region->emplaceBlock();
 
-  // Add arguments
   for (auto type : argTypes) {
     block.addArgument(type, getLoc());
   }
 
-  // Set insertion point to the new block
   builder->setInsertionPointToStart(&block);
   return &block;
 }
@@ -541,26 +515,19 @@ void MLIRIRBuilder::setContext(mlir::MLIRContext *newContext) {
   builder = std::make_unique<mlir::OpBuilder>(context);
 }
 
-// LLVM operations
 mlir::Value
 MLIRIRBuilder::createInlineAsm(const std::string &asmString,
                                const std::string &constraints,
                                const std::vector<mlir::Value> &operands,
                                mlir::Type resultType, bool hasSideEffects) {
 
-  // Create string attributes
-  auto asmStringAttr = builder->getStringAttr(asmString);
-  auto constraintsAttr = builder->getStringAttr(constraints);
-
-  // Create inline assembly operation
-  // Use the simplified builder that doesn't require all attributes
   auto asmOp = builder->create<mlir::LLVM::InlineAsmOp>(
       getLoc(), resultType, operands, asmString, constraints, hasSideEffects,
       /*is_align_stack=*/false,
       mlir::LLVM::tailcallkind::TailCallKind(), // Default value
       mlir::LLVM::AsmDialectAttr{}, mlir::ArrayAttr{});
 
-  return asmOp.getResult(0);
+  return asmOp.getNumResults() ? asmOp.getResult(0) : mlir::Value{};
 }
 
 } // namespace megg

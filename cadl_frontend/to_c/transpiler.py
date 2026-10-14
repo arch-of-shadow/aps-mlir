@@ -75,6 +75,7 @@ class ReturnSpec:
 @dataclass
 class FlowAnalysisData:
     flow_inputs: "OrderedDict[str, DataType]"
+    csr_reads: List[str]
     irf_read_infos: Dict[str, RegisterReadInfo]
     irf_write_infos: Dict[str, RegisterWriteInfo]
     irf_aliases: Dict[str, str]
@@ -126,6 +127,9 @@ class CTranspiler:
         self.irf_aliases: Dict[str, str] = {}
         self.irf_alias_offsets: Dict[str, int] = {}
         self.int_constants: Dict[str, int] = {}
+        self.csr_reads: List[str] = []
+        self.csr_read_params: Dict[str, str] = {}
+        self.csr_inputs: Dict[str, List[dict]] = {}
 
     def push_decl_scope(self):
         self.declared_var_stack.append(set())
@@ -172,6 +176,7 @@ class CTranspiler:
         # Parse CADL
         proc = parse_proc(source, str(cadl_file))
         self.proc = proc
+        self.csr_inputs = {}
         self.static_scalar_names = set()
         self.static_array_names = set()
         for name, static in proc.statics.items():
@@ -216,6 +221,7 @@ class CTranspiler:
     def analyze_flow(self, flow: cadl_ast.Flow, proc: cadl_ast.Proc):
         """Collect register accesses, types, and auxiliary metadata."""
         self.current_flow = flow
+        self.csr_reads = []
         self.irf_read_infos = {}
         self.irf_write_infos = {}
         self.irf_read_params = {}
@@ -260,6 +266,7 @@ class CTranspiler:
 
         analysis = FlowAnalysisData(
             flow_inputs=OrderedDict(self.flow_inputs),
+            csr_reads=list(self.csr_reads),
             irf_read_infos={
                 k: RegisterReadInfo(
                     key=info.key,
@@ -342,6 +349,8 @@ class CTranspiler:
             elif isinstance(stmt.lhs, cadl_ast.IndexExpr):
                 base = stmt.lhs.expr
                 if isinstance(base, cadl_ast.IdentExpr):
+                    if base.name == "_csr":
+                        raise ValueError("CSR writes are not supported in MEGG matching patterns")
                     if base.name == "_mem" and stmt.lhs.indices:
                         pending_mem_assignment = (stmt.lhs.indices[0], expected_type)
                     elif self.proc and base.name in self.proc.statics:
@@ -506,6 +515,11 @@ class CTranspiler:
         if isinstance(expr, cadl_ast.IndexExpr):
             base = expr.expr
             if isinstance(base, cadl_ast.IdentExpr):
+                if base.name == "_csr":
+                    name = self.csr_name(expr)
+                    if name not in self.csr_reads:
+                        self.csr_reads.append(name)
+                    return
                 if base.name == "_irf" and expr.indices:
                     key, hint = self.register_key(expr.indices[0])
                     info = self.irf_read_infos.setdefault(
@@ -1302,6 +1316,7 @@ class CTranspiler:
         self.math_functions = analysis.math_headers
         self.var_types = analysis.var_types
         self.irf_read_params = {}
+        self.csr_read_params = {}
 
         func_name = flow.name
         params: List[str] = []
@@ -1357,6 +1372,30 @@ class CTranspiler:
             params.append(decl)
             used_param_names.add(param_name)
             self.register_declaration(param_name)
+
+        csr_inputs = []
+        for name in analysis.csr_reads:
+            register = proc.csrs[name]
+            address = register.address
+            if address is None or not 0 <= address <= 0xFFF:
+                raise ValueError(f"CSR {name} requires a literal 12-bit address")
+            if address & 0xC00 == 0xC00:
+                raise ValueError(f"CSR {name} has a read-only address")
+            if not isinstance(register.ty, cadl_ast.DataType_Single) or not isinstance(
+                register.ty.basic_type, (cadl_ast.BasicType_ApFixed, cadl_ast.BasicType_ApUFixed)
+            ):
+                raise ValueError(f"CSR {name} must have a scalar integer type")
+            c_type = self.map_type(register.ty)
+            if self.c_type_size(c_type) > 4:
+                raise ValueError(f"CSR {name} must fit in RV32 XLEN")
+            param_name = self.unique_param_name(f"csr_{name}_value", used_param_names)
+            self.csr_read_params[name] = param_name
+            csr_inputs.append({"name": name, "address": address, "arg_index": len(params)})
+            params.append(f"{c_type} {param_name}")
+            used_param_names.add(param_name)
+            self.var_types[param_name] = c_type
+            self.register_declaration(param_name)
+        self.csr_inputs[flow.name] = csr_inputs
 
         params_str = ", ".join(params)
         return_type = self.return_spec.type_name
@@ -1499,6 +1538,8 @@ class CTranspiler:
             return self.var_types.get(name, "uint32_t")
 
         if isinstance(expr, cadl_ast.IndexExpr):
+            if isinstance(expr.expr, cadl_ast.IdentExpr) and expr.expr.name == "_csr":
+                return self.map_type(self.proc.csrs[self.csr_name(expr)].ty)
             if (
                 isinstance(expr.expr, cadl_ast.IdentExpr)
                 and expr.expr.name == "_irf"
@@ -1957,6 +1998,8 @@ class CTranspiler:
         Special handling:
         - _irf[rs1] → rs1_value (convert to direct parameter)
         """
+        if isinstance(expr.expr, cadl_ast.IdentExpr) and expr.expr.name == "_csr":
+            return self.csr_read_params[self.csr_name(expr)]
         if (
             isinstance(expr.expr, cadl_ast.IdentExpr)
             and expr.expr.name == "_irf"
@@ -2000,6 +2043,14 @@ class CTranspiler:
             # Multi-dimensional - flatten to single dimension
             indices_str = "][".join(self.generate_expr(idx) for idx in expr.indices)
             return f"{base}[{indices_str}]"
+
+    def csr_name(self, expr: cadl_ast.IndexExpr) -> str:
+        if len(expr.indices) != 1 or not isinstance(expr.indices[0], cadl_ast.IdentExpr):
+            raise ValueError("_csr access expects one declared register name")
+        name = expr.indices[0].name
+        if name not in self.proc.csrs:
+            raise ValueError(f"Undefined CSR register: {name}")
+        return name
 
     def generate_if_expr(self, expr) -> str:
         """Generate ternary operator"""

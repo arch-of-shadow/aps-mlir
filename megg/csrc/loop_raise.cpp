@@ -43,8 +43,6 @@ static bool isPromotableSCFLoop(mlir::scf::ForOp forOp) {
     return false;
 
   // CRITICAL: Do not promote loops with iter_args
-  // affine.for does not support iter_args, and trying to create
-  // an affine.for with iter_args causes the official lower-affine pass to fail
   if (forOp.getInitArgs().size() > 0) {
     std::cerr << "isPromotableSCFLoop: Skipping loop with "
               << forOp.getInitArgs().size() << " iter_args "
@@ -91,11 +89,9 @@ convertLoopToAffine(mlir::scf::ForOp forOp, mlir::Operation *&targetFor) {
 
   mlir::OpBuilder builder(forOp.getOperation());
 
-  // Collect iter_args for affine.for creation
   llvm::SmallVector<mlir::Value, 4> iterArgs(forOp.getInitArgs().begin(),
                                               forOp.getInitArgs().end());
 
-  // Create affine.for with iter_args support
   auto affineFor = builder.create<mlir::affine::AffineForOp>(
       forOp.getLoc(), lowerBound, upperBound, step, iterArgs);
 
@@ -103,14 +99,11 @@ convertLoopToAffine(mlir::scf::ForOp forOp, mlir::Operation *&targetFor) {
   mlir::Block &targetBlock = affineRegion.front();
   mlir::Block &sourceBlock = forOp.getRegion().front();
 
-  // Remove terminator only if the block might have one
-  // (blocks with iter_args may not have a terminator initially)
   if (!targetBlock.empty() &&
       targetBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
     targetBlock.back().erase();
   }
 
-  // Map induction variable
   if (sourceBlock.getNumArguments() > 0) {
     mlir::Value oldInduction = sourceBlock.getArgument(0);
     mlir::Value newInduction = targetBlock.getArgument(0);
@@ -119,7 +112,6 @@ convertLoopToAffine(mlir::scf::ForOp forOp, mlir::Operation *&targetFor) {
     }
   }
 
-  // Map iter_args (block arguments beyond the induction variable)
   for (unsigned i = 1; i < sourceBlock.getNumArguments(); ++i) {
     mlir::Value oldIterArg = sourceBlock.getArgument(i);
     mlir::Value newIterArg = targetBlock.getArgument(i);
@@ -136,7 +128,6 @@ convertLoopToAffine(mlir::scf::ForOp forOp, mlir::Operation *&targetFor) {
                                      sourceBlock.getOperations(),
                                      sourceBlock.begin(), sourceEnd);
 
-  // Handle yield operation - preserve operands for iter_args
   if (sourceTerminator) {
     if (auto yield = llvm::dyn_cast<mlir::scf::YieldOp>(sourceTerminator)) {
       llvm::SmallVector<mlir::Value, 4> yieldOperands;
@@ -165,8 +156,6 @@ static bool convertLoopToSCF(mlir::affine::AffineForOp forOp) {
   mlir::OpBuilder builder(forOp.getOperation());
   auto loc = forOp.getLoc();
 
-  // Use MLIR's official lower bound/upper bound lowering
-  // This handles complex affine maps, not just constants
   mlir::Value lowerBound = mlir::lowerAffineLowerBound(forOp, builder);
   mlir::Value upperBound = mlir::lowerAffineUpperBound(forOp, builder);
 
@@ -177,25 +166,19 @@ static bool convertLoopToSCF(mlir::affine::AffineForOp forOp) {
   auto step =
       builder.create<mlir::arith::ConstantIndexOp>(loc, forOp.getStepAsInt());
 
-  // Collect iter_args for scf.for creation
   llvm::SmallVector<mlir::Value, 4> iterArgs(forOp.getInits().begin(),
                                               forOp.getInits().end());
 
-  // Create scf.for with iter_args support
   auto scfFor = builder.create<mlir::scf::ForOp>(loc, lowerBound, upperBound,
                                                  step, iterArgs);
 
-  // Inline the region from affine.for into scf.for
   mlir::Region &scfRegion = scfFor.getRegion();
   mlir::Region &affineRegion = forOp.getRegion();
 
-  // Erase the default scf.for body
   scfRegion.front().erase();
 
-  // Move the affine.for body into scf.for
   scfRegion.getBlocks().splice(scfRegion.end(), affineRegion.getBlocks());
 
-  // Replace all uses of affine.for results with scf.for results
   forOp.replaceAllUsesWith(scfFor.getResults());
 
   forOp.erase();
@@ -215,7 +198,6 @@ bool lowerAffineToSCF(mlir::affine::AffineForOp forOp) {
   if (!forOp)
     return false;
 
-  // First convert the affine.for itself
   if (!convertLoopToSCF(forOp))
     return false;
 
@@ -223,10 +205,8 @@ bool lowerAffineToSCF(mlir::affine::AffineForOp forOp) {
 }
 
 bool lowerAllAffineToSCF(mlir::ModuleOp module) {
-  // Apply official affine-to-standard conversion using pass manager
   mlir::MLIRContext *context = module.getContext();
 
-  // IMPORTANT: Enable all dialects that might be needed
   context->loadDialect<mlir::arith::ArithDialect>();
   context->loadDialect<mlir::scf::SCFDialect>();
   context->loadDialect<mlir::memref::MemRefDialect>();
@@ -235,15 +215,12 @@ bool lowerAllAffineToSCF(mlir::ModuleOp module) {
 
   mlir::PassManager pm(context);
 
-  // Disable multi-threading for debugging
   context->disableMultithreading();
 
-  // Use the standard affine-to-scf lowering pass
   pm.addPass(mlir::createLowerAffinePass());
 
   std::cerr << "lowerAllAffineToSCF: Running pass manager..." << std::endl;
 
-  // Run the pass manager
   if (mlir::failed(pm.run(module))) {
     std::cerr << "lowerAllAffineToSCF: Pass manager failed" << std::endl;
     std::cerr << "Module after failed conversion:" << std::endl;
@@ -253,7 +230,6 @@ bool lowerAllAffineToSCF(mlir::ModuleOp module) {
 
   std::cerr << "lowerAllAffineToSCF: Pass manager succeeded" << std::endl;
 
-  // Check if affine ops still exist
   bool hasAffineOps = false;
   module.walk([&](mlir::Operation *op) {
     if (llvm::isa<mlir::affine::AffineDialect>(op->getDialect())) {

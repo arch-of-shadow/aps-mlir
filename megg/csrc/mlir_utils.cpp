@@ -14,24 +14,17 @@ namespace megg {
 void MLIRModule::initializeContext() {
   context = std::make_unique<mlir::MLIRContext>();
 
-  // Create dialect registry and register all necessary dialects
   mlir::DialectRegistry registry;
 
-  // Register core dialects
   registry.insert<mlir::affine::AffineDialect, mlir::arith::ArithDialect,
                   mlir::func::FuncDialect, mlir::memref::MemRefDialect,
                   mlir::scf::SCFDialect, mlir::LLVM::LLVMDialect>();
 
-  // Register dialect extensions and interfaces (including inliner interfaces)
-  // This is CRITICAL for avoiding "DialectInlinerInterface not implemented"
-  // errors
   mlir::func::registerInlinerExtension(registry);
   mlir::LLVM::registerInlinerInterface(registry);
 
-  // Apply registry to context
   context->appendDialectRegistry(registry);
 
-  // Load all registered dialects with their extensions
   context->loadAllAvailableDialects();
 
   context->enableMultithreading();
@@ -44,29 +37,15 @@ bool MLIRModule::parseFromString(const std::string &mlirText,
   auto memBuffer = llvm::MemoryBuffer::getMemBuffer(mlirText);
   sourceMgr.AddNewSourceBuffer(std::move(memBuffer), llvm::SMLoc());
 
-  // Parse with a fresh context that has all dialects loaded
   mlir::OwningOpRef<mlir::ModuleOp> parsedModule =
       mlir::parseSourceFile<mlir::ModuleOp>(sourceMgr, context.get());
 
   if (!parsedModule || mlir::failed(mlir::verify(*parsedModule))) {
     return false;
   }
-  std::cout << "parse successful" << std::endl;
   module = std::move(parsedModule);
-
-  if (applyInliningFlag) {
-    std::cout << "Attempting to apply inlining..." << std::endl;
-    if (!applyInlining()) {
-      std::cerr << "Warning: inlining pass failed - this may be due to missing "
-                   "dialect interfaces"
-                << std::endl;
-      std::cerr << "Continuing without inlining..." << std::endl;
-      // Don't fail completely - module is still valid
-    } else {
-      std::cout << "Inlining applied successfully" << std::endl;
-    }
-  }
-  //   genLoopName();
+  if (applyInliningFlag && !applyInlining())
+    return false;
   return true;
 }
 
@@ -87,7 +66,6 @@ std::string MLIRModule::toString() const {
   std::string result;
   llvm::raw_string_ostream stream(result);
 
-  // Use default OpPrintingFlags (empty constructor gives pretty form)
   // DO NOT set printGenericOpForm - default is already pretty form
   mlir::OpPrintingFlags flags;
 
@@ -129,15 +107,11 @@ mlir::ModuleOp MLIRModule::getModule() {
 
 mlir::MLIRContext *MLIRModule::getContext() { return context.get(); }
 
-
 void MLIRModule::appendToModule(mlir::Operation *op) {
   if (module && op) {
-    // Clone the operation instead of moving it to avoid use-def chain issues
     // This creates a deep copy of the operation and all its nested
-    // regions/blocks
     mlir::Operation *cloned = op->clone();
 
-    // Add the cloned operation to the module's body
     module.get().getBody()->push_back(cloned);
   }
 }
@@ -161,17 +135,12 @@ MLIRModule::cloneWithMapping() {
         nullptr, std::unordered_map<mlir::Operation *, mlir::Operation *>{});
   }
 
-  // Create a new MLIRModule for the cloned module
-  auto clonedMLIRModule = std::make_unique<MLIRModule>();
+  auto clonedMLIRModule = std::make_unique<MLIRModule>(context);
 
-  // Clone the module operation (clone() returns ModuleOp value)
   mlir::ModuleOp clonedModuleOp = module->clone();
 
-  // Replace the new module's content with the cloned one
   clonedMLIRModule->module = mlir::OwningOpRef<mlir::ModuleOp>(clonedModuleOp);
 
-  // Build the operation mapping by walking both modules in parallel
-  // We use structural matching based on position and dump string
   std::unordered_map<mlir::Operation *, mlir::Operation *> opMap;
 
   llvm::SmallVector<mlir::Operation *> oldOps;
@@ -184,7 +153,6 @@ MLIRModule::cloneWithMapping() {
 
   assert(oldOps.size() == newOps.size());
   for (size_t i = 0; i < oldOps.size(); ++i) {
-    //   std::cerr << "Old" << oldOps[i] <<"\nNew"<<newOps[i];
     opMap[oldOps[i]] = newOps[i];
   }
 
@@ -251,13 +219,10 @@ bool PassManager::verifyModule() {
 
 void PassManager::clearCustomPasses() { customPasses.clear(); }
 
-// Helper function to get operation type from operation name
 OperationType getOperationType(const std::string &opName) {
-  // Module
   if (opName == "builtin.module")
     return OperationType::MODULE;
 
-  // Function operations
   if (opName == "func.func")
     return OperationType::FUNC_FUNC;
   if (opName == "func.call")
@@ -265,7 +230,6 @@ OperationType getOperationType(const std::string &opName) {
   if (opName == "func.return")
     return OperationType::FUNC_RETURN;
 
-  // Arithmetic operations
   if (opName == "arith.addi")
     return OperationType::ARITH_ADD;
   if (opName == "arith.subi")
@@ -301,7 +265,6 @@ OperationType getOperationType(const std::string &opName) {
   if (opName == "arith.select")
     return OperationType::ARITH_SELECT;
 
-  // Logical operations
   if (opName == "arith.andi")
     return OperationType::ARITH_ANDI;
   if (opName == "arith.ori")
@@ -309,7 +272,6 @@ OperationType getOperationType(const std::string &opName) {
   if (opName == "arith.xori")
     return OperationType::ARITH_XORI;
 
-  // Shift operations
   if (opName == "arith.shli")
     return OperationType::ARITH_SHLI;
   if (opName == "arith.shrsi")
@@ -317,7 +279,6 @@ OperationType getOperationType(const std::string &opName) {
   if (opName == "arith.shrui")
     return OperationType::ARITH_SHRUI;
 
-  // Cast operations
   if (opName == "arith.index_cast" || opName == "arith.index_castui")
     return OperationType::ARITH_INDEX_CAST;
   if (opName == "arith.sitofp")
@@ -337,7 +298,6 @@ OperationType getOperationType(const std::string &opName) {
   if (opName == "arith.bitcast")
     return OperationType::ARITH_BITCAST;
 
-  // Affine operations
   if (opName == "affine.for")
     return OperationType::AFFINE_FOR;
   if (opName == "affine.if")
@@ -351,7 +311,6 @@ OperationType getOperationType(const std::string &opName) {
   if (opName == "affine.apply")
     return OperationType::AFFINE_APPLY;
 
-  // SCF operations
   if (opName == "scf.for")
     return OperationType::SCF_FOR;
   if (opName == "scf.if")
@@ -381,7 +340,6 @@ OperationType getOperationType(const std::string &opName) {
   if (opName == "memref.global")
     return OperationType::MEMREF_GLOBAL;
 
-  // LLVM operations
   if (opName == "llvm.call")
     return OperationType::LLVM_CALL;
   if (opName == "llvm.return")
@@ -711,18 +669,13 @@ NB_MODULE(mlir_utils, m) {
               return nb::none();
             }
 
-            // Handle different attribute types
             if (auto intAttr = llvm::dyn_cast<mlir::IntegerAttr>(attr)) {
-              // Return integer value
               return nb::cast(intAttr.getInt());
             } else if (auto floatAttr = llvm::dyn_cast<mlir::FloatAttr>(attr)) {
-              // Return float value
               return nb::cast(floatAttr.getValueAsDouble());
             } else if (auto strAttr = llvm::dyn_cast<mlir::StringAttr>(attr)) {
-              // Return string value
               return nb::cast(strAttr.getValue().str());
             } else if (auto boolAttr = llvm::dyn_cast<mlir::BoolAttr>(attr)) {
-              // Return boolean value
               return nb::cast(boolAttr.getValue());
             } else if (auto affineMapAttr =
                            llvm::dyn_cast<mlir::AffineMapAttr>(attr)) {
@@ -730,18 +683,15 @@ NB_MODULE(mlir_utils, m) {
               auto map = affineMapAttr.getValue();
               nb::dict result;
 
-              // Extract map information
               result["num_dims"] = map.getNumDims();
               result["num_symbols"] = map.getNumSymbols();
               result["num_results"] = map.getNumResults();
 
-              // Get string representation of the map
               std::string mapStr;
               llvm::raw_string_ostream stream(mapStr);
               map.print(stream);
               result["map_str"] = mapStr;
 
-              // Check if it's a constant map (e.g., affine_map<() -> (0)>)
               if (map.isConstant()) {
                 std::vector<int64_t> constants;
                 for (auto expr : map.getResults()) {
@@ -759,8 +709,6 @@ NB_MODULE(mlir_utils, m) {
               return nb::cast(result);
             } else if (auto denseI32ArrayAttr =
                            llvm::dyn_cast<mlir::DenseI32ArrayAttr>(attr)) {
-              // Special handling for DenseI32ArrayAttr (used by
-              // operandSegmentSizes in affine.for)
               std::vector<int32_t> values;
               for (auto val : denseI32ArrayAttr.asArrayRef()) {
                 values.push_back(val);
@@ -768,7 +716,6 @@ NB_MODULE(mlir_utils, m) {
               return nb::cast(values);
             } else if (auto denseI64ArrayAttr =
                            llvm::dyn_cast<mlir::DenseI64ArrayAttr>(attr)) {
-              // Special handling for DenseI64ArrayAttr
               std::vector<int64_t> values;
               for (auto val : denseI64ArrayAttr.asArrayRef()) {
                 values.push_back(val);
@@ -776,7 +723,6 @@ NB_MODULE(mlir_utils, m) {
               return nb::cast(values);
             } else if (auto denseIntAttr =
                            llvm::dyn_cast<mlir::DenseIntElementsAttr>(attr)) {
-              // Special handling for DenseIntElementsAttr
               std::vector<int64_t> values;
               for (auto val : denseIntAttr.getValues<int64_t>()) {
                 values.push_back(val);
@@ -784,7 +730,6 @@ NB_MODULE(mlir_utils, m) {
               return nb::cast(values);
             } else if (auto denseAttr =
                            llvm::dyn_cast<mlir::DenseElementsAttr>(attr)) {
-              // Handle general DenseElementsAttr
               if (denseAttr.getElementType().isInteger(32)) {
                 std::vector<int32_t> values;
                 for (auto val : denseAttr.getValues<int32_t>()) {
@@ -792,14 +737,12 @@ NB_MODULE(mlir_utils, m) {
                 }
                 return nb::cast(values);
               } else {
-                // Return string representation for other dense types
                 std::string result;
                 llvm::raw_string_ostream stream(result);
                 attr.print(stream);
                 return nb::cast(result);
               }
             } else {
-              // Return string representation for other types
               std::string result;
               llvm::raw_string_ostream stream(result);
               attr.print(stream);
@@ -833,12 +776,10 @@ NB_MODULE(mlir_utils, m) {
             if (!ref.valid())
               return nb::none();
 
-            // Check if this is an scf.for operation
             auto forOp = llvm::dyn_cast<mlir::scf::ForOp>(ref.get());
             if (!forOp)
               return nb::none();
 
-            // Helper to get constant index value
             auto getConstantIndex =
                 [](mlir::Value val) -> std::optional<int64_t> {
               if (auto constOp =
@@ -852,17 +793,14 @@ NB_MODULE(mlir_utils, m) {
               return std::nullopt;
             };
 
-            // Get lower bound
             auto lowerOpt = getConstantIndex(forOp.getLowerBound());
             if (!lowerOpt)
               return nb::none();
 
-            // Get upper bound
             auto upperOpt = getConstantIndex(forOp.getUpperBound());
             if (!upperOpt)
               return nb::none();
 
-            // Get step
             std::optional<int64_t> stepOpt;
             if (auto constantStep = forOp.getConstantStep()) {
               stepOpt = constantStep->getSExtValue();
@@ -873,7 +811,6 @@ NB_MODULE(mlir_utils, m) {
             if (!stepOpt)
               return nb::none();
 
-            // Return as dictionary with lower, upper, step
             nb::dict result;
             result["lower"] = *lowerOpt;
             result["upper"] = *upperOpt;
@@ -887,82 +824,27 @@ NB_MODULE(mlir_utils, m) {
           [](const megg::MLIROperationRef &ref) -> nb::object {
             if (!ref.valid())
               return nb::none();
-            // Check if this is a function operation
             if (auto funcOp = llvm::dyn_cast<mlir::func::FuncOp>(ref.get())) {
-              // Return the function type directly
               return nb::cast(funcOp.getFunctionType());
             }
             return nb::none();
           },
           "Get FunctionType if this is a function operation")
       .def(
-          "cast_to_module",
-          [](const megg::MLIROperationRef &ref) -> megg::MLIRModule* {
-            if (!ref.valid())
-              return nullptr;
-
-            // Check if this is a module operation
-            auto moduleOp = llvm::dyn_cast<mlir::ModuleOp>(ref.get());
-            if (!moduleOp)
-              return nullptr;
-
-            // Create a new MLIRModule wrapper
-            auto* module = new megg::MLIRModule();
-            module->setModule(moduleOp);
-            return module;
-          },
-          nb::rv_policy::take_ownership,
-          "Cast this operation to MLIRModule if it's a module operation (returns None if not a module)")
-      .def(
-          "clone_with_mapping",
-          [](const megg::MLIROperationRef &ref) -> nb::object {
-            if (!ref.valid())
-              return nb::none();
-
-            // Clone the operation with IRMapping
-            mlir::IRMapping mapper;
-            auto* clonedOp = ref.get()->clone(mapper);
-
-            // Build operation map by walking both operations
-            std::unordered_map<mlir::Operation*, mlir::Operation*> opMap;
-
-            // Walk the original operation and its nested ops
-            ref.get()->walk([&](mlir::Operation *originalOp) {
-              if (auto mappedOp = mapper.lookupOrNull(originalOp)) {
-                opMap[originalOp] = mappedOp;
-              }
-            });
-
-            // Convert the C++ map to a Python dict
-            nb::dict pyMap;
-            for (const auto &[oldOp, newOp] : opMap) {
-              pyMap[nb::cast(megg::MLIROperationRef(oldOp))] =
-                  nb::cast(megg::MLIROperationRef(newOp));
-            }
-
-            // Return tuple of (cloned_op, operation_map)
-            return nb::make_tuple(
-                nb::cast(megg::MLIROperationRef(clonedOp)), pyMap);
-          },
-          "Clone this operation and return (cloned_op, operation_map) mapping original ops to cloned ops")
-      .def(
           "__hash__",
           [](const megg::MLIROperationRef &ref) -> size_t {
-            // Hash based on the underlying C++ pointer value
             return std::hash<mlir::Operation*>{}(ref.get());
           },
           "Hash based on underlying operation pointer")
       .def(
           "__eq__",
           [](const megg::MLIROperationRef &ref, const megg::MLIROperationRef &other) -> bool {
-            // Compare based on the underlying C++ pointer
             return ref.get() == other.get();
           },
           "Compare based on underlying operation pointer")
       .def(
           "get_ptr",
           [](const megg::MLIROperationRef &ref) -> uintptr_t {
-            // Return pointer value as integer for debugging
             return reinterpret_cast<uintptr_t>(ref.get());
           },
           "Get pointer value as integer for debugging");
@@ -970,6 +852,9 @@ NB_MODULE(mlir_utils, m) {
   // MLIRModule class bindings
   nb::class_<megg::MLIRModule>(m, "MLIRModule")
       .def(nb::init<>())
+      .def("empty_like", [](megg::MLIRModule &self) {
+        return self.emptyLike().release();
+      }, nb::rv_policy::take_ownership)
       .def("parse_from_string", &megg::MLIRModule::parseFromString,
            "mlir_text"_a, "apply_inlining"_a = true,
            "Parse MLIR module from string, optionally apply inlining")
@@ -991,7 +876,6 @@ NB_MODULE(mlir_utils, m) {
       .def(
           "append_to_module",
           [](megg::MLIRModule &self, nb::object op) {
-            // Support both raw mlir::Operation* and MLIROperationRef
             if (nb::isinstance<megg::MLIROperationRef>(op)) {
               auto ref = nb::cast<megg::MLIROperationRef>(op);
               self.appendToModule(ref.get());
@@ -1019,7 +903,6 @@ NB_MODULE(mlir_utils, m) {
             // Convert the C++ map to a Python dict
             nb::dict pyMap;
             for (const auto &[oldOp, newOp] : opMap) {
-              //   std::cerr << oldOp << "\n" << newOp << "\n";
               pyMap[nb::cast(megg::MLIROperationRef(oldOp))] =
                   nb::cast(megg::MLIROperationRef(newOp));
             }
@@ -1027,7 +910,6 @@ NB_MODULE(mlir_utils, m) {
             // Release ownership from unique_ptr and let nanobind manage it
             auto *rawModule = clonedModule.release();
 
-            // Return tuple of (cloned_module, operation_map)
             return nb::make_tuple(
                 nb::cast(rawModule, nb::rv_policy::take_ownership), pyMap);
           },
@@ -1085,7 +967,6 @@ NB_MODULE(mlir_utils, m) {
       .def("clear_custom_passes", &megg::PassManager::clearCustomPasses,
            "Clear all registered custom passes");
 
-  // InsertPoint opaque type
   nb::class_<mlir::OpBuilder::InsertPoint>(m, "InsertPoint")
       .def(nb::init<>(), "Create an invalid insertion point");
 
@@ -1099,16 +980,15 @@ NB_MODULE(mlir_utils, m) {
              const std::vector<mlir::Type> &result_types) -> nb::tuple {
             auto [func, block] =
                 self.createFunction(name, arg_types, result_types);
-            // Wrap the operation pointer in MLIROperationRef
             megg::MLIROperationRef funcRef(func.getOperation());
-            return nb::make_tuple(funcRef, block);
+            // Blocks belong to their function, never to the Python wrapper.
+            return nb::make_tuple(funcRef, nb::cast(block, nb::rv_policy::reference));
           },
           "name"_a, "arg_types"_a, "result_types"_a,
           nb::rv_policy::reference_internal,
           "Create a function with given name, argument types, and result "
           "types. Returns (func_op, entry_block)")
 
-      // Type creation methods
       .def("get_i1_type", &megg::MLIRIRBuilder::getI1Type, "Get i1 type")
       .def("get_i32_type", &megg::MLIRIRBuilder::getI32Type, "Get i32 type")
       .def("get_i64_type", &megg::MLIRIRBuilder::getI64Type, "Get i64 type")
@@ -1124,16 +1004,13 @@ NB_MODULE(mlir_utils, m) {
            "inputs"_a, "results"_a,
            "Get function type with input and result types")
 
-      // LLVM dialect types
       .def("get_llvm_ptr_type", &megg::MLIRIRBuilder::getLLVMPtrType,
            "Get LLVM opaque pointer type (!llvm.ptr)")
 
-      // LLVM dialect operations
       .def("create_ptrtoint", &megg::MLIRIRBuilder::createPtrToInt,
            "ptr"_a, "int_type"_a,
            "Create llvm.ptrtoint operation to convert pointer to integer")
 
-      // Constant creation
       .def("create_constant_i32", &megg::MLIRIRBuilder::createConstantI32,
            "value"_a, "Create i32 constant")
       .def("create_constant_i64", &megg::MLIRIRBuilder::createConstantI64,
@@ -1145,7 +1022,6 @@ NB_MODULE(mlir_utils, m) {
       .def("create_constant_index", &megg::MLIRIRBuilder::createConstantIndex,
            "value"_a, "Create index constant")
 
-      // Arithmetic operations
       .def("create_add_i", &megg::MLIRIRBuilder::createAddI, "lhs"_a, "rhs"_a,
            "Create integer addition")
       .def("create_sub_i", &megg::MLIRIRBuilder::createSubI, "lhs"_a, "rhs"_a,
@@ -1171,7 +1047,6 @@ NB_MODULE(mlir_utils, m) {
       .def("create_rem_f", &megg::MLIRIRBuilder::createRemF, "lhs"_a, "rhs"_a,
            "Create float remainder")
 
-      // Logical operations (bitwise)
       .def("create_and_i", &megg::MLIRIRBuilder::createAndI, "lhs"_a, "rhs"_a,
            "Create bitwise AND")
       .def("create_or_i", &megg::MLIRIRBuilder::createOrI, "lhs"_a, "rhs"_a,
@@ -1179,7 +1054,6 @@ NB_MODULE(mlir_utils, m) {
       .def("create_xor_i", &megg::MLIRIRBuilder::createXorI, "lhs"_a, "rhs"_a,
            "Create bitwise XOR")
 
-      // Shift operations
       .def("create_shl_i", &megg::MLIRIRBuilder::createShlI, "lhs"_a, "rhs"_a,
            "Create shift left")
       .def("create_shrsi_i", &megg::MLIRIRBuilder::createShrSII, "lhs"_a,
@@ -1187,18 +1061,15 @@ NB_MODULE(mlir_utils, m) {
       .def("create_shrui_i", &megg::MLIRIRBuilder::createShrUII, "lhs"_a,
            "rhs"_a, "Create shift right unsigned")
 
-      // Comparison operations
       .def("create_cmpi", &megg::MLIRIRBuilder::createCmpI, "predicate"_a,
            "lhs"_a, "rhs"_a, "Create integer comparison")
       .def("create_cmpf", &megg::MLIRIRBuilder::createCmpF, "predicate"_a,
            "lhs"_a, "rhs"_a, "Create float comparison")
 
-      // Select operation (ternary conditional)
       .def("create_select", &megg::MLIRIRBuilder::createSelect, "condition"_a,
            "true_value"_a, "false_value"_a,
            "Create select (ternary conditional)")
 
-      // Cast operations
       .def("create_index_cast", &megg::MLIRIRBuilder::createIndexCast,
            "value"_a, "target_type"_a, "Create index cast")
       .def("create_si_to_fp", &megg::MLIRIRBuilder::createSIToFP, "value"_a,
@@ -1218,7 +1089,6 @@ NB_MODULE(mlir_utils, m) {
       .def("create_bitcast", &megg::MLIRIRBuilder::createBitcast, "value"_a,
            "target_type"_a, "Create bitcast")
 
-      // Control flow
       .def(
           "create_return",
           [](megg::MLIRIRBuilder &self,
@@ -1236,7 +1106,6 @@ NB_MODULE(mlir_utils, m) {
           "values"_a = std::vector<mlir::Value>{},
           nb::rv_policy::reference_internal, "Create func.return operation")
 
-      // Affine operations
       .def(
           "create_affine_for",
           [](megg::MLIRIRBuilder &self, int64_t lb, int64_t ub,
@@ -1255,7 +1124,6 @@ NB_MODULE(mlir_utils, m) {
           "values"_a = std::vector<mlir::Value>{},
           nb::rv_policy::reference_internal, "Create affine yield")
 
-      // SCF operations
       .def(
           "create_scf_for",
           [](megg::MLIRIRBuilder &self, mlir::Value lb, mlir::Value ub,
@@ -1312,7 +1180,6 @@ NB_MODULE(mlir_utils, m) {
       .def(
           "create_memref_alloc",
           [](megg::MLIRIRBuilder &self, mlir::Type type) {
-            // Cast the generic Type to MemRefType
             auto memrefType = llvm::cast<mlir::MemRefType>(type);
             return self.createMemRefAlloc(memrefType);
           },
@@ -1320,7 +1187,6 @@ NB_MODULE(mlir_utils, m) {
       .def(
           "create_memref_alloca",
           [](megg::MLIRIRBuilder &self, mlir::Type type) {
-            // Cast the generic Type to MemRefType
             auto memrefType = llvm::cast<mlir::MemRefType>(type);
             return self.createMemRefAlloca(memrefType);
           },
@@ -1338,13 +1204,21 @@ NB_MODULE(mlir_utils, m) {
           "memref"_a,
           "Expose memref.extract_aligned_pointer_as_index for pointer lowering")
 
-      // LLVM operations
-      .def("create_inline_asm", &megg::MLIRIRBuilder::createInlineAsm,
-           "asm_string"_a, "constraints"_a, "operands"_a, "result_type"_a,
+      .def("create_inline_asm",
+           [](megg::MLIRIRBuilder &self, const std::string &asmString,
+              const std::string &constraints,
+              const std::vector<mlir::Value> &operands,
+              nb::object resultType, bool hasSideEffects) -> nb::object {
+             auto type = resultType.is_none() ? mlir::Type{}
+                                              : nb::cast<mlir::Type>(resultType);
+             auto result = self.createInlineAsm(asmString, constraints, operands,
+                                                type, hasSideEffects);
+             return result ? nb::cast(result) : nb::none();
+           },
+           "asm_string"_a, "constraints"_a, "operands"_a, "result_type"_a.none(),
            "has_side_effects"_a = false,
            "Create LLVM inline assembly operation")
 
-      // Insertion point control
       .def(
           "set_insertion_point_to_start_func",
           [](megg::MLIRIRBuilder &self, const megg::MLIROperationRef &ref) {
@@ -1382,7 +1256,6 @@ NB_MODULE(mlir_utils, m) {
           },
           "op"_a, "Set insertion point after operation")
 
-      // Block operations
       .def("create_block", &megg::MLIRIRBuilder::createBlock, "region"_a,
            "arg_types"_a = std::vector<mlir::Type>{},
            nb::rv_policy::reference_internal,

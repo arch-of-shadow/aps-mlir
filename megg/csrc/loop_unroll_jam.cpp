@@ -25,7 +25,6 @@ bool LoopUnrollJammer::run(mlir::ModuleOp module) {
       return mlir::WalkResult::advance();
     }
 
-    // First pass: promote all SCF loops to affine
     funcOp.walk([&](mlir::scf::ForOp scfFor) -> mlir::WalkResult {
       if (auto affine_for = promoteSCFToAffine(scfFor,targetLoopOp_)) {
         target = affine_for;
@@ -33,7 +32,6 @@ bool LoopUnrollJammer::run(mlir::ModuleOp module) {
       return mlir::WalkResult::advance();
     });
 
-    // Second pass: unroll-jam target affine loop
     if (target && shouldUnrollJam(target) &&
         applyLoopUnrollJam(target, unrollJamFactor)) {
       modified = true;
@@ -47,7 +45,6 @@ bool LoopUnrollJammer::run(mlir::ModuleOp module) {
 }
 
 bool LoopUnrollJammer::shouldUnrollJam(mlir::affine::AffineForOp forOp) {
-  // Check if this is the target loop operation
   if (targetLoopOp_ != nullptr) {
     if (forOp.getOperation() != targetLoopOp_) {
       return false;
@@ -63,15 +60,12 @@ bool LoopUnrollJammer::shouldUnrollJam(mlir::affine::AffineForOp forOp) {
   auto upperBound = forOp.getConstantUpperBound();
   auto step = forOp.getStepAsInt(); // Get step as integer
 
-  // Calculate trip count
   int64_t tripCount = (upperBound - lowerBound) / step;
 
-  // Don't unroll-jam very large loops
   if (tripCount > maxTripCount) {
     return false;
   }
 
-  // Don't unroll-jam loops that are already small
   if (tripCount <= minTripCount) {
     return false;
   }
@@ -81,12 +75,10 @@ bool LoopUnrollJammer::shouldUnrollJam(mlir::affine::AffineForOp forOp) {
 
 bool LoopUnrollJammer::applyLoopUnrollJam(mlir::affine::AffineForOp forOp,
                                           int unrollJamFactor) {
-  // Check for valid unroll-jam factor
   if (unrollJamFactor <= 0) {
     return false;
   }
 
-  // Apply the unroll-and-jam transformation
   if (mlir::succeeded(
           mlir::affine::loopUnrollJamByFactor(forOp, unrollJamFactor))) {
     // normalize

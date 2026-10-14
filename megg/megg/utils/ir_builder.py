@@ -1,7 +1,8 @@
-from typing import List, Optional, Union, Tuple
 from contextlib import contextmanager
+from typing import List, Optional, Union
+
 from megg.mlir_utils import MLIRIRBuilder
-from megg.utils import MOperation, MType, MBlock, MRegion, MValue, MModule
+from megg.utils.mlir_utils import MBlock, MOperation, MType, MValue
 
 
 def Singleton(cls):
@@ -13,7 +14,6 @@ def Singleton(cls):
         return instances[cls]
 
     return get_instance
-
 
 @Singleton
 class IRBuilder:
@@ -84,10 +84,8 @@ class IRBuilder:
             name, arg_types, result_types)
         func_op = MOperation(func_op)
         entry_block = MBlock(entry_block)
-        func_op.entry_block = entry_block  #TODO add member to avoid GC, should replace with a function type rather than operator?
         return func_op, entry_block
 
-    # Constants
     def constant(self, value: Union[int, float], type: Optional[MType] = None) -> MValue:
         """Create a constant value"""
         type_str = str(type._type)
@@ -105,7 +103,6 @@ class IRBuilder:
                 result = self._builder.create_constant_i32(value)
         return MValue(result)
 
-    # Arithmetic operations
     def add(self, lhs: Union[MValue, MOperation], rhs: Union[MValue, MOperation]) -> MValue:
         """Add two values (integer or float based on operand types)"""
         lhs = self._to_value(lhs)
@@ -461,7 +458,6 @@ class IRBuilder:
             condition._value, vals)
         return MOperation(result)
 
-    # Loop constructs
     def affine_for(self, lower: int, upper: int, step: int = 1) -> MOperation:
         """Create affine for loop"""
         result = self._builder.create_affine_for(lower, upper, step)
@@ -478,7 +474,6 @@ class IRBuilder:
         result = self._builder.create_affine_yield(vals)
         return MOperation(result)
 
-    # Memory operations
     def alloc(self, memref_type: MType) -> MOperation:
         """Allocate memory (heap allocation)"""
         memref_type = memref_type._type
@@ -526,27 +521,24 @@ class IRBuilder:
             memref._value)
         return MValue(result)
 
-    # LLVM operations
     def inline_asm(self, asm_string: str, constraints: str,
                    operands: List[Union[MValue, MOperation]],
-                   result_type: MType,
-                   has_side_effects: bool = False) -> MValue:
+                   result_type: Optional[MType],
+                   has_side_effects: bool = False) -> Optional[MValue]:
         """Create LLVM inline assembly operation"""
-        # Convert operands to raw values
         operand_vals = []
         for op in operands:
             op = self._to_value(op)
             operand_vals.append(op._value)
 
-        # Create inline asm
         result = self._builder.create_inline_asm(
             asm_string,
             constraints,
             operand_vals,
-            result_type._type,
+            result_type._type if result_type is not None else None,
             has_side_effects
         )
-        return MValue(result)
+        return MValue(result) if result is not None else None
 
     def create_block(self, region, arg_types: List[MType] = None) -> MBlock:
         """Create a new block in the region"""
@@ -559,31 +551,24 @@ class IRBuilder:
     def set_insertion_point_to_start(self, target: Union[MOperation, MBlock]):
         """Set insertion point to start of function/block"""
         if isinstance(target, MOperation):
-            # Use the function-specific method for operations
             self._builder.set_insertion_point_to_start_func(target._op)
         elif isinstance(target, MBlock):
-            # Use the block-specific method for blocks
             self._builder.set_insertion_point_to_start_block(target._block)
         else:
-            # Assume it's a raw MLIR operation
             self._builder.set_insertion_point_to_start_func(target)
         yield
 
     @contextmanager
     def set_insertion_point_to_end(self, target: Union[MOperation, MBlock]):
         """Set insertion point to end of function/block"""
-        # Save current insertion point
         saved_ip = self._builder.save_insertion_point()
         try:
             if isinstance(target, MOperation):
-                # Use the function-specific method for operations
                 self._builder.set_insertion_point_to_end_func(target._op)
             elif isinstance(target, MBlock):
-                # Use the block-specific method for blocks
                 self._builder.set_insertion_point_to_end_block(target._block)
             yield
         finally:
-            # Restore insertion point
             self._builder.restore_insertion_point(saved_ip)
 
     @contextmanager
@@ -592,7 +577,6 @@ class IRBuilder:
         if isinstance(target, MOperation):
             self._builder.set_insertion_point(target._op)
         elif isinstance(target, MBlock):
-            # For blocks, use set_insertion_point_to_start_block
             self._builder.set_insertion_point_to_start_block(target._block)
         yield
 
@@ -610,11 +594,9 @@ class IRBuilder:
         self._builder.set_context(ctx)
         yield
 
-    # Helper methods for accessing operation regions and results
     def get_if_then_block(self, if_op: MOperation) -> MBlock:
         """Get the then block of an if operation"""
         raw_op = if_op._op
-        # get_blocks() returns raw MLIRBlock objects, need to wrap
         then_region = raw_op.get_regions()[0]
         blocks = then_region.get_blocks()
         return MBlock(blocks[0])
@@ -622,9 +604,7 @@ class IRBuilder:
     def get_if_else_block(self, if_op: MOperation) -> MBlock:
         """Get the else block of an if operation"""
         raw_op = if_op._op
-        # Get the else region (second region, index 1)
         else_region = raw_op.get_regions()[1]
-        # Get the first block from the else region
         else_blocks = else_region.get_blocks()
         if not else_blocks:
             raise ValueError("scf.if else region has no blocks")
@@ -644,8 +624,6 @@ class IRBuilder:
     def get_while_after_block(self, while_op: MOperation) -> MBlock:
         """Get the after block of a while loop"""
         raw_op = while_op._op
-        # Access the second region (after region) and first block
-        # get_blocks() already returns List[MBlock], don't wrap again
         return MBlock(raw_op.get_regions()[1].get_blocks()[0])
 
     def get_operation_result(self, op: MOperation, index: int = 0) -> Optional[MValue]:

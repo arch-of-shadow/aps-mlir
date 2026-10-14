@@ -1,25 +1,26 @@
 from __future__ import annotations
-from egglog import egraph
-import pathlib
+
+import argparse
+import logging
 import os
 import tempfile
-from pathlib import Path
-from typing import Literal, List, Tuple, Callable, Generic, TypeVar, Any, Set
-import logging
 from dataclasses import dataclass
-import argparse
-from .mlir_utils import (
-    MModule,
-    MLIRPassManager,
-    MOperation,
-    MRegion,
-    MBlock,
-    MValue,
-    OperationType,
-    MType
-)
+from pathlib import Path
+from typing import Any, Callable, Generic, List, Literal, Set, Tuple, TypeVar
+
 from .ir_builder import IRBuilder, Singleton
 from .loop_analyzer import extract_loop_lengths
+from .mlir_utils import (
+    MBlock,
+    MLIRPassManager,
+    MModule,
+    MOperation,
+    MRegion,
+    MType,
+    MValue,
+    OperationType,
+)
+
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
@@ -32,7 +33,6 @@ __all__ = [
     'MBlock',
     'MValue',
     'OperationType',
-    'visualize_egraph',
     'Dispatcher',
     'Singleton',
     'MeggArgs',
@@ -43,17 +43,8 @@ __all__ = [
     'get_temp_dir',
 ]
 
-
 def get_temp_dir() -> Path:
-    """Get the temporary directory for megg intermediate files.
-
-    Priority:
-    1. MEGG_TEMP_DIR environment variable (if set)
-    2. /tmp/megg (default)
-
-    Returns:
-        Path to the temporary directory (created if not exists)
-    """
+    """Get the temporary directory for megg intermediate files."""
     temp_dir_env = os.environ.get("MEGG_TEMP_DIR")
 
     if temp_dir_env:
@@ -73,7 +64,6 @@ class Dispatcher(Generic[T]):
             if any(isinstance(_type, t) for t in type_set):
                 return func(*args)
         raise RuntimeError(f"No support class for type: {type(_type)}")
-
 
 @dataclass
 class MeggArgs:
@@ -109,7 +99,6 @@ class MeggArgs:
             level=log_level,
             format="%(name)s - [%(levelname)s]: %(message)s",
         )
-        # Reduce noise from egglog logging
         logging.getLogger('egglog').setLevel(logging.CRITICAL + 1)
         logging.getLogger('egglog.egraph').setLevel(logging.CRITICAL + 1)
         logging.getLogger('egglog.actions').setLevel(logging.CRITICAL + 1)
@@ -117,12 +106,9 @@ class MeggArgs:
     def gen_output_path(self, folder: str = "outputs"):
         """Generate output path if not specified."""
         if self.output is None:
-            import os
-            from pathlib import Path
             os.makedirs(folder, exist_ok=True)
             basename = Path(self.input).stem
 
-            # Determine extension based on output format
             if self.emit_llvm:
                 ext = '.ll'
             elif self.compile == 'object':
@@ -132,7 +118,6 @@ class MeggArgs:
             else:
                 ext = '.mlir'
 
-            # Add suffix to indicate optimization mode
             suffix = ''
             if self.rewrite_mode != 'none':
                 suffix = f'_{self.rewrite_mode}'
@@ -145,7 +130,6 @@ class MeggArgs:
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser):
         """Add all CLI arguments to the parser."""
-        # Core arguments
         parser.add_argument(
             'input',
             help='Input MLIR file'
@@ -176,7 +160,6 @@ class MeggArgs:
             help='Comma-separated list of function names to optimize (default: all functions)'
         )
 
-        # Optimization parameters
         parser.add_argument(
             '--iter',
             type=int,
@@ -198,7 +181,6 @@ class MeggArgs:
             help='Cost model for extraction (default: builtin)'
         )
 
-        # Debug and logging options
         parser.add_argument(
             '--dump-egraph',
             type=str,
@@ -230,7 +212,6 @@ class MeggArgs:
             help='Disable termination and rollback safeguards'
         )
 
-        # LLVM backend options
         parser.add_argument(
             '--emit-llvm',
             action='store_true',
@@ -294,7 +275,6 @@ class MeggArgs:
             custom_instructions=args.custom_instructions,
         )
 
-
 def _merge_custom_module(dest: MModule, src: MModule):
     """Append custom instruction definitions to the destination module."""
     existing_symbols = set()
@@ -308,7 +288,6 @@ def _merge_custom_module(dest: MModule, src: MModule):
         if symbol_name and symbol_name not in existing_symbols:
             dest.append_to_module(op)
             existing_symbols.add(symbol_name)
-
 
 def get_loop_nest_level(loop_op: MOperation) -> int:
     depth = 0
@@ -327,7 +306,6 @@ def get_loop_nest_level(loop_op: MOperation) -> int:
         parent = parent.get_parent_op()
 
     return depth
-
 
 def count_nested_loops(loop_op: MOperation) -> int:
     """Count the number of loops contained within the given loop operation."""

@@ -12,15 +12,6 @@
 
 namespace megg {
 
-namespace {
-
-static bool isLoopLikeOp(mlir::Operation *op) {
-  return mlir::isa<mlir::affine::AffineForOp, mlir::scf::ForOp,
-                   mlir::scf::WhileOp>(op);
-}
-
-} // namespace
-
 bool LoopUnroller::run(mlir::ModuleOp module) {
   if (unrollFactor <= 0) {
     return false;
@@ -33,7 +24,6 @@ bool LoopUnroller::run(mlir::ModuleOp module) {
       return mlir::WalkResult::advance();
     }
 
-    // First pass: promote all SCF loops to affine
     funcOp.walk([&](mlir::scf::ForOp scfFor) -> mlir::WalkResult {
       if (auto affine_for = promoteSCFToAffine(scfFor, targetLoop_)) {
         target = affine_for;
@@ -41,7 +31,6 @@ bool LoopUnroller::run(mlir::ModuleOp module) {
       return mlir::WalkResult::advance();
     });
 
-    // Second pass: unroll target affine loop
     if (target && shouldUnroll(target) && applyLoopUnroll(target, unrollFactor)) {
       modified = true;
       return mlir::WalkResult::interrupt();
@@ -50,7 +39,6 @@ bool LoopUnroller::run(mlir::ModuleOp module) {
     return mlir::WalkResult::advance();
   });
 
-  // Lower affine back to SCF
   if (!lowerAllAffineToSCF(module)) {
     std::cerr << "LoopUnroller: Failed to lower affine to SCF" << std::endl;
     return false;
@@ -60,7 +48,6 @@ bool LoopUnroller::run(mlir::ModuleOp module) {
 }
 
 bool LoopUnroller::shouldUnroll(mlir::affine::AffineForOp forOp) {
-  // Check if this is the target loop operation
   if (targetLoop_ != nullptr) {
     if (forOp.getOperation() != targetLoop_) {
       return false;
@@ -76,15 +63,12 @@ bool LoopUnroller::shouldUnroll(mlir::affine::AffineForOp forOp) {
   auto upperBound = forOp.getConstantUpperBound();
   auto step = forOp.getStepAsInt(); // Get step as integer
 
-  // Calculate trip count
   int64_t tripCount = (upperBound - lowerBound) / step;
 
-  // Don't unroll very large loops
   if (tripCount > maxTripCount) {
     return false;
   }
 
-  // Don't unroll loops that are already small
   if (tripCount <= minTripCount) {
     return false;
   }
@@ -94,12 +78,10 @@ bool LoopUnroller::shouldUnroll(mlir::affine::AffineForOp forOp) {
 
 bool LoopUnroller::applyLoopUnroll(mlir::affine::AffineForOp forOp,
                                    int unrollFactor) {
-  // Check for valid unroll factor
   if (unrollFactor <= 0) {
     return false;
   }
 
-  // Apply the unroll transformation
   if (mlir::succeeded(
           mlir::affine::loopUnrollByFactor(forOp, unrollFactor))) {
     // normalize

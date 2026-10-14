@@ -38,12 +38,12 @@ static dist_out: [u32; 16];
 rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
   let addr1: u32 = _irf[rs1];
   let out_addr: u32 = _irf[rs2]; 
-  points1_x[0 +: ] = _burst_read[addr1 +: 16];
-  points1_y[0 +: ] = _burst_read[addr1 + 64 +: 16];
-  points1_z[0 +: ] = _burst_read[addr1 + 128 +: 16];
-  points2_x[0 +: ] = _burst_read[addr1 + 192 +: 16];
-  points2_y[0 +: ] = _burst_read[addr1 + 256 +: 16];
-  points2_z[0 +: ] = _burst_read[addr1 + 320 +: 16];
+  points1_x[0 +: ] = _mem[addr1 +: 16];
+  points1_y[0 +: ] = _mem[addr1 + 64 +: 16];
+  points1_z[0 +: ] = _mem[addr1 + 128 +: 16];
+  points2_x[0 +: ] = _mem[addr1 + 192 +: 16];
+  points2_y[0 +: ] = _mem[addr1 + 256 +: 16];
+  points2_z[0 +: ] = _mem[addr1 + 320 +: 16];
   [[unroll(4)]]
   with i: u32 = (0, i + 1) do {
     let dx: u32 = points1_x[i] - points2_x[i];
@@ -51,6 +51,6 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
     let dz: u32 = points1_z[i] - points2_z[i];
     dist_out[i] = dx * dx + dy * dy + dz * dz;
   } while (i + 1 < 16);
-  _burst_write[out_addr +: 16] = dist_out[0 +: ];
+  _mem[out_addr +: 16] = dist_out[0 +: ];
   _irf[rd] = 0;
 }

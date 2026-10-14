@@ -12,6 +12,69 @@ def transpile_text(tmp_path: Path, source: str) -> str:
     return transpiler.transpile(cadl_file)
 
 
+def test_csr_reads_become_parameters_with_bindings(tmp_path: Path):
+    source = """
+#[csr_address(0x801)]
+register gain: u32;
+#[csr_address(0x802)]
+register bias: u32;
+rtype adjust(rs1: u5, rd: u5) {
+    let x: u32 = _irf[rs1];
+    let g: u32 = _csr[gain];
+    _irf[rd] = x * g + _csr[bias] + _csr[gain];
+}
+rtype plain(rs1: u5, rd: u5) {
+    _irf[rd] = _irf[rs1] + 1;
+}
+"""
+    path = tmp_path / "csr.cadl"
+    path.write_text(source)
+    transpiler = CTranspiler()
+    output = transpiler.transpile(path)
+    assert "uint32_t adjust(uint32_t rs1_value, uint32_t rs2_value, uint32_t csr_gain_value, uint32_t csr_bias_value)" in output
+    assert "uint32_t g = csr_gain_value;" in output
+    assert "_csr" not in output
+    assert transpiler.csr_inputs == {
+        "adjust": [
+            {"name": "gain", "address": 0x801, "arg_index": 2},
+            {"name": "bias", "address": 0x802, "arg_index": 3},
+        ],
+        "plain": [],
+    }
+
+
+@pytest.mark.parametrize("access, message", [
+    ("_csr[missing]", "Undefined CSR"),
+    ("_csr[0]", "declared register name"),
+])
+def test_invalid_csr_access(tmp_path: Path, access: str, message: str):
+    with pytest.raises(ValueError, match=message):
+        transpile_text(tmp_path, f"rtype bad(rd: u5) {{ _irf[rd] = {access}; }}")
+
+
+@pytest.mark.parametrize("address, ty, message", [
+    ("0x1000", "u32", "12-bit address"),
+    ("0xc01", "u32", "read-only address"),
+    ("0x801", "u64", "RV32 XLEN"),
+])
+def test_invalid_csr_declaration_for_megg(tmp_path: Path, address: str, ty: str, message: str):
+    with pytest.raises(ValueError, match=message):
+        transpile_text(tmp_path, f"""
+#[csr_address({address})]
+register cfg: {ty};
+rtype bad(rd: u5) {{ _irf[rd] = _csr[cfg]; }}
+""")
+
+
+def test_csr_writes_rejected_in_matching_pattern(tmp_path: Path):
+    with pytest.raises(ValueError, match="CSR writes"):
+        transpile_text(tmp_path, """
+#[csr_address(0x801)]
+register cfg: u32;
+rtype bad(rs1: u5) { _csr[cfg] = _irf[rs1]; }
+""")
+
+
 def test_register_read_converts_to_value_parameter(tmp_path: Path):
     cadl_source = """
 rtype add1(rs1: u5, rd: u5) {

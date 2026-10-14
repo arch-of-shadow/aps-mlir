@@ -71,7 +71,7 @@ rtype loadmat_a_4tile(rs1: u5, rs2: u5, rd: u5) { // 512B, tiled load
     do {
         [[stride_x(16)]]
         [[stride_y(8)]]
-        matA[spm_addr +: ] = _burst_read[dram_addr +: 64];
+        matA[spm_addr +: ] = _mem[dram_addr +: 64];
         let dram_addr_: u32 = dram_addr + block_w;
         let spm_addr_: u32 = spm_addr + 16;
         let i_: u32 = i + 1;
@@ -95,7 +95,7 @@ rtype loadvec_b_256B(rs1: u5, rs2: u5, rd: u5) { // 256B, row-major load
         dram_addr: u32 = (dram_addr0, dram_addr_)
         spm_addr : u32 = (spm_addr0,  spm_addr_)
     do {
-        vecB[spm_addr +: ] = _burst_read[dram_addr +: 128];
+        vecB[spm_addr +: ] = _mem[dram_addr +: 128];
         let dram_addr_: u32 = dram_addr + 128;
         let spm_addr_: u32 = spm_addr + 128;
         let i_: u32 = i + 1;
@@ -112,7 +112,7 @@ rtype loadvec_b_32B(rs1: u5, rs2: u5, rd: u5) { // 32B, row-major load
     let dram_addr0: u32 = _irf[rs1];
     let r2: u32 = _irf[rs2];
     let spm_addr0: u32 = r2 >> 16;
-    vecB[spm_addr0 +: ] = _burst_read[dram_addr0 +: 32];
+    vecB[spm_addr0 +: ] = _mem[dram_addr0 +: 32];
     _irf[rd] = 0;
 }
 
@@ -131,7 +131,7 @@ rtype storevec_c_256B(rs1: u5, rs2: u5, rd: u5) { // 512B, tiled store
         dram_addr: u32 = (dram_addr0, dram_addr_)
         spm_addr : u32 = (spm_addr0,  spm_addr_)
     do {
-        _burst_write[dram_addr +: 32] = vecC[spm_addr +: ]; // this is biggest we can use, burst size limit 128B
+        _mem[dram_addr +: 32] = vecC[spm_addr +: ]; // this is biggest we can use, burst size limit 128B
         let dram_addr_: u32 = dram_addr + 128;
         let spm_addr_: u32 = spm_addr + 32;
         let i_: u32 = i + 1;
@@ -148,6 +148,6 @@ rtype storevec_c_128B(rs1: u5, rs2: u5, rd: u5) { // 32B, row-major load
     let dram_addr0: u32 = _irf[rs1];
     let r2: u32 = _irf[rs2];
     let spm_addr0: u32 = r2 >> 16;
-    _burst_write[dram_addr0 +: 32] = vecC[spm_addr0 +: ];
+    _mem[dram_addr0 +: 32] = vecC[spm_addr0 +: ];
     _irf[rd] = 0;
 }

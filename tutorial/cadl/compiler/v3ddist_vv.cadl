@@ -16,12 +16,12 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
   let out_addr: u32 = _irf[rs2];  // Base address for output distances
   let vl: u32 = 16;               // Vector length
 
-  x1_data[0 +: ] = _burst_read[addr1 +: 16];
-  y1_data[0 +: ] = _burst_read[addr1 + 64 +: 16];
-  z1_data[0 +: ] = _burst_read[addr1 + 128 +: 16];
-  x2_data[0 +: ] = _burst_read[addr1 + 192 +: 16];
-  y2_data[0 +: ] = _burst_read[addr1 + 256 +: 16];
-  z2_data[0 +: ] = _burst_read[addr1 + 320 +: 16];
+  x1_data[0 +: ] = _mem[addr1 +: 16];
+  y1_data[0 +: ] = _mem[addr1 + 64 +: 16];
+  z1_data[0 +: ] = _mem[addr1 + 128 +: 16];
+  x2_data[0 +: ] = _mem[addr1 + 192 +: 16];
+  y2_data[0 +: ] = _mem[addr1 + 256 +: 16];
+  z2_data[0 +: ] = _mem[addr1 + 320 +: 16];
 
   // Tiled loop: outer loop iterates by 4, inner loop processes each element
   with ib: u32 = (0, ib_) do {
@@ -55,7 +55,7 @@ rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
     let ib_: u32 = ib + 4;
   } while (ib_ < 16);
 
-  _burst_write[out_addr +: 16] = x1_data[0 +: ];
+  _mem[out_addr +: 16] = x1_data[0 +: ];
 
   _irf[rd] = 0;
 }

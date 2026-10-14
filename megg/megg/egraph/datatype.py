@@ -1,9 +1,7 @@
-"""
-Minimal data types for MLIR to egglog term conversion.
-"""
-from typing import Union
+"""Minimal data types for MLIR to egglog term conversion."""
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import Union
 
 
 @dataclass(frozen=True)
@@ -11,12 +9,9 @@ class DataType:
     """Base class for data types."""
     pass
 
-
 @dataclass(frozen=True)
 class IntType(DataType):
-    """
-    Integer type with configurable width and signedness.
-    """
+    """Integer type with configurable width and signedness."""
     width: int
     signed: bool = False
     
@@ -35,13 +30,9 @@ class IndexType(DataType):
     def __str__(self):
         return "index"
 
-
-
 @dataclass(frozen=True)
 class FloatType(DataType):
-    """
-    Floating point type with standard precisions.
-    """
+    """Floating point type with standard precisions."""
     class Precision(Enum):
         HALF = auto()    # 16-bit
         SINGLE = auto()  # 32-bit
@@ -91,7 +82,6 @@ class TupleType(DataType):
         elements = ", ".join(str(t) for t in self.element_types)
         return f"({elements})"
 
-
 @dataclass(frozen=True)
 class VectorType(DataType):
     """Vector type with element type and size."""
@@ -100,7 +90,6 @@ class VectorType(DataType):
 
     def __str__(self):
         return f"vector<{self.size}x{self.element_type}>"
-
 
 @dataclass(frozen=True)
 class TensorType(DataType):
@@ -112,6 +101,10 @@ class TensorType(DataType):
         shape_str = "x".join(str(d) for d in self.shape)
         return f"tensor<{shape_str}x{self.element_type}>"
 
+@dataclass(frozen=True)
+class PointerType(DataType):
+    def __str__(self):
+        return "!llvm.ptr"
 
 @dataclass(frozen=True)
 class MemRefType(DataType):
@@ -120,9 +113,8 @@ class MemRefType(DataType):
     element_type: DataType
 
     def __str__(self):
-        shape_str = "x".join(str(d) for d in self.shape)
+        shape_str = "x".join("?" if d == -1 else str(d) for d in self.shape)
         return f"memref<{shape_str}x{self.element_type}>"
-
 
 @dataclass(frozen=True)
 class VoidType(DataType):

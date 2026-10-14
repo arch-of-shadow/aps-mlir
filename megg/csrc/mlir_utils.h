@@ -30,7 +30,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 
-// Include dialect extensions to register inliner and other interfaces
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
@@ -45,7 +44,6 @@ using namespace nb::literals;
 namespace megg {
 
 // Wrapper class for mlir::Operation* to avoid ownership issues with nanobind
-// This class does NOT own the operation pointer - MLIR owns it
 class MLIROperationRef {
 public:
   MLIROperationRef(mlir::Operation *op = nullptr) : op_(op) {}
@@ -60,15 +58,12 @@ private:
 };
 
 enum class OperationType {
-  // Module
   MODULE,
 
-  // Function operations
   FUNC_FUNC,
   FUNC_CALL,
   FUNC_RETURN,
 
-  // Arithmetic operations
   ARITH_ADD,
   ARITH_SUB,
   ARITH_MUL,
@@ -86,12 +81,10 @@ enum class OperationType {
   ARITH_NEGF,
   ARITH_SELECT,
 
-  // Logical operations
   ARITH_ANDI,
   ARITH_ORI,
   ARITH_XORI,
 
-  // Cast operations
   ARITH_INDEX_CAST,
   ARITH_SITOFP,
   ARITH_UITOFP,
@@ -102,7 +95,6 @@ enum class OperationType {
   ARITH_TRUNCI,
   ARITH_BITCAST,
 
-  // Affine operations
   AFFINE_FOR,
   AFFINE_IF,
   AFFINE_LOAD,
@@ -110,7 +102,6 @@ enum class OperationType {
   AFFINE_YIELD,
   AFFINE_APPLY,
 
-  // SCF operations
   SCF_FOR,
   SCF_IF,
   SCF_WHILE,
@@ -127,7 +118,6 @@ enum class OperationType {
   MEMREF_GLOBAL,
   MEMREF_ALLOCA = 52,
 
-  // LLVM operations
   LLVM_CALL,
   LLVM_RETURN,
 
@@ -135,15 +125,20 @@ enum class OperationType {
   ARITH_SHLI = 60,
   ARITH_SHRSI = 61,
   ARITH_SHRUI = 62,
- 
 
-  // Unknown
   UNKNOWN = 99
 };
 
 class MLIRModule {
 public:
   MLIRModule() { initializeContext(); }
+  explicit MLIRModule(std::shared_ptr<mlir::MLIRContext> sharedContext)
+      : context(std::move(sharedContext)) {
+    module = mlir::ModuleOp::create(mlir::UnknownLoc::get(context.get()));
+  }
+  std::unique_ptr<MLIRModule> emptyLike() {
+    return std::make_unique<MLIRModule>(context);
+  }
   bool parseFromString(const std::string &mlirText, bool applyInlining = true);
   bool parseFromFile(const std::string &filepath, bool applyInlining = true);
   std::string toString() const;
@@ -156,17 +151,12 @@ public:
   bool validate() {
     return mlir::succeeded(mlir::verify(module->getOperation()));
   }
-  void genLoopName();
   std::pair<std::unique_ptr<MLIRModule>, std::unordered_map<mlir::Operation*, mlir::Operation*>> cloneWithMapping();
-
-  // Set module from an existing ModuleOp (for casting)
-  void setModule(mlir::ModuleOp moduleOp) {
-    module = mlir::OwningOpRef<mlir::ModuleOp>(moduleOp);
-  }
 
 private:
   void initializeContext();
-  std::unique_ptr<mlir::MLIRContext> context;
+  // Cloned IR and reconstructed functions keep their types' context alive.
+  std::shared_ptr<mlir::MLIRContext> context;
   mlir::OwningOpRef<mlir::ModuleOp> module;
 };
 
@@ -186,7 +176,6 @@ public:
   explicit PassManager(MLIRModule &module) : mlirModule(module) {}
   ~PassManager() = default;
 
-  // Delete copy constructor and copy assignment
   PassManager(const PassManager &) = delete;
   PassManager &operator=(const PassManager &) = delete;
   PassManager(PassManager &&) = delete;
@@ -205,7 +194,6 @@ public:
   bool runPass(const std::string &passName);
   bool runAllPass();
 
-  // Verify the module is valid
   bool verifyModule();
   void clearCustomPasses();
 

@@ -44,6 +44,8 @@ def strip_module_attrs(mlir_path: Path) -> None:
 
 def extract_encoding(cadl_file: Path, output_file: Path) -> None:
     proc = parse_proc(cadl_file.read_text(), str(cadl_file))
+    transpiler = CTranspiler()
+    transpiler.transpile(cadl_file)
     encoding = {}
 
     for flow_name, flow in proc.flows.items():
@@ -56,6 +58,8 @@ def extract_encoding(cadl_file: Path, output_file: Path) -> None:
             if isinstance(lit_inner, cadl_ast.LiteralInner_Fixed):
                 flow_encoding[attr_name] = f"0x{lit_inner.value:X}"
         if flow_encoding:
+            if transpiler.csr_inputs.get(flow_name):
+                flow_encoding["csr_inputs"] = transpiler.csr_inputs[flow_name]
             encoding[flow_name] = flow_encoding
 
     output_file.write_text(json.dumps(encoding, indent=2))

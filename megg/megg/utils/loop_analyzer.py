@@ -1,43 +1,23 @@
-"""
-Loop Analysis Utilities
-Extracts loop bounds information from MLIR modules.
-"""
+"""Loop Analysis Utilities"""
 from __future__ import annotations
-from typing import Dict, Optional
+
 import logging
+from typing import Dict, Optional
+
 from megg.utils.mlir_utils import MModule, MOperation, OperationType
 
 logger = logging.getLogger(__name__)
 
-
 def extract_loop_lengths(module: MModule) -> Dict[str, Dict[str, int]]:
-    """
-    Extract loop bounds from all SCF for loops in the module.
-    
-    Args:
-        module: MLIR module to analyze
-        
-    Returns:
-    Dictionary mapping loop names to their bounds info
-    {'lower': int, 'upper': int, 'step': int, 'nest_level': int, 'nested_loop_count': int}
-        
-    Example:
-        >>> module = MModule.parse(mlir_code)
-        >>> loop_info = extract_loop_lengths(module)
-        >>> print(loop_info)
-    {'loop_0': {'lower': 0, 'upper': 32, 'step': 1, 'nest_level': 0, 'nested_loop_count': 1}, 
-     'loop_1': {'lower': 0, 'upper': 64, 'step': 2, 'nest_level': 1, 'nested_loop_count': 0}}
-    """
+    """Extract loop bounds from all SCF for loops in the module."""
     loop_bounds: Dict[str, Dict[str, int]] = {}
     loop_counter = {'value': 0}
     
-    # Walk through all functions
     for func in module.get_functions():
         _analyze_function(func, loop_bounds, loop_counter, depth=0)
     
     logger.info(f"Extracted loop bounds for {len(loop_bounds)} loops")    
     return loop_bounds
-
 
 def _analyze_function(
     func: MOperation,
@@ -59,10 +39,8 @@ def _analyze_function(
             ops = block.get_operations()
             for op in ops:
                 if hasattr(op, 'type') and op.type == OperationType.SCF_FOR:
-                    # Get loop name
                     loop_name = _get_loop_name(op, loop_counter['value'])
                     
-                    # Try to extract loop bounds
                     bounds = _extract_scf_bounds(op)
                     
                     if bounds is not None:
@@ -85,9 +63,7 @@ def _analyze_function(
                     
                     loop_counter['value'] += 1
                     
-                    # Recursively analyze nested loops
                     _analyze_function(op, loop_bounds, loop_counter, depth + 1)
-
 
 def _get_loop_name(loop_op: MOperation, counter: int) -> str:
     """Get loop name from attribute or generate one."""
@@ -99,22 +75,12 @@ def _get_loop_name(loop_op: MOperation, counter: int) -> str:
     
     return f"loop_{counter}"
 
-
 def _extract_scf_bounds(loop_op: MOperation) -> Optional[Dict[str, int]]:
-    """
-    Extract loop bounds from SCF for loop using MLIR API.
-    
-    Uses the get_scf_loop_bounds() method from the C++ bindings
-    which properly accesses SCF loop bounds through MLIR API.
-    
-    Returns:
-        Dictionary with 'lower', 'upper', 'step' keys, or None if bounds cannot be determined
-    """
+    """Extract loop bounds from SCF for loop using MLIR API."""
     try:
         # Use the C++ binding method to get bounds
         bounds = loop_op._op.get_scf_loop_bounds()
         if bounds is not None:
-            # bounds is a dict with 'lower', 'upper', 'step' keys
             return {
                 'lower': int(bounds['lower']),
                 'upper': int(bounds['upper']),
@@ -124,7 +90,6 @@ def _extract_scf_bounds(loop_op: MOperation) -> Optional[Dict[str, int]]:
         logger.debug(f"Failed to extract loop bounds via MLIR API: {e}")
     
     return None
-
 
 def _count_nested_loops(loop_op: MOperation) -> int:
     """Count the number of loop operations contained within the given loop."""

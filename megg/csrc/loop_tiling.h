@@ -26,12 +26,8 @@ public:
 
   bool run(mlir::ModuleOp module) override;
 
-
-  /// @param loopOp: Target loop operation pointer
-  /// @param tileSize: Size of each tile
   void addTileConfig(mlir::Operation *loopOp, uint64_t tileSize);
 
-  /// Set the default tile size for loops without specific configuration
   void setDefaultTileSize(uint64_t size) {
     if (size > 0)
       tileSize_ = size;
@@ -46,15 +42,11 @@ public:
   const TileConfig &getTileConfigs() const { return tileConfigs_; }
 
 private:
-  /// Check if this function should be processed
   bool shouldProcessFunction(mlir::func::FuncOp funcOp);
-  /// Check if this loop should be tiled based on Operation pointer
   std::optional<uint64_t> getTileSizeForLoop(mlir::affine::AffineForOp forOp);
 
-  /// Apply tiling transformation to a single loop
   bool applyLoopTiling(mlir::affine::AffineForOp forOp, uint64_t tileSize);
 
-  /// Tile specific loops based on configuration
   bool tileConfiguredLoops(mlir::func::FuncOp funcOp);
 
   uint64_t tileSize_;

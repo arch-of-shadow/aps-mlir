@@ -26,7 +26,6 @@ public:
     explicit MLIRIRBuilder();
     ~MLIRIRBuilder()=default;
 
-    // Function operations
     std::pair<mlir::func::FuncOp, mlir::Block*> createFunction(const std::string& name,
                                                                const std::vector<mlir::Type>& argTypes,
                                                                const std::vector<mlir::Type>& resultTypes);
@@ -36,11 +35,9 @@ public:
     void setInsertionPoint(mlir::Operation* op);
     void setInsertionPointAfter(mlir::Operation* op);
 
-    // Save and restore insertion point
     mlir::OpBuilder::InsertPoint saveInsertionPoint();
     void restoreInsertionPoint(mlir::OpBuilder::InsertPoint ip);
 
-    // Type creation
     mlir::Type getI1Type();
     mlir::Type getI32Type();
     mlir::Type getI64Type();
@@ -52,13 +49,10 @@ public:
     mlir::FunctionType getFunctionType(const std::vector<mlir::Type>& inputs,
                                        const std::vector<mlir::Type>& results);
 
-    // LLVM dialect types
     mlir::Type getLLVMPtrType();
 
-    // LLVM dialect operations
     mlir::Value createPtrToInt(const mlir::Value& ptr, mlir::Type intType);
 
-    // Arithmetic operations
     mlir::Value createConstantI32(int32_t value);
     mlir::Value createConstantI64(int64_t value);
     mlir::Value createConstantF32(float value);
@@ -79,21 +73,17 @@ public:
     mlir::Value createDivF(const mlir::Value& lhs, const mlir::Value& rhs);
     mlir::Value createRemF(const mlir::Value& lhs, const mlir::Value& rhs);
 
-    // Logical operations (bitwise)
     mlir::Value createAndI(const mlir::Value& lhs, const mlir::Value& rhs);
     mlir::Value createOrI(const mlir::Value& lhs, const mlir::Value& rhs);
     mlir::Value createXorI(const mlir::Value& lhs, const mlir::Value& rhs);
 
-    // Shift operations
     mlir::Value createShlI(const mlir::Value& lhs, const mlir::Value& rhs);
     mlir::Value createShrSII(const mlir::Value& lhs, const mlir::Value& rhs);
     mlir::Value createShrUII(const mlir::Value& lhs, const mlir::Value& rhs);
 
-    // Comparison operations
     mlir::Value createCmpI(const std::string& predicate, const mlir::Value& lhs, const mlir::Value& rhs);
     mlir::Value createCmpF(const std::string& predicate, const mlir::Value& lhs, const mlir::Value& rhs);
 
-    // Select operation (ternary conditional)
     mlir::Value createSelect(const mlir::Value& condition, const mlir::Value& trueValue, const mlir::Value& falseValue);
 
     mlir::Value createIndexCast(const mlir::Value& value, mlir::Type targetType);
@@ -106,16 +96,13 @@ public:
     mlir::Value createTruncI(const mlir::Value& value, mlir::Type targetType);
     mlir::Value createBitcast(const mlir::Value& value, mlir::Type targetType);
 
-    // Control flow
     mlir::Operation* createReturn(const std::vector<mlir::Value>& values = {});
     mlir::Operation* createFuncReturn(const std::vector<mlir::Value>& values = {});
 
-    // Affine operations
     mlir::affine::AffineForOp createAffineFor(int64_t lowerBound, int64_t upperBound,
                                               int64_t step = 1);
     mlir::Operation* createAffineYield(const std::vector<mlir::Value>& values = {});
 
-    // SCF operations
     mlir::scf::ForOp createSCFFor(const mlir::Value& lowerBound, const mlir::Value& upperBound,
                                    const mlir::Value& step, const std::vector<mlir::Value>& iterArgs = {});
     mlir::scf::IfOp createSCFIf(const mlir::Value& condition, const std::vector<mlir::Type>& resultTypes = {}, bool hasElse = false);
@@ -131,26 +118,22 @@ public:
     mlir::Value createMemRefGetGlobal(mlir::Type memrefType, const std::string& symbolName);
     mlir::Value createMemRefExtractAlignedPointerAsIndex(const mlir::Value& memref);
 
-    // LLVM operations
     mlir::Value createInlineAsm(const std::string& asmString,
                                  const std::string& constraints,
                                  const std::vector<mlir::Value>& operands,
                                  mlir::Type resultType,
                                  bool hasSideEffects = false);
 
-    // Block operations
     mlir::Block* createBlock(mlir::Region* region, const std::vector<mlir::Type>& argTypes = {});
     mlir::Block* createBlockAtStart(mlir::Region* region, const std::vector<mlir::Type>& argTypes = {});
     mlir::Block* createBlockAtEnd(mlir::Region* region, const std::vector<mlir::Type>& argTypes = {});
     void setInsertionPointToStart(mlir::Block* block);
     void setInsertionPointToEnd(mlir::Block* block);
 
-    // Utility
     mlir::Location getLoc() { return builder->getUnknownLoc(); }
     mlir::OpBuilder& getBuilder() { return *builder; }
     mlir::MLIRContext* getContext() { return context; }
 
-    // Context management
     void setContext(mlir::MLIRContext* newContext);
 };
 

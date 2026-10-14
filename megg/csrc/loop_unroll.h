@@ -17,10 +17,8 @@ public:
         targetFunction_(targetFunction),
         targetLoop_(targetLoop) {}
 
-  // Override run method from CustomPass
   bool run(mlir::ModuleOp module) override;
 
-  // Configuration methods
   void setUnrollFactor(int factor);
   void setMaxTripCount(int64_t max);
   void setMinTripCount(int64_t min);

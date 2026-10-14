@@ -17,7 +17,7 @@ rtype gemv(rs1: u5, rs2: u5, rd: u5) {
   let in_addr: u32 = _irf[rs1];
   let out_addr: u32 = _irf[rs2];
 
-  matrix[0+:]=_burst_read[in_addr+:16];
+  matrix[0+:]=_mem[in_addr+:16];
   vec[0] = _mem[in_addr + 64];
   vec[1] = _mem[in_addr + 68];
   vec[2] = _mem[in_addr + 72];

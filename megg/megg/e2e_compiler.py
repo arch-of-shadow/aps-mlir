@@ -1,28 +1,28 @@
-"""
-End-to-End C Compiler for Megg
+"""End-to-End C Compiler for Megg"""
 
-This module provides a complete compilation pipeline that:
-1. Parses #pragma megg optimize directives
-2. Splits code into target (MLIR path) and rest (LLVM path)
-3. Compiles target functions through Polygeist -> Megg -> MLIR -> LLVM
-4. Compiles rest functions through Clang -> LLVM
-5. Links everything into final executable
-"""
-
-from dataclasses import dataclass
-from pathlib import Path
-import subprocess
-import shutil
+import argparse
+import dataclasses
+import json
 import logging
-import re
-from typing import Optional, List
-import sys
 import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import traceback
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import List, Optional
 
+from megg.backend.llvm_backend import MLIRToLLVMBackend
+from megg.compiler import Compiler
 from megg.frontend.pragma_parser import PragmaParser
+from megg.rewrites.match_rewrites import build_ruleset_from_module
+from megg.utils import MModule, get_temp_dir
+from megg.utils.loop_analyzer import extract_loop_lengths
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class CompilationPaths:
@@ -39,7 +39,6 @@ class CompilationPaths:
     executable: Path
     temp_dir: Path
 
-
 class E2ECompiler:
     """End-to-end C code compiler with Megg optimization."""
 
@@ -49,19 +48,7 @@ class E2ECompiler:
                  keep_intermediate: bool = False,
                  verbose: bool = False,
                  handson: bool = False):
-        """
-        Initialize E2E compiler.
-
-        Args:
-            source_file: Input C source file
-            custom_instr_mlir: Optional custom instruction pattern MLIR file
-            output: Output executable path
-            encoding_json: JSON file with instruction encodings (opcode/funct3/funct7)
-            mlir_passes: Semicolon-separated MLIR passes
-            keep_intermediate: Keep intermediate files for debugging
-            verbose: Enable verbose logging
-            handson: Enable handson mode - saves phase snapshots to JSON files
-        """
+        """Initialize E2E compiler."""
         self.handson = handson
         self.snapshots = []  # Collect snapshots in handson mode
         self.source_file = Path(source_file).resolve()
@@ -73,28 +60,21 @@ class E2ECompiler:
         self.verbose = verbose
         self.riscv = self.find_riscv()
         self.megg_include = self.find_megg_include_path()
-        if (self.riscv == ''):
-            raise FileNotFoundError(f'RISCV compiler not found! Make sure you installed it properly!')
 
         if not self.source_file.exists():
             raise FileNotFoundError(f"Source file not found: {source_file}")
-        if not self.custom_instr_mlir.exists():
+        if self.custom_instr_mlir is not None and not self.custom_instr_mlir.exists():
             raise FileNotFoundError(f"Custom instruction file not found: {custom_instr_mlir}")
         if self.encoding_json and not self.encoding_json.exists():
             raise FileNotFoundError(
                 f"Encoding JSON file not found: {encoding_json}")
 
-        # Load instruction encodings
         self.instr_encodings = {}
         if self.encoding_json:
             self._load_encodings()
 
-        # Create temporary directory using get_temp_dir()
-        from megg.utils import get_temp_dir
         project_tmp = get_temp_dir()
 
-        # Create unique subdirectory
-        import time
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         self.temp_dir = project_tmp / f"megg_e2e_{timestamp}"
         self.temp_dir.mkdir(exist_ok=True)
@@ -105,14 +85,11 @@ class E2ECompiler:
 
     def find_riscv(self):
         riscv = os.getenv("RISCV")
-        if riscv is None:
-            logger.error("riscv env not found!");
-            # attempt to find compiler
-            gcc_path = shutil.which('riscv32-unknown-elf-gcc').strip()
-            if len(gcc_path) == 0:
-                logger.error("riscv compiler also not found! I can not find the compiler!")
-                return ''
-            riscv = '/'.join(gcc_path.split('/')[:-2])
+        if not riscv:
+            gcc_path = shutil.which('riscv32-unknown-elf-gcc')
+            if gcc_path is None:
+                raise FileNotFoundError('Set RISCV or put riscv32-unknown-elf-gcc on PATH')
+            riscv = str(Path(gcc_path).resolve().parent.parent)
         return riscv
 
     def find_megg_include_path(self):
@@ -124,7 +101,6 @@ class E2ECompiler:
 
     def _load_encodings(self):
         """Load instruction encodings from JSON file."""
-        import json
 
         with open(self.encoding_json, 'r') as f:
             self.instr_encodings = json.load(f)
@@ -155,20 +131,13 @@ class E2ECompiler:
         )
 
     def compile(self) -> bool:
-        """
-        Execute complete compilation pipeline.
-
-        Returns:
-            True if compilation succeeded, False otherwise
-        """
+        """Execute complete compilation pipeline."""
         try:
-            # Step 1: Parse pragmas and split code
             logger.info("=" * 60)
             logger.info("Step 1: Parsing pragmas and splitting code")
             logger.info("=" * 60)
             marked_funcs = self._parse_pragmas()
 
-            # If no functions are marked, compile entire file directly without optimization
             if not marked_funcs:
                 logger.info("No functions marked with #pragma megg optimize")
                 logger.info("Compiling entire file without Megg optimization")
@@ -176,7 +145,6 @@ class E2ECompiler:
 
             self._split_code(marked_funcs)
 
-            # Step 2: Compile target path (C -> MLIR -> Optimized MLIR -> LLVM -> Object)
             logger.info("\n" + "=" * 60)
             logger.info("Step 2: Compiling target functions (Megg path)")
             logger.info("=" * 60)
@@ -184,7 +152,6 @@ class E2ECompiler:
                 logger.error("Target path compilation failed")
                 return False
 
-            # Step 3: Compile rest path (C -> LLVM -> Object)
             logger.info("\n" + "=" * 60)
             logger.info("Step 3: Compiling rest functions (LLVM path)")
             logger.info("=" * 60)
@@ -192,7 +159,6 @@ class E2ECompiler:
                 logger.error("Rest path compilation failed")
                 return False
 
-            # Step 4: Link object files
             logger.info("\n" + "=" * 60)
             logger.info("Step 4: Linking")
             logger.info("=" * 60)
@@ -207,7 +173,6 @@ class E2ECompiler:
 
         except Exception as e:
             logger.error(f"Compilation failed: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             return False
 
@@ -231,12 +196,10 @@ class E2ECompiler:
         parser = PragmaParser(str(self.source_file))
         target_code, rest_code = parser.split_code(marked_funcs)
 
-        # Write target.c
         with open(self.paths.target_c, 'w') as f:
             f.write(target_code)
         logger.info(f"Created: {self.paths.target_c}")
 
-        # Write rest.c
         with open(self.paths.rest_c, 'w') as f:
             f.write(rest_code)
         logger.info(f"Created: {self.paths.rest_c}")
@@ -246,26 +209,19 @@ class E2ECompiler:
             logger.info(f"\n--- rest.c ---\n{rest_code}\n")
 
     def _compile_target_path(self) -> bool:
-        """
-        Compile target functions through Megg pipeline:
-        C -> MLIR -> Optimized MLIR -> LLVM IR -> Object file
-        """
-        # Step 2.1: C to MLIR (Polygeist)
+        """Compile target functions through Megg pipeline:"""
         logger.info("  2.1: Converting C to MLIR (Polygeist)...")
         if not self._run_polygeist():
             return False
 
-        # Step 2.2: Optimize MLIR (Megg)
         logger.info("  2.2: Optimizing MLIR (Megg)...")
         if not self._run_megg_optimizer():
             return False
 
-        # Step 2.3: Lower MLIR to LLVM IR using backend
         logger.info("  2.3: Lowering MLIR to LLVM IR...")
         if not self._run_mlir_lower_via_backend():
             return False
 
-        # Step 2.4: LLVM IR to Object file
         logger.info("  2.4: Generating object file (LLC)...")
         if not self._run_llc(self.paths.target_ll, self.paths.target_o):
             return False
@@ -274,11 +230,7 @@ class E2ECompiler:
         return True
 
     def _compile_rest_path(self) -> bool:
-        """
-        Compile rest functions through LLVM pipeline:
-        C -> LLVM IR -> Object file (RISC-V target)
-        """
-        # Step 3.1: C to LLVM IR (Clang with RISC-V target)
+        """Compile rest functions through LLVM pipeline:"""
         logger.info("  3.1: Compiling C to LLVM IR (Clang for RISC-V)...")
         cmd = [
             'clang',
@@ -286,7 +238,6 @@ class E2ECompiler:
             '-march=rv32imac_zicsr_zifencei', # Chipyard: with RVC compression
             '-mabi=ilp32',      # Soft-float ABI (must match GCC)
             '-mcmodel=medany',  # Chipyard memory model
-            # Add include paths for RISC-V headers
             '-I' + self.riscv + '/riscv32-unknown-elf/include',
             '-I' + self.riscv + '/include',
             '-I' + self.megg_include,
@@ -305,7 +256,6 @@ class E2ECompiler:
 
         logger.info(f"    Created: {self.paths.rest_ll}")
 
-        # Step 3.2: LLVM IR to Object file
         logger.info("  3.2: Generating object file (LLC)...")
         if not self._run_llc(self.paths.rest_ll, self.paths.rest_o):
             return False
@@ -339,8 +289,7 @@ class E2ECompiler:
             logger.warning(f"    Failed to write cleaned MLIR file: {exc}")
 
     def _run_polygeist(self) -> bool:
-        """Convert C to MLIR using Polygeist (cpp2mlir)."""
-        # By default, this file will be placed in thirdparty/polygeist, as static-compiled binary
+        """Convert C to MLIR using cgeist."""
         cmd = [
             'cgeist', "-c", "-S",
             str(self.paths.target_c),
@@ -375,48 +324,34 @@ class E2ECompiler:
     def _run_megg_optimizer(self) -> bool:
         """Optimize MLIR using Megg compiler."""
         try:
-            from megg.compiler import Compiler
-            from megg.utils import MModule
-            from megg.rewrites.match_rewrites import normalize_pattern_module
 
-            # Load MLIR modules
             logger.info(f"    Loading target MLIR: {self.paths.target_mlir}")
             target_module = MModule.parse_from_file(str(self.paths.target_mlir))
-            # Initialize custom instruction components
             custom_ruleset = None
             skeletons = None
             loop_hints = None
 
-            # Load custom instructions if provided
             if self.custom_instr_mlir:
-                from megg.rewrites.match_rewrites import build_ruleset_from_module
-                from megg.utils.loop_analyzer import extract_loop_lengths
 
                 logger.info(f"    Loading pattern MLIR: {self.custom_instr_mlir}")
                 pattern_module = MModule.parse_from_file(str(self.custom_instr_mlir))
 
-                # Build custom instruction ruleset
                 logger.info("    Building custom instruction ruleset...")
-                custom_ruleset, skeletons = build_ruleset_from_module(pattern_module)
+                custom_ruleset, skeletons = build_ruleset_from_module(
+                    pattern_module, instr_encodings=self.instr_encodings)
                 logger.info(f"    Found {len(skeletons)} skeleton(s)")
 
-                # Extract loop hints from pattern for external passes
                 loop_hints = extract_loop_lengths(pattern_module)
                 logger.info(f"    Extracted loop hints: {loop_hints}")
             else:
                 logger.info("    No custom instructions provided, running basic optimization only")
 
-            # normalize module before optimization
-            # target_module = normalize_pattern_module(target_module, verbose=
-
-            # Setup handson callback if enabled
             debug_callback = None
             if self.handson:
                 def debug_callback(snapshot):
                     self.snapshots.append(snapshot)
                 logger.info("    Handson mode enabled - collecting phase snapshots")
 
-            # Create compiler
             compiler = Compiler(
                 module=target_module,
                 match_ruleset=custom_ruleset,
@@ -426,7 +361,6 @@ class E2ECompiler:
                 debug_callback=debug_callback  # Pass handson callback
             )
 
-            # Run optimization
             logger.info("    Running Megg optimization...")
             result = compiler.schedule(
                 internal_rewrites=True,
@@ -435,7 +369,6 @@ class E2ECompiler:
                 output_path=str(self.paths.optimized_mlir)
             )
 
-            # Save handson snapshots if enabled
             if self.handson and self.snapshots:
                 self._save_handson_snapshots()
 
@@ -451,14 +384,12 @@ class E2ECompiler:
             logger.info(f"      - Time: {result.time_elapsed:.2f}s")
             logger.info(f"    Created: {self.paths.optimized_mlir}")
 
-            # Generate statistics report JSON
             self._save_statistics_report(compiler)
 
             return True
 
         except Exception as e:
             logger.error(f"Megg optimization failed: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             return False
 
@@ -466,10 +397,7 @@ class E2ECompiler:
         """Lower MLIR to LLVM IR using existing backend."""
         logger.info("    >>> Entering _run_mlir_lower_via_backend")
         try:
-            from megg.backend.llvm_backend import MLIRToLLVMBackend
-            from megg.utils import MModule
 
-            # Load optimized MLIR
             logger.info(
                 f"    Loading optimized MLIR from: {self.paths.optimized_mlir}")
             optimized_module = MModule.parse_from_file(
@@ -477,7 +405,6 @@ class E2ECompiler:
             logger.info(
                 f"    Module loaded, has {len(list(optimized_module.get_functions()))} function(s)")
 
-            # Use backend to generate LLVM IR
             logger.info("    Creating backend...")
             backend = MLIRToLLVMBackend(verbose=self.verbose)
             logger.info("    Calling emit_llvm_ir...")
@@ -496,22 +423,18 @@ class E2ECompiler:
 
         except Exception as e:
             logger.error(f"MLIR lowering failed: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             return False
 
     def _run_llc(self, input_ll: Path, output_o: Path) -> bool:
         """Compile LLVM IR to object file using LLC (RISC-V target)."""
-        # Find LLC in LLVM installation
         llc = shutil.which('llc')
         if not llc:
             logger.error("    I can't find llc! quit now!")
             return False
 
-        # RISC-V 32-bit target with standard extensions
         target = 'riscv32-unknown-linux-elf'
         # Use soft-float ABI (ilp32) for Chipyard compatibility
-        # Remove RVC (compressed) to match Chipyard architecture
         mattr = '+m,+a,+zicsr,+zifencei'  # Integer multiply, atomics, no RVC
 
         cmd = [
@@ -557,7 +480,6 @@ class E2ECompiler:
 
     def _link(self) -> bool:
         """Link object files into RISC-V executable."""
-        # Use nosys specs for bare-metal linking
         gcc_path = self.riscv + '/bin/riscv32-unknown-elf-gcc'
         cmd = [
             gcc_path,
@@ -580,7 +502,6 @@ class E2ECompiler:
 
         logger.info(f"  Created RISC-V executable: {self.paths.executable}")
 
-        # Generate disassembly for debugging
         self._generate_disassembly()
 
         return True
@@ -589,7 +510,6 @@ class E2ECompiler:
         """Generate disassembly files for debugging."""
         try:
             objdump = self.riscv + '/bin/riscv32-unknown-elf-objdump'
-            # Generate disassembly for final executable
             asm_path = self.paths.executable.with_suffix('.asm')
             cmd = [
                 objdump,
@@ -608,7 +528,6 @@ class E2ECompiler:
                 logger.warning(
                     f"  Failed to generate disassembly: {result.stderr}")
 
-            # Also generate disassembly for target.o (optimized functions only)
             if self.keep_intermediate:
                 target_asm = self.paths.temp_dir / "target.asm"
                 cmd = [
@@ -630,15 +549,11 @@ class E2ECompiler:
             logger.warning(f"  Failed to generate disassembly: {e}")
 
     def _compile_direct(self) -> bool:
-        """
-        Compile entire file directly using RISC-V GCC without Megg optimization.
-        Used when no functions are marked with #pragma megg optimize.
-        """
+        """Compile entire file directly using RISC-V GCC without Megg optimization."""
         logger.info("\n" + "=" * 60)
         logger.info("Direct compilation (no Megg optimization)")
         logger.info("=" * 60)
 
-        # Compile directly with RISC-V GCC
         riscv_gcc = self.riscv + '/bin/riscv32-unknown-elf-gcc'
         cmd = [
             riscv_gcc,
@@ -663,7 +578,6 @@ class E2ECompiler:
 
         logger.info(f"✓ Successfully compiled: {self.output}")
 
-        # Generate disassembly
         self._generate_disassembly()
 
         return True
@@ -671,19 +585,15 @@ class E2ECompiler:
     def _save_statistics_report(self, compiler):
         """Save compilation statistics to JSON file."""
         try:
-            import json
 
-            # Generate statistics report from compiler
             stats_report = compiler.generate_statistics_report()
 
-            # Save to JSON file next to output executable
             stats_path = self.output.with_suffix('.stats.json')
             with open(stats_path, 'w') as f:
                 json.dump(stats_report, f, indent=2)
 
             logger.info(f"    Generated statistics report: {stats_path}")
 
-            # Log summary
             internal = stats_report.get('internal_rewrites', 0)
             external = stats_report.get('external_rewrites', [])
             custom = stats_report.get('custom_rewrites', 0)
@@ -700,11 +610,13 @@ class E2ECompiler:
 
     def _save_handson_snapshots(self):
         """Save phase snapshots to JSON file for hands-on visualization."""
-        import json
-        from dataclasses import asdict
+
+        def _json_default(obj):
+            if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+                return asdict(obj)
+            return str(obj)
 
         try:
-            # Convert snapshots to serializable format
             snapshots_data = []
             for snapshot in self.snapshots:
                 snapshot_dict = {
@@ -717,7 +629,6 @@ class E2ECompiler:
                 }
                 snapshots_data.append(snapshot_dict)
 
-            # Save to JSON file next to output executable
             snapshots_path = self.output.with_suffix('.snapshots.json')
             with open(snapshots_path, 'w') as f:
                 json.dump({
@@ -725,12 +636,11 @@ class E2ECompiler:
                     'pattern_file': str(self.custom_instr_mlir) if self.custom_instr_mlir else None,
                     'total_phases': len(snapshots_data),
                     'snapshots': snapshots_data
-                }, f, indent=2)
+                }, f, indent=2, default=_json_default)
 
             logger.info(f"    Handson snapshots saved: {snapshots_path}")
             logger.info(f"    Total phases captured: {len(snapshots_data)}")
 
-            # Also print snapshots to stdout for visibility
             print("\n" + "=" * 60)
             print("HANDSON MODE: Phase Snapshots")
             print("=" * 60)
@@ -748,7 +658,6 @@ class E2ECompiler:
 
         except Exception as e:
             logger.warning(f"Failed to save handson snapshots: {e}")
-            import traceback
             logger.warning(traceback.format_exc())
 
     def _cleanup(self):
@@ -759,11 +668,8 @@ class E2ECompiler:
         elif self.keep_intermediate:
             logger.info(f"Intermediate files preserved in: {self.temp_dir}")
 
-
 def main():
     """Simple test of E2E compiler."""
-    import sys
-    import argparse
 
     parser = argparse.ArgumentParser(description='Megg E2E Compiler')
     parser.add_argument('input', help='Input C source file')
@@ -784,13 +690,11 @@ def main():
 
     args = parser.parse_args()
 
-    # Setup logging
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format='%(message)s'
     )
 
-    # Create compiler and run
     compiler = E2ECompiler(
         source_file=args.input,
         custom_instr_mlir=args.custom_instructions,
@@ -803,7 +707,6 @@ def main():
 
     success = compiler.compile()
     sys.exit(0 if success else 1)
-
 
 if __name__ == '__main__':
     main()
