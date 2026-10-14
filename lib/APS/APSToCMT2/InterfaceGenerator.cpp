@@ -337,26 +337,26 @@ Module *APSToCMT2Pass::generateMemoryAdapter(Circuit &circuit) {
     Signal respTag = hellaResp["tag"];
     Signal respCmd = hellaResp["cmd"];
 
-    // Check if this is a read response (cmd == 0)
-    Signal cmdIsRead = respCmd == UInt::constant(0, 5, bodyBuilder, loc);
-    Signal tagAddr = respTag; // Use tag as address for matching
-
-    Signal slot0Tag = Signal(slot0TagReg->callValue("read", bodyBuilder)[0],
-                             &bodyBuilder, loc);
-    Signal slot1Tag = Signal(slot1TagReg->callValue("read", bodyBuilder)[0],
-                             &bodyBuilder, loc);
+    // Reads and stores both own a completion slot. Bus tags identify those
+    // slots, rather than low address bits: two outstanding accesses may target
+    // the same address. The original user tag remains in the slot for return.
+    Signal supportedCmd =
+        (respCmd == UInt::constant(0, 5, bodyBuilder, loc)) |
+        (respCmd == UInt::constant(1, 5, bodyBuilder, loc));
     Signal slot0Txd = Signal(slot0TxdReg->callValue("read", bodyBuilder)[0],
                              &bodyBuilder, loc);
     Signal slot1Txd = Signal(slot1TxdReg->callValue("read", bodyBuilder)[0],
                              &bodyBuilder, loc);
 
-    // Only an allocated slot may accept a response.  Initial tags are zero, so
-    // matching on tag alone lets the first tag-0 response poison both slots.
+    // Only an allocated slot may accept a response; unsolicited responses must
+    // not mark an empty slot complete.
     recvSlot0Wire->callMethod(
-        "write", {(cmdIsRead & slot0Txd & (slot0Tag == tagAddr)).getValue()},
+        "write", {(supportedCmd & slot0Txd &
+                    (respTag == UInt::constant(0, 8, bodyBuilder, loc))).getValue()},
         bodyBuilder);
     recvSlot1Wire->callMethod(
-        "write", {(cmdIsRead & slot1Txd & (slot1Tag == tagAddr)).getValue()},
+        "write", {(supportedCmd & slot1Txd &
+                    (respTag == UInt::constant(1, 8, bodyBuilder, loc))).getValue()},
         bodyBuilder);
     recvSlotData->callMethod("write", respData.getValue(), bodyBuilder);
     bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
@@ -661,59 +661,45 @@ Module *APSToCMT2Pass::generateMemoryAdapter(Circuit &circuit) {
     Signal mask = hellaCmd.bits(52, 49);        // bits 49-52: mask (4-bit)
     Signal data = hellaCmd.bits(84, 53); // bits 53-84: data (32-bit) - MSB
 
-    // Check if this is a read command (cmd == 0)
-    Signal cmdIsRead = cmdField == UInt::constant(0, 5, bodyBuilder, loc);
-
     // Read current newer_slot flag
     auto newerSlotValues = newerSlotReg->callValue("read", bodyBuilder);
     Signal newerSlot = Signal(newerSlotValues[0], &bodyBuilder, loc);
 
-    // Command processing logic for read commands (following Rust pattern)
+    // Allocate completion state for every scalar request, including stores.
+    // If newer_slot == 1 use slot 0, otherwise use slot 1.
     If(
-        cmdIsRead,
+        newerSlot == UInt::constant(1, 1, bodyBuilder, loc),
         [&](mlir::OpBuilder &builder) {
-          // Slot selection logic: if newer_slot == 1, use slot 0; else use slot
-          // 1
-          If(
-              newerSlot == UInt::constant(1, 1, builder, loc),
-              [&](mlir::OpBuilder &innerBuilder) {
-                // next slot is 0 - use slot 0 for tracking
-                slot0TxdReg->callMethod(
-                    "write",
-                    {UInt::constant(1, 1, innerBuilder, loc).getValue()},
-                    innerBuilder);
-                slot0RxdReg->callMethod("write", {UInt::constant(0, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                slot0TagReg->callMethod("write", {tag.getValue()},
-                                        innerBuilder);
-                newerSlotReg->callMethod(
-                    "write",
-                    {UInt::constant(0, 1, innerBuilder, loc).getValue()},
-                    innerBuilder);
-              },
-              [&](mlir::OpBuilder &innerBuilder) {
-                // next slot is 1 - use slot 1 for tracking
-                slot1TxdReg->callMethod(
-                    "write",
-                    {UInt::constant(1, 1, innerBuilder, loc).getValue()},
-                    innerBuilder);
-                slot1RxdReg->callMethod("write", {UInt::constant(0, 1, innerBuilder, loc).getValue()}, innerBuilder);
-                slot1TagReg->callMethod("write", {tag.getValue()},
-                                        innerBuilder);
-                newerSlotReg->callMethod(
-                    "write",
-                    {UInt::constant(1, 1, innerBuilder, loc).getValue()},
-                    innerBuilder);
-              },
-              builder, loc);
+          slot0TxdReg->callMethod(
+              "write", {UInt::constant(1, 1, builder, loc).getValue()}, builder);
+          slot0RxdReg->callMethod(
+              "write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
+          slot0TagReg->callMethod("write", {tag.getValue()}, builder);
+          newerSlotReg->callMethod(
+              "write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
+        },
+        [&](mlir::OpBuilder &builder) {
+          slot1TxdReg->callMethod(
+              "write", {UInt::constant(1, 1, builder, loc).getValue()}, builder);
+          slot1RxdReg->callMethod(
+              "write", {UInt::constant(0, 1, builder, loc).getValue()}, builder);
+          slot1TagReg->callMethod("write", {tag.getValue()}, builder);
+          newerSlotReg->callMethod(
+              "write", {UInt::constant(1, 1, builder, loc).getValue()}, builder);
         },
         bodyBuilder, loc);
+
+    Signal busTag =
+        (newerSlot == UInt::constant(1, 1, bodyBuilder, loc))
+            .mux(UInt::constant(0, 8, bodyBuilder, loc),
+                 UInt::constant(1, 8, bodyBuilder, loc));
 
     // Construct the HellaCache command bundle from extracted fields
     // Bundle format: {addr: u32, tag: u8, cmd: u5, size: u2, signed: u1, phys:
     // u1, data: u32, mask: u4}
     llvm::SmallVector<mlir::Value> bundleFields = {
         addr.getValue(),        // addr: u32
-        tag.getValue(),         // tag: u8
+        busTag.getValue(),      // tag: u8, unique among outstanding slots
         cmdField.getValue(),    // cmd: u5
         size.getValue(),        // size: u2
         signedField.getValue(), // signed: u1
@@ -780,7 +766,8 @@ BundleType APSToCMT2Pass::getRoccRespBundleType(Builder &builder) {
 /// Generate RoCC Adapter module that bridges RoCC interface with accelerator
 /// execution units
 Module *APSToCMT2Pass::generateRoCCAdapter(
-    Circuit &circuit, const llvm::SmallVector<unsigned long, 4> &instructionIds) {
+    Circuit &circuit, const llvm::SmallVector<unsigned long, 4> &instructionIds,
+    bool compactCommands, bool zeroResponses) {
   auto *roccAdapterModule = circuit.addModule("RoCCAdapter");
   auto &builder = roccAdapterModule->getBuilder();
   auto loc = roccAdapterModule->getLoc();
@@ -802,11 +789,11 @@ Module *APSToCMT2Pass::generateRoCCAdapter(
 
   // Calculate total bits for RoCC command bundle: 7+5+5+5+1+1+1+7+32+32 = 96
   // bits
-  auto roccCmdFifoMod = STLLibrary::createFIFO1PushModule(96, circuit);
+  auto roccCmdFifoMod = STLLibrary::createFIFO1PushModule(compactCommands ? 69 : 96, circuit);
 
   // Calculate total bits for RoCC response bundle: 5+32 = 37 bits (padded to
   // appropriate width)
-  auto roccRespFifoMod = STLLibrary::createFIFO1PushModule(37, circuit);
+  auto roccRespFifoMod = STLLibrary::createFIFO1PushModule(zeroResponses ? 5 : 37, circuit);
 
   builder.restoreInsertionPoint(savedIP);
 
@@ -864,6 +851,8 @@ Module *APSToCMT2Pass::generateRoCCAdapter(
                            .cat(rs2)
                            .cat(rs1)
                            .cat(funct);
+    if (compactCommands)
+      packedCmd = rs2data.cat(rs1data).cat(rd);
 
     // Route command to appropriate queue based on opcode+funct7 (following Rust
     // pattern)
@@ -918,6 +907,8 @@ Module *APSToCMT2Pass::generateRoCCAdapter(
     // Pack the bundle into a 37-bit concatenated value for FIFO
     // Layout: rddata(32) + rd(5) = 37 bits
     Signal packedResp = rddata.cat(rd);
+    if (zeroResponses)
+      packedResp = rd;
 
     // Enqueue the packed response to the response FIFO
     roccRespFifo->callMethod("enq", {packedResp.getValue()}, bodyBuilder);
@@ -942,7 +933,8 @@ Module *APSToCMT2Pass::generateRoCCAdapter(
 
     // Unpack the 37-bit concatenated value back into bundle fields
     // Layout: rddata(32) + rd(5) = 37 bits
-    Signal rddata = packedResp.bits(36, 5); // bits 5-36: rddata (32 bits)
+    Signal rddata = zeroResponses ? UInt::constant(0, 32, bodyBuilder, loc)
+                                 : packedResp.bits(36, 5);
     Signal rd = packedResp.bits(4, 0);      // bits 0-4: rd (5 bits)
 
     // Create RoCC response bundle from unpacked fields using BundleCreateOp
@@ -986,16 +978,18 @@ Module *APSToCMT2Pass::generateRoCCAdapter(
       // Unpack the 96-bit concatenated value back into bundle fields
       // Layout: rs2data(32) + rs1data(32) + opcode(7) + xd(1) + xs2(1) + xs1(1)
       // + rd(5) + rs2(5) + rs1(5) + funct(7) = 96 bits
-      Signal rs2data = packedCmd.bits(95, 64); // bits 64-95: rs2data (32 bits)
-      Signal rs1data = packedCmd.bits(63, 32); // bits 32-63: rs1data (32 bits)
-      Signal opcode = packedCmd.bits(31, 25);  // bits 25-31: opcode (7 bits)
-      Signal xd = packedCmd.bits(24, 24);      // bit 24: xd (1 bit)
-      Signal xs2 = packedCmd.bits(23, 23);     // bit 23: xs2 (1 bit)
-      Signal xs1 = packedCmd.bits(22, 22);     // bit 22: xs1 (1 bit)
-      Signal rd = packedCmd.bits(21, 17);      // bits 17-21: rd (5 bits)
-      Signal rs2 = packedCmd.bits(16, 12);     // bits 12-16: rs2 (5 bits)
-      Signal rs1 = packedCmd.bits(11, 7);      // bits 7-11: rs1 (5 bits)
-      Signal funct = packedCmd.bits(6, 0);     // bits 0-6: funct (7 bits)
+      Signal rs2data = compactCommands ? packedCmd.bits(68, 37) : packedCmd.bits(95, 64);
+      Signal rs1data = compactCommands ? packedCmd.bits(36, 5) : packedCmd.bits(63, 32);
+      Signal opcode = compactCommands ? UInt::constant(instructionId >> 8, 7, bodyBuilder, loc)
+                                      : packedCmd.bits(31, 25);
+      Signal xd = compactCommands ? UInt::constant(0, 1, bodyBuilder, loc) : packedCmd.bits(24, 24);
+      Signal xs2 = compactCommands ? UInt::constant(0, 1, bodyBuilder, loc) : packedCmd.bits(23, 23);
+      Signal xs1 = compactCommands ? UInt::constant(0, 1, bodyBuilder, loc) : packedCmd.bits(22, 22);
+      Signal rd = compactCommands ? packedCmd.bits(4, 0) : packedCmd.bits(21, 17);
+      Signal rs2 = compactCommands ? UInt::constant(0, 5, bodyBuilder, loc) : packedCmd.bits(16, 12);
+      Signal rs1 = compactCommands ? UInt::constant(0, 5, bodyBuilder, loc) : packedCmd.bits(11, 7);
+      Signal funct = compactCommands ? UInt::constant(instructionId & 0x7f, 7, bodyBuilder, loc)
+                                     : packedCmd.bits(6, 0);
 
       // Create RoCC command bundle from unpacked fields using BundleCreateOp
       // Order must match the bundle type definition: funct, rs1, rs2, rd, xs1,

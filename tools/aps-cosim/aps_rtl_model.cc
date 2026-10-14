@@ -71,25 +71,36 @@ void ApsRtlModel::tick() {
   csrRuntime_.drive(*top_, csrs_);
   top_->clk = 0;
   eval();
+  // Transactions fire using the combinational values before the rising edge.
+  // Sampling afterward can miss a request/response when its acceptance changes
+  // the RTL ready signal (notably HellaCache response-slot readiness).
+  dma_.sampleOutputs(*top_);
   top_->clk = 1;
   eval();
   csrRuntime_.sample(*top_, csrs_);
-  dma_.sampleOutputs(*top_);
   top_->clk = 0;
   eval();
   ++cycle_;
 }
 
-bool ApsRtlModel::tickCommandCycle() {
+bool ApsRtlModel::tickCommandCycle(ApsResult &result) {
   dma_.driveInputs(*top_);
   csrRuntime_.drive(*top_, csrs_);
   top_->clk = 0;
   eval();
   bool readyBeforeClock = top_->rocc_cmd_ready;
+  // Return only a response accepted on this edge, not a newly exposed response
+  // after it. Otherwise the CPU resumes a cycle before RTL response acceptance.
+  if (top_->rocc_resp_rocc_resp_to_bus_enable &&
+      top_->rocc_resp_rocc_resp_to_bus_ready) {
+    result.rd = top_->rocc_resp_rocc_resp_to_bus_result_rd;
+    result.data = top_->rocc_resp_rocc_resp_to_bus_result_rddata;
+    result.hasResponse = true;
+  }
+  dma_.sampleOutputs(*top_);
   top_->clk = 1;
   eval();
   csrRuntime_.sample(*top_, csrs_);
-  dma_.sampleOutputs(*top_);
   top_->clk = 0;
   eval();
   ++cycle_;
@@ -119,17 +130,14 @@ ApsResult ApsRtlModel::execute(const ApsCommand &cmd,
       top_->rocc_cmd_enable = 0;
     }
 
-    bool readyBeforeClock = tickCommandCycle();
+    bool readyBeforeClock = tickCommandCycle(result);
 
     if (!accepted && readyBeforeClock) {
       accepted = true;
       top_->rocc_cmd_enable = 0;
     }
 
-    if (top_->rocc_resp_rocc_resp_to_bus_enable) {
-      result.rd = top_->rocc_resp_rocc_resp_to_bus_result_rd;
-      result.data = top_->rocc_resp_rocc_resp_to_bus_result_rddata;
-      result.hasResponse = true;
+    if (result.hasResponse) {
       result.cycles = cycle_ - start;
       return result;
     }

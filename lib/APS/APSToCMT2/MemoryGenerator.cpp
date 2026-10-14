@@ -1172,7 +1172,10 @@ void APSToCMT2Pass::addRoCCAndMemoryMethodToMainModule(
                             llvm::ArrayRef<mlir::BlockArgument> args) {
     auto arg = args[0];
     auto loc = bodyBuilder.getUnknownLoc();
-    hellaMemInstance->callMethod("resp_from_bus", arg, bodyBuilder);
+    // An unused scalar interface remains ready to discard unsolicited responses.
+    // Its command interface has no caller and is driven idle by CMT2 lowering.
+    if (hellaMemInstance)
+      hellaMemInstance->callMethod("resp_from_bus", arg, bodyBuilder);
     bodyBuilder.create<circt::cmt2::ReturnOp>(loc);
   });
   hellaRespMethod->finalize();

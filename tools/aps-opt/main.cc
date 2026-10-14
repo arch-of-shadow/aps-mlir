@@ -191,6 +191,7 @@ void buildScheduledTorToCmt2(PassManager &pm) {
   pm.addNestedPass<tor::FuncOp>(createDuplicateMemLoadsPass());
   addCanonicalize(pm);
 
+  pm.addPass(createAPSOptimizeStoragePass());
   pm.addPass(createAPSToCMT2Pass());
 }
 

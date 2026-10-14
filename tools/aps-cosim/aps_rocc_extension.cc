@@ -37,6 +37,12 @@ reg_t apsCustomInsn(processor_t *processor, insn_t insn, reg_t pc) {
   }
 
   if (decoded.r.xd) {
+    // Spike represents RV32 integer registers sign-extended to reg_t. Writing
+    // a zero-extended high-bit result makes later branches disagree even when
+    // both operands have identical low 32 bits. Preserve the RV64 behavior.
+    if (processor->get_xlen() == 32)
+      result = static_cast<reg_t>(
+          static_cast<int64_t>(static_cast<int32_t>(result)));
     state->log_reg_write[insn.rd() << 4] = {result, 0};
     state->XPR.write(insn.rd(), result);
   }

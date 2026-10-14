@@ -43,7 +43,7 @@ public:
 private:
   void eval();
   void tick();
-  bool tickCommandCycle();
+  bool tickCommandCycle(ApsResult &result);
   void driveDefaults();
 
   std::unique_ptr<Vmain> top_;

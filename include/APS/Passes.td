@@ -170,6 +170,24 @@ def APSMemorySchedule : Pass<"aps-schedule-memory", "mlir::ModuleOp"> {
   let dependentDialects = ["aps::APSDialect"];
 }
 
+def APSOptimizeStorage : Pass<"aps-optimize-storage", "mlir::ModuleOp"> {
+  let summary = "Avoid redundant storage in scheduled TOR before CMT2 generation";
+  let description = [{
+    Rematerializes unsigned widening casts at later consumers in the same
+    scheduled block, transporting their narrower input rather than a padded
+    value. It preserves operation firing cycles and does not move effectful
+    operations or cross control-flow boundaries. Records scalar memory usage
+    so CMT2 generation can omit an unused HellaCache adapter while preserving
+    the external interface. Plans compact RoCC command payloads when source
+    arguments use only the native read/write IRF ABI, and omits response data
+    storage only when every response is a literal 32-bit zero.
+    Run after temporal splitting and canonicalization,
+    immediately before aps-to-cmt2; do not CSE rematerialized casts afterward.
+  }];
+  let constructor = "mlir::createAPSOptimizeStoragePass()";
+  let dependentDialects = ["arith::ArithDialect", "aps::APSDialect"];
+}
+
 def LowerAPSMemToReqCollect : Pass<"lower-aps-mem-to-req-collect", "mlir::tor::DesignOp"> {
   let summary = "Split APS memory operations into request-collect pairs";
   let constructor = "mlir::createLowerAPSMemToReqCollectPass()";

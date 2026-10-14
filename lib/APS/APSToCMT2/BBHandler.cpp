@@ -227,7 +227,7 @@ LogicalResult BBHandler::processBasicBlock(BlockInfo &block) {
   };
   for (size_t i = 0; i + 1 < slotOrder.size(); ++i) {
     int64_t slot = slotOrder[i];
-    auto *tokenMod = STLLibrary::createFIFO1PushModule(1, circuit);
+    auto *tokenMod = pass->createTokenFIFO(circuit, 1);
     builder.restoreInsertionPoint(savedIP);
     std::string tokenName = makeTokenName(slot);
     slotTokenFIFOs[slot] = mainModule->addInstance(
@@ -523,7 +523,7 @@ void BBHandler::processPipelineBasicBlock(BlockInfo &block) {
   };
   for (size_t i = 0; i + 1 < slotOrder.size(); ++i) {
     int64_t slot = slotOrder[i];
-    auto *tokenMod = STLLibrary::createFIFO1PushModule(1, circuit);
+    auto *tokenMod = pass->createTokenFIFO(circuit, 1);
     builder.restoreInsertionPoint(savedIP);
     std::string tokenName = makeTokenName(slot);
     slotTokenFIFOs[slot] = mainModule->addInstance(

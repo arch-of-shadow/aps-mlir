@@ -288,7 +288,7 @@ LogicalResult BlockHandler::createBlockTokenFIFOs() {
     BlockInfo &currentBlock = blocks[i];
     BlockInfo &nextBlock = blocks[i + 1];
 
-    auto *tokenMod = STLLibrary::createFIFO2IModule(1, circuit);
+    auto *tokenMod = pass->createTokenFIFO(circuit, 2);
     builder.restoreInsertionPoint(savedIP);
 
     std::string tokenName = namePrefix + "b" +
@@ -1226,7 +1226,7 @@ LogicalResult BlockHandler::createInputDistributionRegs() {
   auto savedIP = builder.saveInsertionPoint();
 
   // 1. Create token FIFO: capture rule -> first sub-block.
-  auto *tokenFifoMod = STLLibrary::createFIFO2IModule(1, circuit);
+  auto *tokenFifoMod = pass->createTokenFIFO(circuit, 2);
   builder.restoreInsertionPoint(savedIP);
   std::string tokenFifoName = namePrefix + "captok";
   input_distribution_token_fifo = mainModule->addInstance(

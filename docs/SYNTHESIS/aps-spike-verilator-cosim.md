@@ -192,7 +192,7 @@ input  [7:0]  hella_resp_hella_resp_tag
 
 - `hella_cmd_ready = 1` when bridge idle。
 - load：按 `addr/size/signed` 从 CPU memory 读，下一拍或固定延迟后回 `hella_resp_enable/data/tag`。
-- store：按 `addr/data/mask/size` 写 CPU memory，可以回一个 store ack，tag 原样返回。
+- store：普通 `M_XWR` 按 `addr/data/size` 写 CPU memory，byte mask 与 Rocket 一样由 size/address 推导；显式 mask 仅用于 partial write（当前不支持 `M_PWR`）。回 store ack，tag 原样返回。
 
 如果当前测试只走 DMA，可以先实现但不开启复杂乱序行为。
 

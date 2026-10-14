@@ -918,7 +918,7 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
 
   // Create token FIFOs for canonical loop coordination (entry → body → next)
   // Entry -> Body: signals that loop body can start
-  auto *entryToBodyMod = STLLibrary::createFIFO2IModule(1, circuit);
+  auto *entryToBodyMod = pass->createTokenFIFO(circuit, 2);
   builder.restoreInsertionPoint(savedIP);
   std::string entryToBodyName = loop.loopName + "_entok";
   loop.token_fifos.to_body =
@@ -930,7 +930,7 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
                << entryToBodyName << "\n";
 
   // Body -> Next: signals that body execution is complete
-  auto *bodyToNextMod = STLLibrary::createFIFO2IModule(1, circuit);
+  auto *bodyToNextMod = pass->createTokenFIFO(circuit, 2);
   builder.restoreInsertionPoint(savedIP);
   std::string bodyToNextName = loop.loopName + "_dntok";
   loop.token_fifos.body_to_next = mainModule->addInstance(
@@ -962,7 +962,7 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
                << " (width=" << stateWidth << ")\n";
 
   if (loop.isPipeline) {
-    auto *issueTokMod = STLLibrary::createFIFO2IModule(1, circuit);
+    auto *issueTokMod = pass->createTokenFIFO(circuit, 2);
     builder.restoreInsertionPoint(savedIP);
     std::string issueTokName = loop.loopName + "_istok";
     loop.pipeline_issue_token_fifo = mainModule->addInstance(

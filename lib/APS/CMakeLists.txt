@@ -13,6 +13,7 @@ add_mlir_library(APS
   APSFunctionalToArch.cpp
   ScratchpadElision.cpp
   APSMemorySchedule.cpp
+  OptimizeStorage.cpp
   LowerAPSMemToReqCollect.cpp
   PlaceReadRFAtEntry.cpp
   PromoteSingletonMemRefToGlobal.cpp
@@ -28,6 +29,7 @@ add_mlir_library(APS
   APSToCMT2/MemoryOpGenerator.cpp
   APSToCMT2/InterfaceOpGenerator.cpp
   APSToCMT2/InterfaceGenerator.cpp
+  APSToCMT2/TokenFIFO.cpp
   APSToCMT2/MemoryGenerator.cpp
   APSToCMT2/GlobalRegisterGenerator.cpp
 

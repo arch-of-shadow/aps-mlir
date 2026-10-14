@@ -126,7 +126,7 @@ LogicalResult IfHandler::processIfBlock(BlockInfo &ifBlock) {
 Instance *IfHandler::createTokenFIFO(StringRef suffix) {
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
-  auto *tokenMod = STLLibrary::createFIFO2IModule(1, circuit);
+  auto *tokenMod = pass->createTokenFIFO(circuit, 2);
   builder.restoreInsertionPoint(savedIP);
   return mainModule->addInstance(ifName + suffix.str(), tokenMod,
                                  {mainClk.getValue(), mainRst.getValue()});

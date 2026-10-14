@@ -207,14 +207,19 @@ void FakeDma::serviceHella(const Vmain &top) {
               << addr << " data=0x" << data << " mask=0x" << unsigned(mask)
               << std::dec << "\n";
 
-  // Rocket M_XRD = 0, M_XWR = 1.
+  // Rocket M_XRD = 0, M_XWR = 1. For ordinary writes Rocket derives
+  // the byte mask from size/address; the explicit mask is for M_PWR only
+  // (rocket/DCache.scala s1_mask_xwr/s1_mask). APS currently emits M_XWR.
+  if (size > 2)
+    throw std::runtime_error("HellaCache transfer exceeds the 32-bit APS port");
+  unsigned bytes = 1u << size;
   if (cmd == 0) {
-    hellaRespData_ = size == 0 ? memory_.load8(addr) : memory_.load32(addr);
+    hellaRespData_ = 0;
+    for (unsigned i = 0; i < bytes; ++i)
+      hellaRespData_ |= uint32_t(memory_.load8(addr + i)) << (8 * i);
   } else if (cmd == 1) {
-    if (size == 0)
-      memory_.store8(addr, static_cast<uint8_t>(data));
-    else
-      memory_.store32(addr, data, mask);
+    for (unsigned i = 0; i < bytes; ++i)
+      memory_.store8(addr + i, static_cast<uint8_t>(data >> (8 * i)));
     hellaRespData_ = 0;
   } else {
     throw std::runtime_error("unsupported HellaCache command");

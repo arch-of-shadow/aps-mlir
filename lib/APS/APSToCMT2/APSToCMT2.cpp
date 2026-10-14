@@ -46,6 +46,8 @@ void APSToCMT2Pass::getDependentDialects(DialectRegistry &registry) const {
 
 void APSToCMT2Pass::runOnOperation() {
   ModuleOp moduleOp = getOperation();
+  auto tokenPlan = moduleOp->getAttrOfType<BoolAttr>("aps.elide_token_payloads");
+  elideTokenPayloads = tokenPlan && tokenPlan.getValue();
   llvm::dbgs() << "DEBUG: APSToCMT2Pass::runOnOperation() started\n";
 
   // Find the aps.memorymap operation
@@ -110,10 +112,24 @@ void APSToCMT2Pass::runOnOperation() {
     auto funct7 = funcOp->getAttrOfType<IntegerAttr>("funct7").getInt();
     instructionIds.push_back((rawOpcode << 8) + funct7);
   });
-  auto *roccAdapterModule = generateRoCCAdapter(circuit, instructionIds);
+  auto compactCommands = moduleOp->getAttrOfType<BoolAttr>("aps.compact_rocc_command");
+  auto zeroResponses = moduleOp->getAttrOfType<BoolAttr>("aps.zero_rocc_response");
+  auto *roccAdapterModule = generateRoCCAdapter(
+      circuit, instructionIds, compactCommands && compactCommands.getValue(),
+      zeroResponses && zeroResponses.getValue());
 
-  // // Generate memory translator module
-  auto *memoryAdapterModule = generateMemoryAdapter(circuit);
+  // The pre-CMT2 storage plan can prove that no scalar transactions exist.
+  // Keep interface declarations, but do not build unreachable queue/slot state.
+  auto scalarMemoryUsed = moduleOp->getAttrOfType<BoolAttr>("aps.scalar_memory_used");
+  bool omitMemoryAdapter = scalarMemoryUsed && !scalarMemoryUsed.getValue();
+  // Never trust stale planning metadata if another pass introduced an access.
+  if (omitMemoryAdapter)
+    moduleOp.walk([&](Operation *op) {
+      if (isa<aps::Load, aps::Store, aps::LoadBy, aps::StoreBy,
+              aps::LoadIssue, aps::StoreIssue>(op))
+        omitMemoryAdapter = false;
+    });
+  auto *memoryAdapterModule = omitMemoryAdapter ? nullptr : generateMemoryAdapter(circuit);
 
   // Generate rule-based main module for TOR functions
   auto instances = generateRuleBasedMainModule(
@@ -189,9 +205,9 @@ MainModuleInstances APSToCMT2Pass::generateRuleBasedMainModule(
   auto *roccInstance = mainModule->addInstance(
       "rocc_adapter", roccModule, {mainClk.getValue(), mainRst.getValue()},
       {{"rocc_resp", "rocc_resp"}});
-  auto *hellaMemInstance = mainModule->addInstance(
+  auto *hellaMemInstance = hellaMemModule ? mainModule->addInstance(
       "hellacache_adapter", hellaMemModule,
-      {mainClk.getValue(), mainRst.getValue()}, {{"hella_cmd", "hella_cmd"}});
+      {mainClk.getValue(), mainRst.getValue()}, {{"hella_cmd", "hella_cmd"}}) : nullptr;
 
   // For each TOR function, generate rules
   for (auto funcOp : torFuncs) {

@@ -1,5 +1,103 @@
 # Aquas-IR Operation Mapping Plan
 
+## Pre-CMT2 storage planning
+
+`aps-optimize-storage` runs on scheduled TOR/APS after temporal memory splitting
+and canonicalization, immediately before `aps-to-cmt2`. No post-CMT2 register
+optimization or RTL rewriting is used.
+
+- Later consumers rematerialize unsigned widening casts in their own time slot,
+  so the intervening registers carry the narrower SSA input instead of padded
+  words. The pass does not cross control-flow boundaries or move memory effects.
+  A now-unused original widening remains as a timing anchor: removing the only
+  operation in a slot could otherwise remove a token stage and advance later
+  transactions. Its dead result receives no storage during CMT2 generation.
+- Source-level scalar-access analysis allows CMT2 generation to omit the
+  HellaCache adapter when there are no scalar transactions. External command
+  and response ports remain present; commands are idle and unsolicited
+  responses can be discarded. Without a plan, direct `aps-to-cmt2` retains its
+  original adapter behavior; stale no-access metadata is checked against actual
+  accesses before omitting the adapter.
+- Native RoCC commands store only `rs1data`, `rs2data`, and `rd` (69 bits) when
+  function arguments are used solely by the native `read_irf`/`write_irf` ABI.
+  Routing remains based on the original incoming opcode/funct7. Internal
+  command fields not consumed by that ABI are reconstructed rather than stored.
+  Unknown argument uses retain the original 96-bit payload.
+- When every `write_irf` returns a literal 32-bit zero, the response FIFO stores
+  only `rd` (5 bits), reconstructing zero response data at its output. Dynamic,
+  nonzero, and mixed responses retain the original 37-bit payload.
+- Compiler-generated control queues store occupancy only, not unread token
+  payloads. One-entry queues retain simultaneous full dequeue/enqueue support;
+  two-entry queues retain their no-enqueue-at-full contract. Ordinary i1 SSA
+  data queues are not changed. Without the source storage plan, direct lowering
+  continues to use the original payload FIFOs.
+- For N-bit modular integer squares, an input used exclusively by later squares
+  needs only N-1 stored bits: changing its top bit cannot change the N-bit square.
+  Square results also omit bit 1, which is always zero, and restore it at later
+  consumers. Packing/unpacking stays in existing schedule slots in the same
+  block; mixed input uses, same-cycle dependencies, and cross-region lifetimes
+  are excluded. Constants follow TOR's virtual-constant placement convention.
+
+Do not run source CSE/canonicalization between storage planning and CMT2
+generation: it could merge rematerialized casts or erase timing anchors.
+Diagnostics use `--debug-only=aps-optimize-storage` in debug-enabled builds.
+
+For `tutorial/cadl/v3ddist_vv.cadl`, a DC X-2025.06-SP4 `compile_ultra` audit
+using the bundled `lsi_10k.db` sample library and a loose 1,000 ns clock measured:
+
+| Register bits/cells reported by DC | Before planning | Initial planning | Token/square packing |
+| --- | ---: | ---: | ---: |
+| Elaborated | 5,435 | 4,994 | 4,945 |
+| After `compile_ultra` | 4,885 | 4,879 | 4,879 |
+| Removed or merged by DC | 550 | 115 | 66 |
+
+This avoids 490 emitted register bits, eliminating most compiler-created
+redundancy before CMT2. It is not a claim of a comparable silicon-area reduction:
+DC already removed those bits. The second round avoids another 49 bits: 25
+control-token payload bits and 24 square operand/result bits. Mapped register
+count is unchanged in this round; sample-library cell area changed from 85,979
+to 85,928, a small mapping difference rather than a comparable area saving.
+Remaining 66 removals
+include 56 duplicated memory read-address bits and 10 address/loop-control bits.
+The memory duplication needs latency/hold-aware resource lowering, not a blind
+replacement with asynchronous reads.
+
+The permanent regression compares external RTL outputs against the pipeline
+without storage planning for 200,000 cycles with randomized commands, scratchpad
+traffic, backpressure, and synchronous resets. The measured run exercised
+12,289 DMA transfers and 250 responses. Whole-design formal equivalence was
+attempted but did not complete on a large arithmetic cone; it is not claimed.
+All ready/enable signals are checked unconditionally; scalar-command payloads
+are compared only when enabled, since idle bus tags are not observable.
+Both emitted token queue depths are separately proved against occupancy and
+ready/full contracts with Yosys temporal induction after reset. Square codecs
+are exhaustively checked for 3–8-bit inputs and tested on 32-bit edge patterns;
+their identities hold in N-bit modular arithmetic. Transform regressions check
+exclusive uses, execution-scope boundaries, and idempotence.
+
+`tests/test_mlir/test_storage_cosim.py` additionally executes fresh optimized
+RTL through Spike + Verilator with self-checking RV32 custom instructions:
+`hello` checks 64 dynamic responses, and a DMA-output variant of `vgemv3d`
+checks 256 matrix/vector outputs over 64 invocations, including high-bit and
+overflow patterns. The latter retains the tutorial's scalar loads and loop.
+The tests corrected harness edge sampling, ordinary HellaCache write-mask
+interpretation, and RV32 register sign extension; no optimizer change was needed.
+
+The original scalar-output `vgemv3d` exposed a pre-existing completion bug:
+`StoreWait` was a no-op, allowing RoCC completion while the final scalar store
+remained queued under memory backpressure. This was reproduced with storage
+planning disabled. It is now fixed: both reads and stores allocate the adapter's
+existing completion slots, and `StoreWait` consumes an ordered acknowledgement
+through `resp_to_user`. Call readiness stalls later schedule slots, including
+RoCC completion, until the store really completes. No artificial drain cycles
+are added to the cosimulation runner. The original GEMV regression checks all
+256 outputs over 64 invocations and no longer has an expected-failure marker.
+
+Bus tags identify the two occupied slots independently of address, while the
+original user tags are preserved in responses. The isolated adapter regression
+mixes loads/stores to the same address and user tag, reorders acknowledgements,
+and applies bus/consumer backpressure, checking ordered retirement and payloads.
+
 ## Scratchpad buffer elision
 
 The end-to-end driver now attempts elision by default **before** burst

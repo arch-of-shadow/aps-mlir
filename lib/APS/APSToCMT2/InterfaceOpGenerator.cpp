@@ -173,7 +173,13 @@ LogicalResult InterfaceOpGenerator::generateItfcStoreReq(aps::StoreIssue op, mli
 LogicalResult InterfaceOpGenerator::generateItfcStoreCollect(aps::StoreWait op, mlir::OpBuilder &b,
                                                            Location loc, int64_t slot,
                                                            llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  // Do nothing here, don't reply...
+  // Retire the ordered store acknowledgement. The implicit call readiness
+  // keeps this schedule slot (and therefore later RoCC completion) blocked
+  // until the request has reached memory and its response has returned.
+  auto hellaMemInstance = bbHandler->getHellaMemInstance();
+  if (!hellaMemInstance)
+    return op.emitError("HellaMem instance not available");
+  hellaMemInstance->callMethod("resp_to_user", {}, b);
   return success();
 }
 

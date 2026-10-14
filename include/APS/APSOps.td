@@ -255,12 +255,14 @@ def StoreWait : APSOp<"store_wait", []> {
   let summary = "interface store collect - complete memory write";
   let description = [{
     Completes a previously issued memory store request.
-    This is the second half of a two-cycle memory interface pattern.
-    The operation is combinational (zero latency within the same cycle).
+    This is the completion half of the split memory interface pattern.
+    Its scheduled cycle is an earliest completion time, not a fixed delay.
+    Native CPU lowering waits for the ordered memory acknowledgement; the
+    containing rule cannot fire while the store is queued or awaiting response.
 
     Pipeline semantics:
     - Cycle N: aps.store_issue sends write request
-    - Cycle N+1: aps.store_wait completes (combinational)
+    - Cycle N+1 or later: aps.store_wait consumes the memory acknowledgement
 
     Example:
       %req = aps.store_issue @cpuitfc, %val, %addr : i32, i32 -> !aps.mem_req
