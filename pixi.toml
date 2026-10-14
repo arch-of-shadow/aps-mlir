@@ -109,6 +109,8 @@ yosys = ">=0.65"
 jq = ">=1.8.1,<2"
 ortools-cpp = ">=9.1,<10"
 dtc = ">=1.7.2,<2"
+rust = ">=1.99.0,<1.100"
+coin-or-cbc = ">=2.10.13,<3"
 
 [pypi-dependencies]
 lark = ">=1.1.0"

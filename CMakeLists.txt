@@ -101,6 +101,15 @@ add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
 
+# Build ScaleISA with the LLVM/MLIR configuration selected above. Its standalone
+# CMakeLists.txt selects a separate LLVM build, so integrate its targets directly.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/scaleisa/include)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/scaleisa/include)
+add_subdirectory(scaleisa/include scaleisa/include)
+add_subdirectory(scaleisa/lib scaleisa/lib)
+add_subdirectory(scaleisa/tools/scaleisa-opt tools/scaleisa-opt)
+add_subdirectory(scaleisa/tests scaleisa/tests)
+
 # ============================================================================
 # Build mlir_utils Python Extension For MEGG
 # ============================================================================

@@ -4,3 +4,6 @@
 [submodule "thirdparty/chipyard"]
 	path = thirdparty/chipyard
 	url = git@github.com:arch-of-shadow/aps-mlir-chipyard.git
+[submodule "scaleisa"]
+	path = scaleisa
+	url = git@github.com:arch-of-shadow/scaleisa.git

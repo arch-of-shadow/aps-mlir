@@ -60,6 +60,9 @@ pixi run build
 pixi run setup-chipyard
 ```
 
+`pixi run build` also builds `build/tools/scaleisa-opt/scaleisa-opt` and the Rust
+engine at `scaleisa/tools/scaleisa-engine/target/debug/scaleisa-engine`.
+
 ### Quick Start
 
 The `tutorial/` directory contains example CADL files and scripts. Here's a simple example (`tutorial/cadl/hello.cadl`):
