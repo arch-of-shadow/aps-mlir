@@ -77,6 +77,7 @@ install/
 
 __*
 *.mlir
+!examples/scratchpad_elision.mlir
 *.sv
 *.log
 

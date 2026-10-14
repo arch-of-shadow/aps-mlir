@@ -12,10 +12,14 @@
 
 #include "APS/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/MathExtras.h"
+#include <type_traits>
 
 namespace mlir {
 
@@ -189,6 +193,59 @@ struct DivsiToShrsiPattern : public OpRewritePattern<arith::DivSIOp> {
   }
 };
 
+static bool isKnownNonNegative(Value value) {
+  APInt constant;
+  if (matchPattern(value, m_ConstantInt(&constant)))
+    return !constant.isNegative();
+  if (auto ext = value.getDefiningOp<arith::ExtUIOp>())
+    return cast<IntegerType>(ext.getIn().getType()).getWidth() <
+           cast<IntegerType>(ext.getType()).getWidth();
+  auto argument = dyn_cast<BlockArgument>(value);
+  if (!argument)
+    return false;
+  Operation *owner = argument.getOwner()->getParentOp();
+  if (auto loop = dyn_cast<affine::AffineForOp>(owner))
+    return value == loop.getInductionVar() && loop.hasConstantLowerBound() &&
+           loop.getConstantLowerBound() >= 0;
+  if (auto loop = dyn_cast<scf::ForOp>(owner)) {
+    APInt lower, upper, step;
+    if (value != loop.getInductionVar() ||
+        !matchPattern(loop.getLowerBound(), m_ConstantInt(&lower)) ||
+        !matchPattern(loop.getUpperBound(), m_ConstantInt(&upper)) ||
+        !matchPattern(loop.getStep(), m_ConstantInt(&step)) ||
+        lower.isNegative() || !upper.isStrictlyPositive() ||
+        !step.isStrictlyPositive())
+      return false;
+    // A wrapping step can make an initially non-negative induction variable negative.
+    bool overflow;
+    (void)(upper - 1).sadd_ov(step, overflow);
+    return !overflow;
+  }
+  return false;
+}
+
+template <typename OpTy>
+struct RemToMaskPattern : public OpRewritePattern<OpTy> {
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(OpTy op,
+                                PatternRewriter &rewriter) const override {
+    APInt divisor;
+    if (!matchPattern(op.getRhs(), m_ConstantInt(&divisor)) ||
+        !divisor.isPowerOf2())
+      return failure();
+    if constexpr (std::is_same_v<OpTy, arith::RemSIOp>) {
+      // Signed remainder differs from affine mod for negative dividends.
+      if (!divisor.isStrictlyPositive() || !isKnownNonNegative(op.getLhs()))
+        return failure();
+    }
+    auto mask = rewriter.create<arith::ConstantOp>(
+        op.getLoc(), rewriter.getIntegerAttr(op.getType(), divisor - 1));
+    rewriter.template replaceOpWithNewOp<arith::AndIOp>(op, op.getLhs(), mask);
+    return success();
+  }
+};
+
 struct ArithMulDivToShiftPass
     : public impl::ArithMulDivToShiftBase<ArithMulDivToShiftPass> {
   void runOnOperation() override {
@@ -196,8 +253,9 @@ struct ArithMulDivToShiftPass
     auto op = getOperation();
 
     RewritePatternSet patterns(context);
-    patterns.add<MuliToShliPattern, DivuiToShruiPattern, DivsiToShrsiPattern>(
-        context);
+    patterns.add<MuliToShliPattern, DivuiToShruiPattern, DivsiToShrsiPattern,
+                 RemToMaskPattern<arith::RemUIOp>,
+                 RemToMaskPattern<arith::RemSIOp>>(context);
 
     if (failed(applyPatternsGreedily(op, std::move(patterns)))) {
       signalPassFailure();

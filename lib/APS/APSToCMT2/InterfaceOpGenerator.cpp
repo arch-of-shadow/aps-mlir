@@ -40,6 +40,11 @@ bool InterfaceOpGenerator::canHandle(Operation *op) const {
 LogicalResult InterfaceOpGenerator::generateItfcLoadReq(aps::LoadIssue op, mlir::OpBuilder &b,
                                                       Location loc, int64_t slot,
                                                       llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  if (op.getItfcAttr().getValue() != "cpuitfc")
+    return op.emitError("scalar load lowering currently supports only @cpuitfc");
+  if (auto bytes = op->getAttrOfType<IntegerAttr>("transfer_bytes");
+      bytes && bytes.getInt() != 4)
+    return op.emitError("native scalar load adapter supports only 4-byte transactions");
   // Handle CPU interface load request operations
   // This sends a load request to memory and returns a request token
   auto context = b.getContext();
@@ -109,6 +114,11 @@ LogicalResult InterfaceOpGenerator::generateItfcLoadCollect(aps::LoadWait op, ml
 LogicalResult InterfaceOpGenerator::generateItfcStoreReq(aps::StoreIssue op, mlir::OpBuilder &b,
                                                        Location loc, int64_t slot,
                                                        llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  if (op.getItfcAttr().getValue() != "cpuitfc")
+    return op.emitError("scalar store lowering currently supports only @cpuitfc");
+  if (!op.getValue().getType().isIntOrFloat() ||
+      op.getValue().getType().getIntOrFloatBitWidth() != 32)
+    return op.emitError("native scalar store adapter supports only 4-byte transactions");
   // Handle CPU interface store request operations
   // This sends a store request to memory and returns a request token
 

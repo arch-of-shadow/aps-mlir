@@ -35,6 +35,9 @@ LogicalResult MemoryOpGenerator::generateRule(
     return generateSpmLoadCollect(spmLoadCollect, b, loc, slot, localMap);
   } else if (auto memStore = dyn_cast<aps::WriteSmem>(op)) {
     return generateMemStore(memStore, b, loc, slot, localMap);
+  } else if (auto memStore = dyn_cast<tor::GuardedStoreOp>(op)) {
+    return generateMemStoreImpl(op, memStore.getValue(), memStore.getMemref(),
+                               memStore.getIndices(), memStore.getGuard(), b, loc, localMap);
   } else if (auto copyIssue = dyn_cast<aps::CopyIssue>(op)) {
     return generateCopyIssue(copyIssue, b, loc, slot, localMap);
   } else if (auto copyWait = dyn_cast<aps::CopyWait>(op)) {
@@ -52,7 +55,7 @@ LogicalResult MemoryOpGenerator::generateRule(
 }
 
 bool MemoryOpGenerator::canHandle(Operation *op) const {
-  return isa<aps::WriteSmem, aps::CopyIssue, aps::CopyWait,
+  return isa<aps::WriteSmem, tor::GuardedStoreOp, aps::CopyIssue, aps::CopyWait,
              memref::GetGlobalOp,
              aps::GlobalStore, aps::GlobalLoad,
              aps::ReadSmemIssue, aps::ReadSmemWait>(op);
@@ -218,28 +221,35 @@ LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
 LogicalResult MemoryOpGenerator::generateMemStore(
     aps::WriteSmem op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  return generateMemStoreImpl(op, op.getValue(), op.getMemref(), op.getIndices(),
+                             {}, b, loc, localMap);
+}
+
+LogicalResult MemoryOpGenerator::generateMemStoreImpl(
+    Operation *op, Value storedValue, Value memRef, ValueRange indices,
+    Value guard, mlir::OpBuilder &b, Location loc,
+    llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // PANIC if no indices provided
-  if (op.getIndices().empty()) {
-    op.emitError("Memory store operation must have at least one index");
+  if (indices.empty()) {
+    op->emitError("Memory store operation must have at least one index");
     llvm::report_fatal_error("Memory store requires address indices");
   }
 
   // Get the value to store
-  auto value = getValueInRule(op.getValue(), op.getOperation(), b, localMap, loc);
+  auto value = getValueInRule(storedValue, op, b, localMap, loc);
   if (failed(value)) {
-    op.emitError("Failed to get value for memory store");
+    op->emitError("Failed to get value for memory store");
     llvm::report_fatal_error("Memory store value resolution failed");
   }
 
   // Get the address
-  auto addr = getValueInRule(op.getIndices()[0], op.getOperation(), b, localMap, loc);
+  auto addr = getValueInRule(indices[0], op, b, localMap, loc);
   if (failed(addr)) {
-    op.emitError("Failed to get address for memory store");
+    op->emitError("Failed to get address for memory store");
     llvm::report_fatal_error("Memory store address resolution failed");
   }
 
   // Get the memory reference and check if it comes from memref.get_global
-  Value memRef = op.getMemref();
   Operation *defOp = memRef.getDefiningOp();
 
   std::string memoryBankRule;
@@ -255,7 +265,7 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   // Get the memref type to determine array size and element type
   auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
   if (!memrefType) {
-    op.emitError("Memory reference is not memref type");
+    op->emitError("Memory reference is not memref type");
     llvm::report_fatal_error("WriteSmem: invalid memref type");
   }
 
@@ -263,7 +273,7 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   Type elementType = memrefType.getElementType();
   auto intType = dyn_cast<mlir::IntegerType>(elementType);
   if (!intType) {
-    op.emitError("Memref element type is not integer");
+    op->emitError("Memref element type is not integer");
     llvm::report_fatal_error("WriteSmem: memref element must be integer type");
   }
   unsigned dataWidth = intType.getWidth();
@@ -271,7 +281,7 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   // Calculate required address bit width from array size: ceil(log2(size))
   auto shape = memrefType.getShape();
   if (shape.empty() || shape[0] <= 0) {
-    op.emitError("Memref must have valid array size");
+    op->emitError("Memref must have valid array size");
     llvm::report_fatal_error("WriteSmem: invalid memref shape");
   }
   int64_t arraySize = shape[0];
@@ -285,12 +295,18 @@ LogicalResult MemoryOpGenerator::generateMemStore(
   auto addrSignal = Signal(*addr, &b, loc).bits(addrWidth - 1, 0);
 
   // Call the appropriate scratchpad pool bank write method
-  b.create<circt::cmt2::CallOp>(
-      loc, TypeRange{}, // No return value for write
-      mlir::ValueRange{addrSignal.getValue(), *value},
-      mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
-      mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
-      mlir::ArrayAttr(), mlir::ArrayAttr());
+  auto emitWrite = [&](OpBuilder &body) {
+    body.create<circt::cmt2::CallOp>(
+        loc, TypeRange{}, mlir::ValueRange{addrSignal.getValue(), *value},
+        mlir::SymbolRefAttr::get(body.getContext(), "scratchpad_pool"),
+        mlir::SymbolRefAttr::get(body.getContext(), memoryBankRule),
+        mlir::ArrayAttr(), mlir::ArrayAttr());
+  };
+  if (guard) {
+    auto condition = getValueInRule(guard, op, b, localMap, loc);
+    if (failed(condition)) return op->emitError("cannot resolve guarded scratchpad write predicate");
+    If(Signal(*condition, &b, loc), emitWrite, [](OpBuilder &) {}, b, loc);
+  } else emitWrite(b);
 
   return success();
 }
@@ -298,6 +314,8 @@ LogicalResult MemoryOpGenerator::generateMemStore(
 LogicalResult MemoryOpGenerator::generateCopyIssue(
     aps::CopyIssue op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
+  if (op.getItfcAttr().getValue() != "busitfc")
+    return op.emitError("bulk copy lowering currently supports only @busitfc; no scalar CPU copy adapter is implemented");
   Value cpuAddr = op.getCpuAddr();
   Value memRef = op.getMemrefs()[0];
   Value start = op.getStart();
@@ -362,8 +380,8 @@ LogicalResult MemoryOpGenerator::generateCopyIssue(
   auto elementSizeBytesConst = UInt::constant(elementSizeBytes, 32, b, loc);
   Signal localAddr = baseAddrConst + startSig * elementSizeBytesConst;
 
-  // Calculate total burst length: elementSizeBytes * numOfElements, rounded up
-  // to nearest power of 2
+  // Architectural copies must already be legal transactions. Never widen a
+  // request here: doing so can read or overwrite bytes outside the source copy.
   auto numElementsOp = numOfElements.getDefiningOp<arith::ConstantOp>();
   if (!numElementsOp) {
     op.emitError("Number of elements must be a constant");
@@ -374,10 +392,13 @@ LogicalResult MemoryOpGenerator::generateCopyIssue(
       dyn_cast<IntegerAttr>(numElementsAttr).getValue().getZExtValue();
 
   uint64_t totalBurstLength = (uint64_t)elementSizeBytes * numElements;
-  uint32_t roundedTotalBurstLength =
-      bbHandler->roundUpToPowerOf2((uint32_t)totalBurstLength);
+  if (totalBurstLength < 8 || totalBurstLength > 128 ||
+      (totalBurstLength & (totalBurstLength - 1)) != 0)
+    return op.emitError("DMA copy must be a canonical power-of-two transaction between 8 and 128 bytes; run functional-to-architectural canonicalization");
+  if (op.getDirection() == aps::CopyDirection::Out && totalBurstLength < 16)
+    return op.emitError("native DMA write requires at least two beats (16 bytes)");
   // TileLink size field expects log2 of transfer size (N where size = 2^N)
-  uint32_t tlSizeField = bbHandler->log2Floor(roundedTotalBurstLength);
+  uint32_t tlSizeField = bbHandler->log2Floor(totalBurstLength);
   if (tlSizeField == 0) {
     op->emitError("Got 0 when attempt to call burst load!");
   }

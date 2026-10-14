@@ -15,7 +15,7 @@ LEGACY_FIRTOOL_PATH = "https://github.com/llvm/circt/releases/download/firtool-1
 LEGACY_FIRTOOL = "${PIXI_PROJECT_ROOT}/thirdparty/firtool-1.75.0/bin/firtool" # this is for chipyard compatibility
 # tutorial docker environment
 APS = "${PIXI_PROJECT_ROOT}"
-APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/../aps-mlir-chipyard"
+APS_CHIPYARD = "${PIXI_PROJECT_ROOT}/thirdparty/chipyard"
 APS_SIM = "${APS_CHIPYARD}/sims/verilator"
 APS_VLSI = "${APS_CHIPYARD}/nextvlsi"
 
@@ -48,12 +48,12 @@ cmd =  "$PIXI_PROJECT_ROOT/tools/aps-frontend mlir {{ cadl }} > {{ apsir }}"
 
 # HLS Synthesis Engine
 [tasks.syn]
-args = [{ arg = "apsir" }, { arg = "output" }, { arg = "extra_args", default = "" }]
-cmd = "build/tools/aps-opt/aps-e2e --clock 4.0 -i {{ apsir }} -o {{ output }} {{ extra_args }} --export sv"
+args = [{ arg = "apsir" }, { arg = "output" }, { arg = "interface_config", default = "examples/interface.json" }, { arg = "chipyard_config", default = "thirdparty/chipyard/aps_config.yaml" }, { arg = "extra_args", default = "" }]
+cmd = "build/tools/aps-opt/aps-e2e --clock 4.0 -i {{ apsir }} -o {{ output }} --interface-config \"{{ interface_config }}\" --chipyard-config \"{{ chipyard_config }}\" {{ extra_args }} --export sv"
 
 [tasks.syn-debug]
-args = [{ arg = "apsir" }, { arg = "output" }, { arg = "log" }, { arg = "extra_args", default = "" }]
-cmd = "build/tools/aps-opt/aps-e2e --clock 4.0 -i {{ apsir }} -o {{ output }} {{ extra_args }} --export sv --print-ir-after-all 2> {{ log }}"
+args = [{ arg = "apsir" }, { arg = "output" }, { arg = "log" }, { arg = "interface_config", default = "examples/interface.json" }, { arg = "chipyard_config", default = "thirdparty/chipyard/aps_config.yaml" }, { arg = "extra_args", default = "" }]
+cmd = "build/tools/aps-opt/aps-e2e --clock 4.0 -i {{ apsir }} -o {{ output }} --interface-config \"{{ interface_config }}\" --chipyard-config \"{{ chipyard_config }}\" {{ extra_args }} --export sv --print-ir-after-all 2> {{ log }}"
 
 # Megg Retargetable Compiler
 [tasks.compile]
@@ -108,6 +108,7 @@ iverilog = ">=11.0,<12"
 yosys = ">=0.65"
 jq = ">=1.8.1,<2"
 ortools-cpp = ">=9.1,<10"
+dtc = ">=1.7.2,<2"
 
 [pypi-dependencies]
 lark = ">=1.1.0"

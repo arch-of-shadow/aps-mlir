@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 if [ -z "$APS" ]; then
   echo 'APS environment variable is not set. Please run `pixi shell` first.'

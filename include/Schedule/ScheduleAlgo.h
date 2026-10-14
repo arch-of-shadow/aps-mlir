@@ -251,6 +251,19 @@ public:
     D.DestinationOp->addPred(Dependencies.back().get());
   }
 
+  int getOperationLatency(OpAbstract *op) {
+    if (auto *ir = op->getOp())
+      if (auto latency = ir->getAttrOfType<IntegerAttr>("memory_latency"))
+        return latency.getInt();
+    return RDB.getLatency(op->getResource(), op->getWidth());
+  }
+
+  int getDependencyLatency(Dependence *dependency) {
+    if (dependency->type == Dependence::D_ISSUE)
+      return dependency->issueDelay;
+    return getOperationLatency(dependency->SourceOp);
+  }
+
   /// build Dependency from containingOp;
   void setClockFrequence(int Cycle) { ClockPeriod = Cycle; }
 
@@ -334,7 +347,7 @@ public:
     }
 
     OpAbstract *opA = OperationMap[op];
-    int latency = std::max(1, RDB.getLatency(opA->getResource(), opA->getWidth()));
+    int latency = std::max(1, getOperationLatency(opA));
     if (llvm::isa<tor::CallOp>(opA->getOp())) {
       latency = getLatency(opA);
     }

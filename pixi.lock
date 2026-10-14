@@ -39,6 +39,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/compiler-rt21_linux-64-21.1.4-hffcefe0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/dbus-1.16.2-h24cb091_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/decorator-5.3.1-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dtc-1.7.2-h280c20c_6.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/egglog-13.2.0-py312h192e038_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/eigen-5.0.1-hc65338a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/epoxy-1.5.10-hb03c661_2.conda
@@ -97,6 +98,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libegl-devel-1.7.0-ha4b6fd6_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libev-4.33-hd590300_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libexpat-2.8.1-hecca717_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/libfdt-1.7.2-h280c20c_6.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libffi-3.5.2-h3435931_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libfreetype-2.14.3-ha770c72_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/libfreetype6-2.14.3-h73754d4_0.conda
@@ -837,6 +839,19 @@ packages:
   - pkg:pypi/decorator?source=hash-mapping
   size: 16102
   timestamp: 1779115228886
+- conda: https://conda.anaconda.org/conda-forge/linux-64/dtc-1.7.2-h280c20c_6.conda
+  sha256: 43979c780845fe5fd6c91319595bb95b7cafe5efe371e420134d685d56e6020a
+  md5: b5d1065368afd380c0fa9eadbbfbcc0b
+  depends:
+  - libfdt >=1.7.2,<1.8.0a0
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - yaml >=0.2.5,<0.3.0a0
+  license: GPL-2.0-or-later
+  license_family: GPL
+  purls: []
+  size: 109811
+  timestamp: 1782697358292
 - conda: https://conda.anaconda.org/conda-forge/linux-64/egglog-13.2.0-py312h192e038_0.conda
   sha256: 63c2ed9376bcfaee086a1389fb8ea7c809366d8ec2f7657aafb2d237b23cc88c
   md5: 177fca4cb0db25e9a153424264652547
@@ -1754,6 +1769,18 @@ packages:
   purls: []
   size: 77294
   timestamp: 1779278686680
+- conda: https://conda.anaconda.org/conda-forge/linux-64/libfdt-1.7.2-h280c20c_6.conda
+  sha256: c8a2e7f665daa78bdbe9d0112e36909134a127be76e94375882f351345822f8f
+  md5: 5056841b5c01423603f960d256aa89d1
+  depends:
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - yaml >=0.2.5,<0.3.0a0
+  license: GPL-2.0-or-later OR BSD-2-Clause
+  license_family: GPL
+  purls: []
+  size: 60751
+  timestamp: 1782697358292
 - conda: https://conda.anaconda.org/conda-forge/linux-64/libffi-3.5.2-h3435931_0.conda
   sha256: 31f19b6a88ce40ebc0d5a992c131f57d919f73c0b92cd1617a5bec83f6e961e6
   md5: a360c33a5abe61c07959e449fa1453eb

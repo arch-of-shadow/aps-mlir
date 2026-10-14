@@ -67,6 +67,10 @@ void splitValueProducingMemoryOp(SourceOp sourceOp, IRRewriter &rewriter,
       sourceOp.getLoc(), sourceOp.getResult().getType(), reqOp.getResult());
   copyAttrsAndSetRefTime(sourceOp.getOperation(), collectOp.getOperation(),
                          endTime, endTime + 1);
+  // Only issue operations own transaction IDs and issue-order dependencies.
+  collectOp->removeAttr("transaction_id");
+  collectOp->removeAttr("after");
+  collectOp->removeAttr("after_gap");
 
   rewriter.replaceOp(sourceOp, collectOp.getResult());
 }
@@ -85,6 +89,9 @@ void splitSideEffectMemoryOp(SourceOp sourceOp, IRRewriter &rewriter,
       rewriter.create<CollectOp>(sourceOp.getLoc(), reqOp.getResult());
   copyAttrsAndSetRefTime(sourceOp.getOperation(), collectOp.getOperation(),
                          endTime, endTime + 1);
+  collectOp->removeAttr("transaction_id");
+  collectOp->removeAttr("after");
+  collectOp->removeAttr("after_gap");
 
   rewriter.eraseOp(sourceOp);
 }
@@ -158,7 +165,7 @@ struct LowerAPSMemToReqCollectPass
             loadOp, rewriter, [&]() {
               return rewriter.create<aps::LoadIssue>(
                   loadOp.getLoc(), loadOp.getResult().getType(),
-                  loadOp.getCpuAddr());
+                  loadOp.getItfcAttr(), loadOp.getCpuAddr());
             });
       }
 
@@ -178,7 +185,8 @@ struct LowerAPSMemToReqCollectPass
             storeOp, rewriter, [&]() {
               return rewriter.create<aps::StoreIssue>(
                   storeOp.getLoc(), rewriter.getNoneType(),
-                  storeOp.getValue(), storeOp.getCpuAddr());
+                  storeOp.getItfcAttr(), storeOp.getValue(),
+                  storeOp.getCpuAddr());
             });
       }
 

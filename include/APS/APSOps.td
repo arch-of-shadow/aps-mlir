@@ -114,11 +114,17 @@ def WriteSmem : APSOp<"write_smem", [MemoryEffects<[MemRead, MemWrite]>]> {
 }
 
 def MemItfc : APSOp<"memitfc", [Symbol]> {
-  let summary = "dummy memory interface symbol";
+  let summary = "modeled physical memory interface symbol";
   let description = [{
-    Declares a named memory interface for architectural binding. This op is a
-    dummy symbol in the initial Aquas-IR layering: attributes are optional
-    documentation and are not required by lowering.
+    Declares a named physical memory interface for architectural binding.
+    The interface model is carried by the width, max_beats, inflight,
+    read_latency, write_completion, and cache_line integer attributes.  A
+    min_beats attribute defaults to one; every transaction must contain a
+    power-of-two number of whole beats between min_beats and max_beats.
+    min_write_beats optionally raises the write minimum independently.
+    Minimum transaction length is independent of cache_line. A
+    cache_hint string may identify the hierarchy level.  The architectural
+    lowering validates and consumes these attributes.
   }];
   let arguments = (ins SymbolNameAttr:$sym_name);
   let assemblyFormat = "$sym_name attr-dict";
@@ -192,12 +198,13 @@ def LoadIssue : APSOp<"load_issue", [MemoryEffects<[MemRead, MemWrite]>]> {
     - Cycle N+1: Collect data (aps.itfc.load_collect)
 
     Example:
-      %req = aps.load_issue %addr : i32 -> !aps.mem_req
+      %req = aps.load_issue @cpuitfc, %addr : i32 -> !aps.mem_req
       %val = aps.load_wait %req : !aps.mem_req -> i32
   }];
-  let arguments = (ins AnySignlessInteger:$cpu_addr);
+  let arguments = (ins FlatSymbolRefAttr:$itfc,
+                       AnySignlessInteger:$cpu_addr);
   let results = (outs AnyType:$request);
-  let assemblyFormat = "$cpu_addr attr-dict `:` type($cpu_addr) `->` type($request)";
+  let assemblyFormat = "$itfc `,` $cpu_addr attr-dict `:` type($cpu_addr) `->` type($request)";
 }
 
 def LoadWait : APSOp<"load_wait", []> {
@@ -215,7 +222,7 @@ def LoadWait : APSOp<"load_wait", []> {
     combinational - it just reads the registered output from the RAM.
 
     Example:
-      %req = aps.load_issue %addr : i32 -> !aps.mem_req
+      %req = aps.load_issue @cpuitfc, %addr : i32 -> !aps.mem_req
       %val = aps.load_wait %req : !aps.mem_req -> i32
   }];
   let arguments = (ins AnyType:$request);
@@ -235,12 +242,13 @@ def StoreIssue : APSOp<"store_issue", [MemoryEffects<[MemRead, MemWrite]>]> {
     - Cycle N+1: Complete write (aps.itfc.store_collect)
 
     Example:
-      %req = aps.store_issue %val, %addr : i32, i32 -> !aps.mem_req
+      %req = aps.store_issue @cpuitfc, %val, %addr : i32, i32 -> !aps.mem_req
       aps.store_wait %req : !aps.mem_req
   }];
-  let arguments = (ins AnyType:$value, AnySignlessInteger:$cpu_addr);
+  let arguments = (ins FlatSymbolRefAttr:$itfc, AnyType:$value,
+                       AnySignlessInteger:$cpu_addr);
   let results = (outs AnyType:$request);
-  let assemblyFormat = "$value `,` $cpu_addr attr-dict `:` type($value) `,` type($cpu_addr) `->` type($request)";
+  let assemblyFormat = "$itfc `,` $value `,` $cpu_addr attr-dict `:` type($value) `,` type($cpu_addr) `->` type($request)";
 }
 
 def StoreWait : APSOp<"store_wait", []> {
@@ -255,7 +263,7 @@ def StoreWait : APSOp<"store_wait", []> {
     - Cycle N+1: aps.store_wait completes (combinational)
 
     Example:
-      %req = aps.store_issue %val, %addr : i32, i32 -> !aps.mem_req
+      %req = aps.store_issue @cpuitfc, %val, %addr : i32, i32 -> !aps.mem_req
       aps.store_wait %req : !aps.mem_req
   }];
   let arguments = (ins AnyType:$request);

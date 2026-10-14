@@ -318,7 +318,7 @@ bool canBankPartition(AffineMap map, int rank, MLIRContext *ctx, int factor,
       // Warn about dynamic bank selection but proceed
       bool isStore = isa<AffineStoreOp>(op);
       op->emitWarning() << "array partition: using dynamic bank "
-                        << (isStore ? "read-modify-write" : "mux")
+                        << (isStore ? "guarded writes" : "mux")
                         << " for rank " << rank << ", possible banks: {" <<
           [&]() {
             std::string s;
@@ -329,7 +329,7 @@ bool canBankPartition(AffineMap map, int rank, MLIRContext *ctx, int factor,
             }
             return s;
           }() << "}";
-      return true; // Allow with dynamic mux/read-modify-write
+      return true; // Allow with dynamic mux/guarded writes
     }
   }
 
@@ -483,7 +483,7 @@ bool rankCanBePartition(Value arg, size_t rank, unsigned bank_factor,
         return false;
       }
     } else if (auto store = dyn_cast<AffineStoreOp>(op)) {
-      // For stores, also allow dynamic bank (will use read-modify-write)
+      // For stores, also allow dynamic bank (will use guarded writes)
       if (!canBankPartition(store.getAffineMap(), rank, ctx, bank_factor,
                             cyclic, op, /*isLoad=*/true)) {
         return false;
@@ -898,7 +898,9 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       }
 
       if (hasDynamicBank) {
-        // Dynamic bank store: read-modify-write all possible banks
+        // Dynamic bank store: only the selected bank may be written. A
+        // read/select/write on inactive banks is not safe under pipeline stalls:
+        // its stale value can overwrite an earlier iteration's actual write.
         auto *ctx = rewriter.getContext();
 
         // Find possible banks (same logic as load)
@@ -971,25 +973,21 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
 
         Value storeValue = store.getValue();
 
-        // For each possible bank: read old value, select new/old, write back
+        // Reuse the existing guarded-store IR and scheduler dependency model.
         for (int64_t bankIdx : possibleBanks) {
-          // Read old value from this bank
-          auto oldValue = rewriter.create<AffineLoadOp>(
-              store.getLoc(), newArray[bankIdx], indexMap, indexOperands);
-
-          // Select: if runtime_bank == bankIdx, use storeValue, else use
-          // oldValue
           auto bankConst =
               rewriter.create<arith::ConstantIndexOp>(store.getLoc(), bankIdx);
           auto cmp = rewriter.create<arith::CmpIOp>(
               store.getLoc(), arith::CmpIPredicate::eq, runtimeBank, bankConst);
-          auto newValue = rewriter.create<arith::SelectOp>(
-              store.getLoc(), cmp, storeValue, oldValue);
-
-          // Write back to this bank
-          auto newStore = rewriter.create<AffineStoreOp>(
-              store.getLoc(), newValue, newArray[bankIdx], indexMap,
-              indexOperands);
+          SmallVector<Value> indices;
+          for (AffineExpr expr : indexMap.getResults()) {
+            auto map = AffineMap::get(indexMap.getNumDims(), indexMap.getNumSymbols(), expr, ctx);
+            Value index = rewriter.create<AffineApplyOp>(store.getLoc(), map, indexOperands);
+            indices.push_back(rewriter.create<arith::IndexCastOp>(store.getLoc(), rewriter.getI32Type(), index));
+          }
+          auto newStore = rewriter.create<tor::GuardedStoreOp>(
+              store.getLoc(), storeValue, newArray[bankIdx], cmp,
+              rewriter.getI32IntegerAttr(0), rewriter.getI32IntegerAttr(0), indices);
           // Copy all attributes from original store except the affine map
           for (auto attr : store->getAttrs()) {
             if (attr.getName() != store.getMapAttrStrName())
@@ -1124,7 +1122,7 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
     load->erase();
   }
 
-  // Erase stores that were replaced with dynamic bank read-modify-write
+  // Erase stores that were replaced with dynamic bank guarded writes
   for (auto store : storesToErase) {
     store->erase();
   }

@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "interfaces": [
+    {
+      "name": "cpuitfc",
+      "width": 4,
+      "min_beats": 1,
+      "min_write_beats": 1,
+      "max_beats": 1,
+      "inflight": 2,
+      "read_latency": 2,
+      "write_completion": 2,
+      "cache_line": 64,
+      "cache_hint": "warm"
+    },
+    {
+      "name": "busitfc",
+      "width": 8,
+      "min_beats": 1,
+      "min_write_beats": 2,
+      "max_beats": 16,
+      "inflight": 2,
+      "read_latency": 5,
+      "write_completion": 2,
+      "cache_line": 64,
+      "cache_hint": "cold"
+    }
+  ],
+  "chipyard": {
+    "backend": "rocc",
+    "arch": "rv32",
+    "core_count": 1,
+    "top_module": "aps_rocc_wrapper",
+    "name": "aps_rocc_module"
+  },
+  "csrs": []
+}

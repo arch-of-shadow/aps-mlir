@@ -900,6 +900,21 @@ namespace scheduling {
                     // based on the "amount" resource parameter
                     if (opA1->getType() == OpAbstract::OpType::TL_WRITE_OP &&
                         opA2->getType() == OpAbstract::OpType::TL_WRITE_OP) {
+                        // Canonical segments of one transfer are disjoint.
+                        // Their chosen issue order may differ from address order,
+                        // including inside loops; do not add a reverse WAW edge.
+                        auto group1 = op1->getAttrOfType<IntegerAttr>("transaction_group");
+                        auto group2 = op2->getAttrOfType<IntegerAttr>("transaction_group");
+                        auto offset1 = op1->getAttrOfType<IntegerAttr>("transfer_offset");
+                        auto offset2 = op2->getAttrOfType<IntegerAttr>("transfer_offset");
+                        auto bytes1 = op1->getAttrOfType<IntegerAttr>("transfer_bytes");
+                        auto bytes2 = op2->getAttrOfType<IntegerAttr>("transfer_bytes");
+                        if (distance == 0 && group1 && group1 == group2 && offset1 && offset2 && bytes1 && bytes2 &&
+                            op1->getBlock() == op2->getBlock() &&
+                            op1->hasAttr("memory_order_solver") && op2->hasAttr("memory_order_solver") &&
+                            (offset1.getInt() + bytes1.getInt() <= offset2.getInt() ||
+                             offset2.getInt() + bytes2.getInt() <= offset1.getInt()))
+                            continue;
                         // Use dependence analysis to check if address ranges overlap
                         auto loop1 = mAxiOp1->getParentLoop();
                         auto loop2 = mAxiOp2->getParentLoop();
@@ -1548,6 +1563,30 @@ namespace scheduling {
         buildCallOpTensorDFG();
         buildStreamDFG();
         buildMAxiDFG();
+        // Architectural ordering must survive into both loop and function
+        // scheduling. IDs are scoped to the original MLIR block.
+        for (auto &bb : BasicBlocks) {
+            std::unordered_map<int64_t, OpAbstract *> transactions;
+            for (auto *op : bb->getOperations())
+                if (auto *ir = op->getOp())
+                    if (auto id = ir->getAttrOfType<IntegerAttr>("transaction_id"))
+                        transactions[id.getInt()] = op;
+            for (auto *op : bb->getOperations()) {
+                auto *ir = op->getOp();
+                if (!ir) continue;
+                auto after = ir->getAttrOfType<DenseI64ArrayAttr>("after");
+                auto gaps = ir->getAttrOfType<DenseI64ArrayAttr>("after_gap");
+                if (!after || !gaps) continue;
+                assert(after.size() == gaps.size());
+                for (auto [id, gap] : llvm::zip(after.asArrayRef(), gaps.asArrayRef())) {
+                    auto predecessor = transactions.find(id);
+                    assert(predecessor != transactions.end() &&
+                           "memory ordering predecessor missing from block");
+                    addDependency(Dependence(predecessor->second, op, 0,
+                                             Dependence::D_ISSUE, gap));
+                }
+            }
+        }
     }
 
     void ScheduleBase::buildFromContainingOp() {

@@ -313,6 +313,10 @@ private:
                    int64_t slot,
                    llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
+  LogicalResult generateMemStoreImpl(Operation *op, Value storedValue,
+      Value memref, ValueRange indices, Value guard, mlir::OpBuilder &b,
+      Location loc, llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
+
   /// Handle global memory load
   LogicalResult
   generateGlobalMemLoad(aps::GlobalLoad op, mlir::OpBuilder &b, Location loc,

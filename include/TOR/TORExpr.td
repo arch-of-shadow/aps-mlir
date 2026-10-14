@@ -785,7 +785,7 @@ def StoreOp : TOROp<"store",
 def GuardedStoreOp : TOROp<"guarded_store",
      [TypesMatchWith<"type of 'value' matches element type of 'memref'",
                      "memref", "value",
-                     "dyn_cast<MemRefType>($_self).getElementType()">,
+                     "::mlir::isa<::mlir::MemRefType>($_self) ? ::mlir::cast<::mlir::MemRefType>($_self).getElementType() : ::mlir::cast<::mlir::tor::MemRefType>($_self).getElementType()">,
                      MemRefsNormalizable]> {
   let summary = "guarded store operation";
   let description = [{
@@ -793,10 +793,13 @@ def GuardedStoreOp : TOROp<"guarded_store",
     condition is true. The value stored should have the same type as the
     elemental type of the memref. The number of arguments provided within
     brackets need to match the rank of the memref.
+    Accepts both TOR memrefs and builtin memrefs. APS array partitioning uses
+    the builtin form for predicated bank writes before TOR scheduling, avoiding
+    unsafe read-modify-write updates of inactive banks in dynamic pipelines.
   }];
 
   let arguments = (ins AnyType:$value,
-                       Arg<TORAnyMemRef, "the reference to store to", [MemWrite]>:$memref,
+                       Arg<AnyTypeOf<[TORAnyMemRef, AnyMemRef]>, "the reference to store to", [MemWrite]>:$memref,
                        I1:$guard,
                        I32Attr:$starttime,
                        I32Attr:$endtime,

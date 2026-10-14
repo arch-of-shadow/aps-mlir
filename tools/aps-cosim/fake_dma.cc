@@ -29,11 +29,11 @@ void FakeDma::driveInputs(Vmain &top) {
   top.dma_cpu_to_isax_ch0_ready = canQueue;
   top.dma_isax_to_cpu_ch0_ready = canQueue;
   top.dma_poll_for_idle_ch0_ready = isIdle;
-  top.dma_poll_for_idle_ch0_res0 = isIdle;
+  top.dma_poll_for_idle_ch0_ = isIdle;
   top.dma_cpu_to_isax_ch1_ready = canQueue;
   top.dma_isax_to_cpu_ch1_ready = canQueue;
   top.dma_poll_for_idle_ch1_ready = isIdle;
-  top.dma_poll_for_idle_ch1_res0 = isIdle;
+  top.dma_poll_for_idle_ch1_ = isIdle;
 
   top.burst_read_0_enable = 0;
   top.burst_read_0_addr = 0;
@@ -122,9 +122,9 @@ void FakeDma::sampleOutputs(Vmain &top) {
       if (traceEnabled())
         std::cerr << "fake-dma read-data cpu=0x" << std::hex
                   << current_.cpuAddr + offset_ << " data=0x"
-                  << static_cast<uint64_t>(top.burst_read_1_res0) << std::dec
+                  << static_cast<uint64_t>(top.burst_read_1_) << std::dec
                   << "\n";
-      memory_.store64(current_.cpuAddr + offset_, top.burst_read_1_res0);
+      memory_.store64(current_.cpuAddr + offset_, top.burst_read_1_);
       advanceTransfer();
       if (offset_ >= current_.bytes) {
         if (traceEnabled())

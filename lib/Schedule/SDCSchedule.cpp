@@ -159,7 +159,7 @@ void SDCSchedule::traverse(SDCOpWrapper *op, SDCSolver *SDC, int latency,
                            std::unordered_map<SDCOpWrapper *, bool> &exceed) {
   vis[op] = true;
   for (auto Succ : op->getSucc())
-    if (sameLoop(Succ)) {
+    if (sameLoop(Succ) && Succ->type != Dependence::D_ISSUE) {
       auto succOp = llvm::dyn_cast<SDCOpWrapper>(Succ->DestinationOp);
       float nxt_cp =
           cp + RDB.getDelay(succOp->getResource(), succOp->getWidth());
@@ -187,7 +187,7 @@ void SDCSchedule::addChainingConstr(SDCOpWrapper *op, SDCSolver *SDC, int II) {
   std::unordered_map<SDCOpWrapper *, bool> exceed;
 
   if (RDB.getName(op->getResource()) != "nop")
-    traverse(op, SDC, RDB.getLatency(op->getResource(), op->getWidth()), 0.0, 0,
+    traverse(op, SDC, getOperationLatency(op), 0.0, 0,
              II, op, vis, exceed);
 }
 
@@ -249,13 +249,12 @@ void SDCSchedule::formulateDependency(Loop *L, int II, SDCSolver *SDC) {
       for (auto pred : op->getPred())
         if (sameLoop(pred)) {
           auto srcOp = llvm::dyn_cast<SDCOpWrapper>(pred->SourceOp);
-          int RId = srcOp->getResource();
-          int Lat = RDB.getLatency(RId, srcOp->getWidth());
+          int Lat = getDependencyLatency(pred);
 
           // This special case is because of codegen backend
           if (srcOp->getType() == OpAbstract::OpType::PHI_OP)
             Lat = 1;
-          if (Lat == 0) {
+          if (Lat == 0 && pred->type != Dependence::D_ISSUE) {
             // if (isOpCanMoveAround(srcOp->getOp()) && pred->Distance == 0) {
             //   SDC->addInitialConstraint(Constraint::CreateGE(
             //       destOp->VarId, srcOp->VarId, Lat));
@@ -400,7 +399,7 @@ bool SDCSchedule::minimizeLifetime(Loop *L, int II, SDCSolver *SDC) {
           double row[3] = {1, -1, -1};
           add_constraintex(
               lp, 3, row, colno, LE,
-              RDB.getLatency(sdcOp->getResource(), sdcOp->getWidth()));
+              getOperationLatency(sdcOp));
         }
       set_add_rowmode(lp, FALSE);
     }
@@ -735,7 +734,7 @@ bool SDCSchedule::isScheduleResultWithIIValid(Loop *L, int II) {
                 continue;
             auto sdcOp = llvm::dyn_cast<SDCOpWrapper>(op);
             minTime = std::min(sdcOp->SDCTime, minTime);
-            int Lat = RDB.getLatency(sdcOp->getResource(), sdcOp->getWidth());
+            int Lat = getOperationLatency(sdcOp);
             maxTime = std::max(Lat + sdcOp->SDCTime, maxTime);
             LLVM_DEBUG(llvm::dbgs() << *(op->getOp()) << " schedule sdcTime [" << sdcOp->SDCTime
                 << ", " << Lat + sdcOp->SDCTime << ") \n");
@@ -810,7 +809,7 @@ void SDCSchedule::addTimingConstr(SDCOpWrapper *op, SDCSolver *SDC) {
   std::unordered_map<SDCOpWrapper *, bool> inQueue;
   std::unordered_map<SDCOpWrapper *, float> cp;
 
-  int latency = RDB.getLatency(op->getResource(), op->getWidth());
+  int latency = getOperationLatency(op);
 
   Q.push(op);
   cp[op] = RDB.getDelay(op->getResource(), op->getWidth());
@@ -824,7 +823,7 @@ void SDCSchedule::addTimingConstr(SDCOpWrapper *op, SDCSolver *SDC) {
     int dist = cp[now];
 
     for (auto Succ : now->getSucc()) {
-      if (Succ->Distance != 0)
+      if (Succ->Distance != 0 || Succ->type == Dependence::D_ISSUE)
         continue;
 
       auto sdcOp = llvm::dyn_cast<SDCOpWrapper>(Succ->DestinationOp);
@@ -891,8 +890,7 @@ SDCSchedule::getFeasibleOrder(BasicBlock *BB,
       if (Succ->Distance == 0 && Succ->DestinationOp->getParentBB() == BB) {
         auto succOp = Succ->DestinationOp;
         ASAP[succOp] = std::max(
-            ASAP[succOp], ASAP[now] + (int)RDB.getLatency(now->getResource(),
-                                                          now->getWidth()));
+            ASAP[succOp], ASAP[now] + getDependencyLatency(Succ));
         Ord[succOp] =
             std::max(Ord[succOp], Ord[now] + RDB.getDelay(now->getResource(),
                                                           now->getWidth()));
@@ -1154,7 +1152,7 @@ SDCSolver *SDCSchedule::formulateSDC() {
           Constraint::CreateGE(sdcOp->VarId, BeginBB[BB.get()], 0));
       SDC->addInitialConstraint(Constraint::CreateGE(
           EndBB[BB.get()], sdcOp->VarId,
-          RDB.getLatency(sdcOp->getResource(), sdcOp->getWidth())));
+          getOperationLatency(sdcOp)));
     }
   }
 
@@ -1230,7 +1228,7 @@ SDCSolver *SDCSchedule::formulateSDC() {
           // pipeline
           SDC->addInitialConstraint(Constraint::CreateGE(
             BeginLoop[succOp->getParentBB()->getParentLoop()], predOp->VarId,
-            RDB.getLatency(predOp->getResource(), predOp->getWidth())));
+            getDependencyLatency(Succ)));
           continue;
         }
 
@@ -1251,7 +1249,7 @@ SDCSolver *SDCSchedule::formulateSDC() {
           }
         }
         if(u){
-          int latency = RDB.getLatency(predOp->getResource(), predOp->getWidth());
+          int latency = getDependencyLatency(Succ);
           llvm::errs() << "Adding SDC constraint: Var" << succOp->VarId
                        << " >= Var" << predOp->VarId << " + " << latency
                        << " (" << predOp->getOp()->getName().getStringRef() << " -> "
@@ -1330,7 +1328,7 @@ SDCSolver *SDCSchedule::formulateSDC() {
   // Add constraints: all other operations must complete before writerf
   for (auto writeRfOp : writeRfOps) {
     for (auto otherOp : otherOps) {
-      int latency = RDB.getLatency(otherOp->getResource(), otherOp->getWidth());
+      int latency = getOperationLatency(otherOp);
       llvm::errs() << "Adding writerf ordering constraint: Var" << writeRfOp->VarId
                    << " >= Var" << otherOp->VarId << " + " << latency
                    << " (" << otherOp->getOp()->getName().getStringRef() << " -> "
@@ -1442,7 +1440,7 @@ bool SDCSchedule::minimizeLifetimeFunction(int II, SDCSolver *SDC) {
         double row[3] = {1, -1, -1};
         add_constraintex(
             lp, 3, row, colno, LE,
-            RDB.getLatency(sdcOp->getResource(), sdcOp->getWidth()));
+            getOperationLatency(sdcOp.get()));
       }
     set_add_rowmode(lp, FALSE);
   }
@@ -1667,7 +1665,7 @@ void SDCSchedule::FunctionformulateDependency(std::unordered_map<BasicBlock *, i
             Constraint::CreateGE(sdcOp->VarId, BeginBB[BB.get()], 0));
         SDC->addInitialConstraint(Constraint::CreateGE(
             EndBB[BB.get()], sdcOp->VarId,
-            RDB.getLatency(sdcOp->getResource(), sdcOp->getWidth())));
+            getOperationLatency(sdcOp)));
         }
     }
 
@@ -1687,7 +1685,7 @@ void SDCSchedule::FunctionformulateDependency(std::unordered_map<BasicBlock *, i
         for (auto Succ : predOp->getSucc()) {
         auto succOp = llvm::dyn_cast<SDCOpWrapper>(Succ->DestinationOp);
 
-        int Lat = RDB.getLatency(predOp->getResource(), predOp->getWidth());
+        int Lat = getDependencyLatency(Succ);
         // This special case is because of codegen backend
         if (predOp->getType() == OpAbstract::OpType::PHI_OP)
             Lat = 1;

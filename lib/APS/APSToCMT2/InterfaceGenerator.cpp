@@ -631,8 +631,17 @@ Module *APSToCMT2Pass::generateMemoryAdapter(Circuit &circuit) {
   auto *commitCmdRule = translatorModule->addRule("commit_cmd");
 
   commitCmdRule->guard([&](mlir::OpBuilder &guardBuilder) {
-    auto trueVal = UInt::constant(1, 1, guardBuilder, loc);
-    guardBuilder.create<circt::cmt2::ReturnOp>(loc, trueVal.getValue());
+    // The command FIFO can accept requests faster than responses retire. Never
+    // reuse an occupied tracking slot: overwriting its tag loses the older
+    // transaction and returns responses to the wrong pipeline iteration.
+    Signal newer(newerSlotReg->callValue("read", guardBuilder)[0], &guardBuilder, loc);
+    Signal slot0Busy(slot0TxdReg->callValue("read", guardBuilder)[0], &guardBuilder, loc);
+    Signal slot1Busy(slot1TxdReg->callValue("read", guardBuilder)[0], &guardBuilder, loc);
+    auto zero = UInt::constant(0, 1, guardBuilder, loc);
+    auto one = UInt::constant(1, 1, guardBuilder, loc);
+    Signal nextFree = ((newer == one) & (slot0Busy == zero)) |
+                      ((newer == zero) & (slot1Busy == zero));
+    guardBuilder.create<circt::cmt2::ReturnOp>(loc, nextFree.getValue());
   });
 
   commitCmdRule->body([&](mlir::OpBuilder &bodyBuilder) {
@@ -673,6 +682,7 @@ Module *APSToCMT2Pass::generateMemoryAdapter(Circuit &circuit) {
                     "write",
                     {UInt::constant(1, 1, innerBuilder, loc).getValue()},
                     innerBuilder);
+                slot0RxdReg->callMethod("write", {UInt::constant(0, 1, innerBuilder, loc).getValue()}, innerBuilder);
                 slot0TagReg->callMethod("write", {tag.getValue()},
                                         innerBuilder);
                 newerSlotReg->callMethod(
@@ -686,6 +696,7 @@ Module *APSToCMT2Pass::generateMemoryAdapter(Circuit &circuit) {
                     "write",
                     {UInt::constant(1, 1, innerBuilder, loc).getValue()},
                     innerBuilder);
+                slot1RxdReg->callMethod("write", {UInt::constant(0, 1, innerBuilder, loc).getValue()}, innerBuilder);
                 slot1TagReg->callMethod("write", {tag.getValue()},
                                         innerBuilder);
                 newerSlotReg->callMethod(

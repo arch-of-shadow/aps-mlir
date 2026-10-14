@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 if [ -z "$APS" ]; then
   echo 'APS environment variable is not set. Please run `pixi shell` first.'
@@ -17,7 +18,7 @@ mkdir -p "$OUT_DIR"
 
 pixi run mlir "$CADL_INPUT" "$OUT_DIR/0_${NAME}_preopt.mlir"
 
-pixi run opt-debug "$OUT_DIR/0_${NAME}_preopt.mlir" /dev/null "$OUT_DIR/${NAME}.log"
+pixi run syn-debug "$OUT_DIR/0_${NAME}_preopt.mlir" "$OUT_DIR/${NAME}.sv" "$OUT_DIR/${NAME}.log"
 
 extract_pass_dump() {
   local pass_pattern="$1"

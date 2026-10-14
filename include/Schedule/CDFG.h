@@ -47,7 +47,7 @@ public:
 
 struct Dependence {
 public:
-  enum DependenceType { D_RAW, D_WAW, D_WAR, D_RAR };
+  enum DependenceType { D_RAW, D_WAW, D_WAR, D_RAR, D_ISSUE };
 
   OpAbstract *SourceOp;
   OpAbstract *DestinationOp;
@@ -55,11 +55,14 @@ public:
   int Distance;
 
   DependenceType type;
+  // Issue-order edges constrain start times rather than waiting for the
+  // source's entire transaction to complete.
+  int issueDelay = 0;
 
   Dependence(OpAbstract *SourceOp, OpAbstract *DestinationOp, int Distance,
-             DependenceType type)
+             DependenceType type, int issueDelay = 0)
       : SourceOp(SourceOp), DestinationOp(DestinationOp), Distance(Distance),
-        type(type) {}
+        type(type), issueDelay(issueDelay) {}
 };
 
 class OpAbstract {

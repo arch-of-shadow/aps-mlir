@@ -41,7 +41,7 @@ void CsrRuntimeBridge::bind(Vmain &top, ApsCsrFile &csrs) {
     Handles handles;
     handles.name = entry.name;
     std::string prefix = "csr_" + entry.name;
-    handles.value = requiredPort(top, prefix + "_value_res0");
+    handles.value = requiredPort(top, prefix + "_value_");
     handles.valueReady = requiredPort(top, prefix + "_value_ready");
     handles.setData =
         requiredPort(top, prefix + "_set_" + entry.name + "_sdata");

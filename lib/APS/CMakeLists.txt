@@ -11,6 +11,8 @@ add_mlir_library(APS
   RaiseMemRefToAffine.cpp
   DuplicateMemLoads.cpp
   APSFunctionalToArch.cpp
+  ScratchpadElision.cpp
+  APSMemorySchedule.cpp
   LowerAPSMemToReqCollect.cpp
   PlaceReadRFAtEntry.cpp
   PromoteSingletonMemRefToGlobal.cpp

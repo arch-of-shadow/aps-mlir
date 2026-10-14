@@ -264,6 +264,7 @@ struct SimpleOpConversion : public IndexTypeConversionPattern<SourceOp> {
 };
 
 using ShiftLeftConversionPattern = SimpleOpConversion<ShLIOp>;
+using AndIConversionPattern = SimpleOpConversion<AndIOp>;
 using OrIConversionPattern = SimpleOpConversion<OrIOp>;
 using SelectConversionPattern = SimpleOpConversion<SelectOp>;
 using LoadOpConversion = SimpleOpConversion<tor::LoadOp>;
@@ -1340,6 +1341,7 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
       target.addDynamicallyLegalOp<ShRUIOp>(hasIndexType);
       target.addDynamicallyLegalOp<ShLIOp>(hasIndexType);
       target.addDynamicallyLegalOp<OrIOp>(hasIndexType);
+      target.addDynamicallyLegalOp<AndIOp>(hasIndexType);
       target.addDynamicallyLegalOp<ConstantOp>(hasIndexType);
       target.addDynamicallyLegalOp<tor::LoadOp>(hasIndexType);
       target.addDynamicallyLegalOp<tor::StoreOp>(hasIndexType);
@@ -1362,7 +1364,8 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
                DivUIOpConversion, DivSIOpConversion, RemUIOpConversion,
                RemSIOpConversion, SIToFPOpConversion, ShRSIOpConversion,
                ShRUIOpConversion, ShiftLeftConversionPattern,
-               OrIConversionPattern, SelectConversionPattern, LoadOpConversion,
+               AndIConversionPattern, OrIConversionPattern,
+               SelectConversionPattern, LoadOpConversion,
                StoreOpConversion, GuardedStoreOpConversion,
                IndexCastOpConversion, CpuRfReadConversion, CpuRfWriteConversion
                /*MoveConstantUp, CallOpConversion*/>(converter, &getContext());

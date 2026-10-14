@@ -141,11 +141,33 @@ def APSFunctionalToArch : Pass<"aps-functional-to-arch", "mlir::ModuleOp"> {
   let description = [{
     This pass lowers functional-level APS global/CPU memory operations
     (aps.load, aps.store, aps.copy) to architectural interface-bound forms
-    (aps.load_by, aps.store_by, aps.copy_by). It also materializes dummy
-    aps.memitfc symbols for the CPU scalar interface and bulk bus interface.
+    (aps.load_by, aps.store_by, aps.copy_by). It validates the W/M/I/L/E/C
+    model on aps.memitfc symbols and uses active-interface-set dynamic programming to jointly
+    assign reads and writes separately within each region, minimizing shared
+    interface startup, transfer, and cache costs. It decomposes constant-size
+    copies into legal single-transaction segments. Dynamic transfers must be
+    normalized before binding; unknown lengths are rejected rather than
+    emitting uncanonicalized architectural operations.
+    When no interfaces are declared it materializes modeled CPU and bus
+    defaults for backwards compatibility.
   }];
   let constructor = "mlir::createAPSFunctionalToArchPass()";
   let dependentDialects = ["mlir::tor::TORDialect", "aps::APSDialect"];
+}
+
+def APSMemorySchedule : Pass<"aps-schedule-memory", "mlir::ModuleOp"> {
+  let summary = "Order memory transactions using memoized relative timing windows";
+  let description = [{
+    Applies the interface timing recurrences to independent architectural
+    memory transactions, preserving contiguous decomposition groups and
+    source dependencies. Reads prefer warm hierarchy levels first; writes
+    prefer cold levels first. Memoized search normalizes timing state and
+    merges interchangeable groups and segment sizes. Segments may reorder
+    within a transfer, while transfers remain contiguous. Emits after dependencies consumed
+    by TOR scheduling and preserved on temporal issue operations.
+  }];
+  let constructor = "mlir::createAPSMemorySchedulePass()";
+  let dependentDialects = ["aps::APSDialect"];
 }
 
 def LowerAPSMemToReqCollect : Pass<"lower-aps-mem-to-req-collect", "mlir::tor::DesignOp"> {
@@ -178,7 +200,7 @@ def APSToCMT2 : Pass<"aps-to-cmt2", "::mlir::ModuleOp"> {
 }
 
 def ArithMulDivToShift : Pass<"arith-muldiv-to-shift"> {
-  let summary = "Convert arith mul/div by power of 2 to shift operations";
+  let summary = "Strength-reduce power-of-two arithmetic to shifts and masks";
   let description = [{
     This pass converts arith.muli and arith.divui/divsi operations to shift
     operations when the second operand is a constant power of 2.
@@ -187,6 +209,8 @@ def ArithMulDivToShift : Pass<"arith-muldiv-to-shift"> {
     - arith.muli %x, 2^n  => arith.shli %x, n
     - arith.divui %x, 2^n => arith.shrui %x, n
     - arith.divsi %x, 2^n => arith.shrsi with bias correction for negative values
+    - arith.remui %x, 2^n => arith.andi %x, (2^n - 1)
+    - arith.remsi %x, 2^n => arith.andi when %x is proven non-negative
 
     For signed division (arith.divsi), the transformation adds a bias for
     negative values to ensure correct truncation toward zero (matching C

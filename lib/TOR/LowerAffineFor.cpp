@@ -21,6 +21,7 @@
 #include "TOR/Passes.h"
 #include "TOR/Utils.h"
 #include "circt/Dialect/Comb/CombDialect.h"
+#include "llvm/Support/MathExtras.h"
 
 #define DEBUG_TYPE "lower-affine-for"
 
@@ -29,6 +30,55 @@ namespace {
 using namespace mlir;
 using namespace mlir::affine;
 using namespace mlir::vector;
+
+static Value expandAffineExprWithMasks(OpBuilder &builder, Location loc,
+                                      AffineExpr expr, ValueRange dims,
+                                      ValueRange symbols) {
+  if (auto binary = dyn_cast<AffineBinaryOpExpr>(expr)) {
+    if (expr.getKind() == AffineExprKind::Mod) {
+      auto divisor = dyn_cast<AffineConstantExpr>(binary.getRHS());
+      if (divisor && divisor.getValue() > 0 &&
+          llvm::isPowerOf2_64(divisor.getValue())) {
+        Value lhs = expandAffineExprWithMasks(builder, loc, binary.getLHS(),
+                                              dims, symbols);
+        if (!lhs)
+          return {};
+        // Affine mod is Euclidean, so masking also preserves negative inputs.
+        Value mask = builder.create<arith::ConstantIndexOp>(
+            loc, divisor.getValue() - 1);
+        return builder.create<arith::AndIOp>(loc, lhs, mask);
+      }
+    }
+    if (expr.getKind() == AffineExprKind::Add ||
+        expr.getKind() == AffineExprKind::Mul) {
+      Value lhs = expandAffineExprWithMasks(builder, loc, binary.getLHS(),
+                                            dims, symbols);
+      Value rhs = expandAffineExprWithMasks(builder, loc, binary.getRHS(),
+                                            dims, symbols);
+      if (!lhs || !rhs)
+        return {};
+      if (expr.getKind() == AffineExprKind::Add)
+        return builder.create<arith::AddIOp>(loc, lhs, rhs);
+      return builder.create<arith::MulIOp>(loc, lhs, rhs);
+    }
+  }
+  return expandAffineExpr(builder, loc, expr, dims, symbols);
+}
+
+static std::optional<SmallVector<Value, 8>>
+expandAffineMapWithMasks(OpBuilder &builder, Location loc, AffineMap map,
+                         ValueRange operands) {
+  SmallVector<Value, 8> results;
+  for (AffineExpr expr : map.getResults()) {
+    Value result = expandAffineExprWithMasks(
+        builder, loc, expr, operands.take_front(map.getNumDims()),
+        operands.drop_front(map.getNumDims()));
+    if (!result)
+      return std::nullopt;
+    results.push_back(result);
+  }
+  return results;
+}
 
 /// Given a range of values, emit the code that reduces them with "min" or "max"
 /// depending on the provided comparison predicate.  The predicate defines which
@@ -61,7 +111,7 @@ static Value buildMinMaxReductionSeq(Location loc,
 /// values of a (potentially) multi-output affine map applied to `operands`.
 static Value lowerAffineMapMax(OpBuilder &builder, Location loc, AffineMap map,
                                ValueRange operands) {
-  if (auto values = expandAffineMap(builder, loc, map, operands))
+  if (auto values = expandAffineMapWithMasks(builder, loc, map, operands))
     return buildMinMaxReductionSeq(loc, arith::CmpIPredicate::sgt, *values,
                                    builder);
   return nullptr;
@@ -71,7 +121,7 @@ static Value lowerAffineMapMax(OpBuilder &builder, Location loc, AffineMap map,
 /// values of a (potentially) multi-output affine map applied to `operands`.
 static Value lowerAffineMapMin(OpBuilder &builder, Location loc, AffineMap map,
                                ValueRange operands) {
-  if (auto values = expandAffineMap(builder, loc, map, operands))
+  if (auto values = expandAffineMapWithMasks(builder, loc, map, operands))
     return buildMinMaxReductionSeq(loc, arith::CmpIPredicate::slt, *values,
                                    builder);
   return nullptr;
@@ -336,7 +386,7 @@ static LogicalResult lowerAffineLoadInLoop(OpBuilder &builder,
         castToIndex(builder, load.getLoc(), mapping.lookupOrDefault(operand)));
 
   auto maybeIndices =
-      expandAffineMap(builder, load.getLoc(), load.getAffineMap(), mapOperands);
+      expandAffineMapWithMasks(builder, load.getLoc(), load.getAffineMap(), mapOperands);
   if (!maybeIndices)
     return failure();
 
@@ -360,7 +410,7 @@ static LogicalResult lowerAffineStoreInLoop(OpBuilder &builder,
     mapOperands.push_back(
         castToIndex(builder, store.getLoc(), mapping.lookupOrDefault(operand)));
 
-  auto maybeIndices = expandAffineMap(builder, store.getLoc(),
+  auto maybeIndices = expandAffineMapWithMasks(builder, store.getLoc(),
                                       store.getAffineMap(), mapOperands);
   if (!maybeIndices)
     return failure();
@@ -467,6 +517,20 @@ public:
             mapping.map(oldArg, newArg);
 
           for (Operation &bodyOp : op.getBody()->without_terminator()) {
+            if (auto apply = dyn_cast<AffineApplyOp>(bodyOp)) {
+              SmallVector<Value> operands;
+              for (Value operand : apply.getOperands())
+                operands.push_back(castToIndex(
+                    builder, apply.getLoc(), mapping.lookupOrDefault(operand)));
+              auto results = expandAffineMapWithMasks(
+                  builder, apply.getLoc(), apply.getAffineMap(), operands);
+              if (!results) {
+                bodyLoweringFailed = true;
+                return;
+              }
+              mapping.map(apply.getResult(), results->front());
+              continue;
+            }
             if (auto castOp = dyn_cast<arith::IndexCastOp>(bodyOp)) {
               Value input = mapping.lookupOrDefault(castOp.getIn());
               Type targetType =
@@ -589,7 +653,14 @@ public:
               }
               continue;
             }
-            builder.clone(bodyOp, mapping);
+            // Preserve operand types for operations not explicitly narrowed.
+            IRMapping typedMapping(mapping);
+            for (Value operand : bodyOp.getOperands())
+              typedMapping.map(operand, castMappedValue(
+                  builder, bodyOp.getLoc(), mapping.lookupOrDefault(operand),
+                  operand.getType()));
+            Operation *cloned = builder.clone(bodyOp, typedMapping);
+            mapping.map(bodyOp.getResults(), cloned->getResults());
           }
 
           auto affineYield = cast<AffineYieldOp>(op.getBody()->getTerminator());
@@ -777,7 +848,7 @@ public:
   LogicalResult matchAndRewrite(AffineApplyOp op,
                                 PatternRewriter &rewriter) const override {
     auto maybeExpandedMap =
-        expandAffineMap(rewriter, op.getLoc(), op.getAffineMap(),
+        expandAffineMapWithMasks(rewriter, op.getLoc(), op.getAffineMap(),
                         materializeAffineMapOperandsAsIndex(
                             rewriter, op.getLoc(), op.getOperands()));
     if (!maybeExpandedMap)
@@ -800,7 +871,7 @@ public:
     SmallVector<Value> indices = materializeAffineMapOperandsAsIndex(
         rewriter, op.getLoc(), op.getMapOperands());
     auto resultOperands =
-        expandAffineMap(rewriter, op.getLoc(), op.getAffineMap(), indices);
+        expandAffineMapWithMasks(rewriter, op.getLoc(), op.getAffineMap(), indices);
     if (!resultOperands)
       return failure();
 
@@ -823,7 +894,7 @@ public:
     // Expand affine map from 'affinePrefetchOp'.
     SmallVector<Value, 8> indices(op.getMapOperands());
     auto resultOperands =
-        expandAffineMap(rewriter, op.getLoc(), op.getAffineMap(), indices);
+        expandAffineMapWithMasks(rewriter, op.getLoc(), op.getAffineMap(), indices);
     if (!resultOperands)
       return failure();
 
@@ -848,7 +919,7 @@ public:
     SmallVector<Value> indices = materializeAffineMapOperandsAsIndex(
         rewriter, op.getLoc(), op.getMapOperands());
     auto maybeExpandedMap =
-        expandAffineMap(rewriter, op.getLoc(), op.getAffineMap(), indices);
+        expandAffineMapWithMasks(rewriter, op.getLoc(), op.getAffineMap(), indices);
     if (!maybeExpandedMap)
       return failure();
 
@@ -873,19 +944,19 @@ public:
     auto operandsRef = llvm::ArrayRef(operands);
 
     // Expand affine map for DMA source memref.
-    auto maybeExpandedSrcMap = expandAffineMap(
+    auto maybeExpandedSrcMap = expandAffineMapWithMasks(
         rewriter, op.getLoc(), op.getSrcMap(),
         operandsRef.drop_front(op.getSrcMemRefOperandIndex() + 1));
     if (!maybeExpandedSrcMap)
       return failure();
     // Expand affine map for DMA destination memref.
-    auto maybeExpandedDstMap = expandAffineMap(
+    auto maybeExpandedDstMap = expandAffineMapWithMasks(
         rewriter, op.getLoc(), op.getDstMap(),
         operandsRef.drop_front(op.getDstMemRefOperandIndex() + 1));
     if (!maybeExpandedDstMap)
       return failure();
     // Expand affine map for DMA tag memref.
-    auto maybeExpandedTagMap = expandAffineMap(
+    auto maybeExpandedTagMap = expandAffineMapWithMasks(
         rewriter, op.getLoc(), op.getTagMap(),
         operandsRef.drop_front(op.getTagMemRefOperandIndex() + 1));
     if (!maybeExpandedTagMap)
@@ -912,7 +983,7 @@ public:
     // Expand affine map for DMA tag memref.
     SmallVector<Value, 8> indices(op.getTagIndices());
     auto maybeExpandedTagMap =
-        expandAffineMap(rewriter, op.getLoc(), op.getTagMap(), indices);
+        expandAffineMapWithMasks(rewriter, op.getLoc(), op.getTagMap(), indices);
     if (!maybeExpandedTagMap)
       return failure();
 
@@ -936,7 +1007,7 @@ public:
     SmallVector<Value> indices = materializeAffineMapOperandsAsIndex(
         rewriter, op.getLoc(), op.getMapOperands());
     auto resultOperands =
-        expandAffineMap(rewriter, op.getLoc(), op.getAffineMap(), indices);
+        expandAffineMapWithMasks(rewriter, op.getLoc(), op.getAffineMap(), indices);
     if (!resultOperands)
       return failure();
 
@@ -960,7 +1031,7 @@ public:
     SmallVector<Value> indices = materializeAffineMapOperandsAsIndex(
         rewriter, op.getLoc(), op.getMapOperands());
     auto maybeExpandedMap =
-        expandAffineMap(rewriter, op.getLoc(), op.getAffineMap(), indices);
+        expandAffineMapWithMasks(rewriter, op.getLoc(), op.getAffineMap(), indices);
     if (!maybeExpandedMap)
       return failure();
 
