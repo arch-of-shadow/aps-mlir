@@ -57,5 +57,10 @@ A unified interface for ISAX integration across RISC-V platforms (Rocket/RoCC, C
 
 ## Resources
 
+- [ScaleISA adapter](COMPILER/scaleisa-adapter.md) — candidate conversion,
+  instruction splitting, loop pragmas, and scalar APS interfaces.
+- [ScaleISA software compiler](COMPILER/scaleisa-compiler.md) — exposed CI sites
+  to RISC-V instructions, objects, and linked program binaries.
+
 - **Project Home**: [http://aps.ericlyun.me/](http://aps.ericlyun.me/)
 - **Tutorials**: [http://aps.ericlyun.me/tutorials/](http://aps.ericlyun.me/tutorials/)

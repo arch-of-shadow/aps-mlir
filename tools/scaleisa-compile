@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Compile exposed ScaleISA CI sites using the APS hardware export."""
+from pathlib import Path
+import runpy
+
+runpy.run_path(
+    str(Path(__file__).resolve().parents[1] / "lib/scaleisa-compiler/compiler.py"),
+    run_name="__main__",
+)
