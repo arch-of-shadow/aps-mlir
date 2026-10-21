@@ -188,6 +188,32 @@ static FailureOr<AffineExpr> buildAffineExpr(Value value, Operation *contextOp,
     return failure();
   }
 
+  // Flattened traversals express row/column indices as IV / constant and
+  // IV % constant. Unsigned division agrees with affine floor division only
+  // when the induction variable fits the signed, nonnegative source range.
+  if (auto *op = value.getDefiningOp();
+      op && isa<arith::DivUIOp, arith::RemUIOp>(op)) {
+    Value dividend = op->getOperand(0);
+    auto intType = dyn_cast<IntegerType>(dividend.getType());
+    Value iv = dividend;
+    if (auto cast = iv.getDefiningOp<arith::IndexCastOp>())
+      iv = cast.getIn();
+    std::optional<int64_t> divisor;
+    if (auto constant = op->getOperand(1).getDefiningOp<arith::ConstantIntOp>())
+      divisor = constant.value();
+    if (intType && divisor && *divisor > 0 && isAffineForInductionVar(iv)) {
+      auto loop = cast<AffineForOp>(cast<BlockArgument>(iv).getOwner()->getParentOp());
+      unsigned width = intType.getWidth();
+      if (loop.hasConstantLowerBound() && loop.hasConstantUpperBound() &&
+          loop.getConstantLowerBound() >= 0 && width > 1 &&
+          (width >= 64 || loop.getConstantUpperBound() <= (int64_t(1) << (width - 1)))) {
+        auto expr = getDimExpr(iv, state, ctx);
+        return isa<arith::DivUIOp>(op) ? expr.floorDiv(*divisor)
+                                     : expr % *divisor;
+      }
+    }
+  }
+
   if (isLoopInvariant(value, contextOp))
     return getSymbolExpr(value, state, ctx);
 

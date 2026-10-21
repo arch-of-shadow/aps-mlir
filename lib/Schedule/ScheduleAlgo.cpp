@@ -569,6 +569,24 @@ namespace scheduling {
                 );
                 OperationMap[&op] = newOpA;
                 lastHead->addOperation(newOpA);
+            } else if (auto apsMemStoreOp = llvm::dyn_cast<aps::WriteSmemIf>(op)) {
+                // Handle conditional scratchpad stores
+                Value mem = apsMemStoreOp.getMemref();
+                std::vector<Value> operands{apsMemStoreOp.getIndices().begin(), apsMemStoreOp.getIndices().end()};
+                operands.push_back(apsMemStoreOp.getValue());
+                operands.push_back(apsMemStoreOp.getCondition());
+
+                OpAbstract *newOpA = createMemOp(
+                    &op, parentLoop, lastHead,
+                    std::vector<Value>{mem},
+                    operands,
+                    OpAbstract::OpType::STORE_OP,
+                    SmallVector<int, 2>(),
+                    SmallVector<int, 2>(),
+                    ""
+                );
+                OperationMap[&op] = newOpA;
+                lastHead->addOperation(newOpA);
             } else if (auto loadOp = llvm::dyn_cast<aps::LoadBy>(op)) {
                 Value result = loadOp.getResult();
                 OpAbstract *newOpA = createMAxiOp(
@@ -980,6 +998,13 @@ namespace scheduling {
             return false;
         };
 
+        // A repeated store is also a memory-ordering participant, even when
+        // it is the only static operation accessing that bank.
+        for (auto &op : Operations)
+          if (op->getMemOp() && op->getParentLoop() &&
+              op->getType() == OpAbstract::OpType::STORE_OP)
+            addDependency(Dependence(op.get(), op.get(), 1, Dependence::D_WAW));
+
         // dependence of tensors
         for (auto &&op1: Operations) {
             auto memop1 = op1->getMemOp();
@@ -1364,6 +1389,32 @@ namespace scheduling {
                     }
                 }
             }
+        }
+        // Preserve memory ordering for the elastic CMT2 backend. Scheduled
+        // cycle differences alone do not survive stalls.
+        OpBuilder metadata(containingOp->getContext());
+        llvm::DenseMap<Operation *, int64_t> memoryIds;
+        for (auto &op : Operations) {
+          if (!op->getMemOp()) continue;
+          auto *ir = op->getOp();
+          int64_t id = memoryIds.size();
+          memoryIds[ir] = id;
+          ir->setAttr("aps.mem_id", metadata.getI64IntegerAttr(id));
+          ir->removeAttr("aps.mem_deps");
+        }
+        for (auto &edge : Dependencies) {
+          auto *src = edge->SourceOp;
+          auto *dst = edge->DestinationOp;
+          if (!src->getMemOp() || !dst->getMemOp() || !src->getParentLoop() ||
+              src->getParentLoop() != dst->getParentLoop()) continue;
+          SmallVector<Attribute> deps;
+          if (auto old = dst->getOp()->getAttrOfType<ArrayAttr>("aps.mem_deps"))
+            llvm::append_range(deps, old);
+          deps.push_back(metadata.getDictionaryAttr({
+              metadata.getNamedAttr("source", metadata.getI64IntegerAttr(memoryIds[src->getOp()])),
+              metadata.getNamedAttr("distance", metadata.getI64IntegerAttr(edge->Distance)),
+              metadata.getNamedAttr("kind", metadata.getI32IntegerAttr(edge->type))}));
+          dst->getOp()->setAttr("aps.mem_deps", metadata.getArrayAttr(deps));
         }
     }
 

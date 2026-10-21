@@ -1,6 +1,7 @@
 #include "APS/Passes.h"
 #include "APS/PassDetail.h"
 #include "APS/APSOps.h"
+#include "TOR/TOR.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Support/LogicalResult.h"
@@ -29,6 +30,18 @@ static FlatSymbolRefAttr getPromotableGlobalSymbol(Value memref) {
   if (!getGlobalOp)
     return {};
 
+  bool conditional = false;
+  getGlobalOp->getParentOfType<ModuleOp>().walk([&](aps::WriteSmemIf store) {
+    auto target = store.getMemref().getDefiningOp<GetGlobalOp>();
+    conditional |= target && target.getName() == getGlobalOp.getName();
+  });
+  getGlobalOp->getParentOfType<ModuleOp>().walk([&](tor::GuardedStoreOp store) {
+    auto target = store.getMemref().getDefiningOp<GetGlobalOp>();
+    conditional |= target && target.getName() == getGlobalOp.getName();
+  });
+  // Keep one-element conditional banks in the memory protocol as a whole;
+  // promoting just their reads would split one object into RAM and a register.
+  if (conditional) return {};
   return FlatSymbolRefAttr::get(memref.getContext(), getGlobalOp.getName());
 }
 

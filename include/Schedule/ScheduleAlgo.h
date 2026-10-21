@@ -130,7 +130,7 @@ public:
       rsc = RDB.getResourceID("memport_RAM_1P");
     } else if (storageType == "RAM_T2P") {
       rsc = RDB.getResourceID("memport_RAM_T2P");
-    } else if (llvm::isa<aps::ReadSmem>(op) || llvm::isa<aps::WriteSmem>(op)) {
+    } else if (llvm::isa<aps::ReadSmem>(op) || llvm::isa<aps::WriteSmem, aps::WriteSmemIf>(op)) {
       // For APS memory operations, use per-memref resources
       // All memories are treated as 1RW (one read or write per cycle)
       rsc = RDB.getOrCreateMemrefResource(memref);

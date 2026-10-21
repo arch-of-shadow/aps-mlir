@@ -16,6 +16,9 @@ def cast_cadl_type_to_mlir(
     if isinstance(cadl_type, cadl_ast.BasicType_ApUFixed):
         return ir.IntegerType.get_signless(cadl_type.width)
 
+    if isinstance(cadl_type, cadl_ast.BasicType_BFloat16):
+        return ir.BF16Type.get()
+
     if isinstance(cadl_type, cadl_ast.BasicType_Float32):
         return ir.F32Type.get()
 

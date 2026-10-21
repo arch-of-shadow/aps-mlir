@@ -210,6 +210,20 @@ namespace
         void runOnOperation() override
         {
             auto funcOp = getOperation();
+            // Existing balancing rewrites reassociate FP expressions without
+            // checking fast-math permissions. Keep FP functions strict until
+            // a per-operation, permission-aware implementation is available.
+            bool hasFloatingPoint = false;
+            funcOp.walk([&](Operation *op) {
+                for (Type type : op->getOperandTypes())
+                    hasFloatingPoint |= isa<FloatType>(type);
+                for (Type type : op->getResultTypes())
+                    hasFloatingPoint |= isa<FloatType>(type);
+            });
+            if (hasFloatingPoint) {
+                funcOp->removeAttr("balance");
+                return;
+            }
             if (funcOp->hasAttr("balance"))
             {
                 setPragmaStructureAttrStatusByOp(funcOp, "balance", true);

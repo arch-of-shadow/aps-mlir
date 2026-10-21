@@ -216,8 +216,13 @@ struct BinOpConversionPattern : public IndexTypeConversionPattern<SourceOp> {
     auto resType =
         this->getTypeConverter()->convertType(op->getResult(0).getType());
 
+    // Preserve FP permissions so the hardware backend can reject unsupported
+    // modes rather than silently losing semantics during arith -> TOR.
+    auto fastMath = op->getAttr("fastmath");
     auto newOp = rewriter.replaceOpWithNewOp<TargetOp>(
         op, resType, (*operands)[0], (*operands)[1], 0, 0);
+    if (fastMath)
+      newOp->setAttr("fastmath", fastMath);
     if (!op->hasAttr("dump")) {
       op->setAttr("dump", StringAttr::get(rewriter.getContext(),
                                           get_tmp_attr().c_str()));
@@ -782,6 +787,8 @@ struct CmpFOpConversion : public OpConversionPattern<CmpFOp> {
     auto newOp =
         rewriter.create<tor::CmpFOp>(op.getLoc(), op.getResult().getType(),
                                      predicate, operands[0], operands[1], 0, 0);
+    if (auto fastMath = op->getAttr("fastmath"))
+      newOp->setAttr("fastmath", fastMath);
 
     if (!op->hasAttr("dump")) {
       op->setAttr("dump", StringAttr::get(rewriter.getContext(),

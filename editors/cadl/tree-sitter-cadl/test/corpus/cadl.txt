@@ -1,0 +1,206 @@
+==================
+Declarations, arrays and attributes
+==================
+# [partition_dim_array([0, 1])]
+static a: [bf16; 16; 4] = 0_bf16;
+regfile rf(32, 32);
+register r: u32cc;
+flow external(arg: Instance);
+
+---
+
+(source_file
+  (static_declaration
+    (attribute
+      (identifier)
+      (array_literal
+        (expression
+          (number))
+        (expression
+          (number))))
+    (identifier)
+    (type
+      (array_type
+        (primitive_type)
+        (number)
+        (number)))
+    (expression
+      (number)))
+  (regfile_declaration
+    (identifier)
+    (number)
+    (number))
+  (register_declaration
+    (identifier)
+    (type
+      (primitive_type)))
+  (flow_declaration
+    (identifier)
+    (parameter
+      (identifier)
+      (type))))
+
+==================
+Statement and expression conditionals
+==================
+flow f(a: u32) {
+  let x = if true { a } else { 0 };
+  if x == 0 { x = 1; } else { x = 2; }
+  [x > 0]: return x;
+}
+
+---
+
+(source_file
+  (flow_declaration
+    (identifier)
+    (parameter
+      (identifier)
+      (type
+        (primitive_type)))
+    (block
+      (assignment_statement
+        (expression
+          (identifier))
+        (expression
+          (if_expression
+            (expression
+              (boolean))
+            (expression
+              (identifier))
+            (expression
+              (number)))))
+      (if_statement
+        (expression
+          (binary_expression
+            (expression
+              (identifier))
+            (expression
+              (number))))
+        (block
+          (assignment_statement
+            (expression
+              (identifier))
+            (expression
+              (number))))
+        (block
+          (assignment_statement
+            (expression
+              (identifier))
+            (expression
+              (number)))))
+      (guard_statement
+        (expression
+          (binary_expression
+            (expression
+              (identifier))
+            (expression
+              (number))))
+        (return_statement
+          (expression
+            (identifier)))))))
+
+==================
+Compiler-specific precedence and unary minus
+==================
+flow f() { let x = -a + b * c == d & e || f; }
+
+---
+
+(source_file
+  (flow_declaration
+    (identifier)
+    (block
+      (assignment_statement
+        (expression
+          (identifier))
+        (expression
+          (binary_expression
+            (expression
+              (binary_expression
+                (expression
+                  (binary_expression
+                    (expression
+                      (unary_expression
+                        (identifier)))
+                    (expression
+                      (binary_expression
+                        (expression
+                          (identifier))
+                        (expression
+                          (identifier))))))
+                (expression
+                  (binary_expression
+                    (expression
+                      (identifier))
+                    (expression
+                      (identifier))))))
+            (expression
+              (identifier))))))))
+
+==================
+Bitcasts, casts, directives and slices
+==================
+flow f() {
+  [[unroll(4)]]
+  let b: bf16 = bitcast<bf16>(16'h3F80);
+  let x = $signed(a[7:0]);
+  dst[0 + : ] = _mem[base +: 16];
+  let f = bf16_add(b, 1.25e-2_bf16);
+}
+
+---
+
+(source_file
+  (flow_declaration
+    (identifier)
+    (block
+      (directive
+        (identifier)
+        (expression
+          (number)))
+      (assignment_statement
+        (expression
+          (identifier))
+        (type
+          (primitive_type))
+        (expression
+          (bitcast_expression
+            (primitive_type)
+            (expression
+              (number)))))
+      (assignment_statement
+        (expression
+          (identifier))
+        (expression
+          (cast_expression
+            (expression
+              (slice_expression
+                (identifier)
+                (expression
+                  (number))
+                (expression
+                  (number)))))))
+      (assignment_statement
+        (expression
+          (slice_expression
+            (identifier)
+            (expression
+              (number))))
+        (expression
+          (slice_expression
+            (identifier)
+            (expression
+              (identifier))
+            (expression
+              (number)))))
+      (assignment_statement
+        (expression
+          (identifier))
+        (expression
+          (call_expression
+            (identifier)
+            (expression
+              (identifier))
+            (expression
+              (number))))))))

@@ -1105,6 +1105,86 @@ void APSToCMT2Pass::generateBurstAccessLogic(
 
       topBankRead1->finalize();
 
+      // Scalar reads are transactions. A site's response must survive both
+      // another site's request and arbitrary downstream backpressure.
+      std::string bankName = topRead0Name.substr(0, topRead0Name.size() - 7);
+      SmallVector<aps::ReadSmemIssue> readers;
+      getOperation().walk([&](aps::ReadSmemIssue read) {
+        auto global = read.getMemref().getDefiningOp<memref::GetGlobalOp>();
+        if (global && global.getName() == bankName) readers.push_back(read);
+      });
+      if (!readers.empty()) {
+        unsigned tagWidth = std::max(1u, llvm::Log2_64_Ceil(readers.size()));
+        auto makeFIFO = [&](const std::string &name, unsigned width, bool pending) {
+          auto ip = builder.saveInsertionPoint();
+          auto *mod = pending ? STLLibrary::createFIFO1PushModule(width, circuit)
+                              : STLLibrary::createFIFO2IModule(width, circuit);
+          builder.restoreInsertionPoint(ip);
+          return poolModule->addInstance(name, mod, {clk.getValue(), rst.getValue()});
+        };
+        auto *pending = makeFIFO(bankName + "_pending_read", tagWidth, true);
+        SmallVector<Instance *> responses;
+        auto trueGuard = [&](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument>) {
+          b.create<circt::cmt2::ReturnOp>(loc, UInt::constant(1, 1, b, loc).getValue());
+        };
+        for (unsigned site = 0; site < readers.size(); ++site) {
+          std::string channel = bankName + "_client" + std::to_string(site);
+          readers[site]->setAttr("aps.read_channel", builder.getStringAttr(channel));
+          auto *response = makeFIFO(channel + "_response", entryInfo.dataWidth, false);
+          auto *credit = makeFIFO(channel + "_outstanding", 1, false);
+          auto *request = makeFIFO(channel + "_request", entryInfo.addrWidth, false);
+          responses.push_back(response);
+          auto *issue = poolModule->addMethod(channel + "_issue", {{"addr", bankAddrType}}, {});
+          issue->guard(trueGuard);
+          issue->body([&, request, credit](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
+            credit->callMethod("enq", {UInt::constant(1, 1, b, loc).getValue()}, b);
+            request->callMethod("enq", {args[0]}, b);
+            b.create<circt::cmt2::ReturnOp>(loc);
+          });
+          issue->finalize();
+          // Admit independently of bank arbitration. Opposite caller-stage
+          // and callee-site priorities otherwise form a combinational cycle
+          // even with registered stage FIFOs.
+          auto *dispatch = poolModule->addRule(channel + "_dispatch");
+          dispatch->guard([&](mlir::OpBuilder &b) {
+            b.create<circt::cmt2::ReturnOp>(loc, UInt::constant(1, 1, b, loc).getValue());
+          });
+          dispatch->body([&, site, request](mlir::OpBuilder &b) {
+            auto addr = request->callMethod("deq", {}, b);
+            pending->callMethod("enq", {UInt::constant(site, tagWidth, b, loc).getValue()}, b);
+            entryInstances[entryIdx]->callMethod(entryRead0Name, addr, b);
+            b.create<circt::cmt2::ReturnOp>(loc);
+          });
+          dispatch->finalize();
+          auto *collect = poolModule->addMethod(channel + "_collect", {}, {bankDataType});
+          collect->guard(trueGuard);
+          collect->body([&, response, credit](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument>) {
+            auto data = response->callMethod("deq", {}, b);
+            credit->callMethod("deq", {}, b);
+            b.create<circt::cmt2::ReturnOp>(loc, data);
+          });
+          collect->finalize();
+        }
+        // Use one guarded capture per site. A conditional call inside a
+        // single rule would conservatively require *all* response FIFOs to
+        // have room, letting an unrelated stalled consumer block capture.
+        for (unsigned site = 0; site < responses.size(); ++site) {
+          auto *capture = poolModule->addRule(bankName + "_capture_read_" + std::to_string(site));
+          capture->guard([&, site](mlir::OpBuilder &b) {
+            auto tag = pending->callValue("first", b);
+            auto selected = Signal(tag[0], &b, loc) == UInt::constant(site, tagWidth, b, loc);
+            b.create<circt::cmt2::ReturnOp>(loc, selected.getValue());
+          });
+          capture->body([&, site](mlir::OpBuilder &b) {
+            pending->callMethod("deq", {}, b);
+            auto data = entryInstances[entryIdx]->callValue(entryRead1Name, b);
+            responses[site]->callMethod("enq", data, b);
+            b.create<circt::cmt2::ReturnOp>(loc);
+          });
+          capture->finalize();
+        }
+      }
+
       auto *topBankWrite = poolModule->addMethod(
           topWriteName, {{"addr", bankAddrType}, {"data", bankDataType}}, {});
 
@@ -1133,6 +1213,22 @@ void APSToCMT2Pass::generateBurstAccessLogic(
       });
 
       topBankWrite->finalize();
+      // Guard the write itself, without preservation reads. Readiness stays
+      // conservative because call arguments are driven under caller fire.
+      auto *masked = poolModule->addMethod(topWriteName + "_if",
+          {{"condition", UIntType::get(builder.getContext(), 1)},
+           {"addr", bankAddrType}, {"data", bankDataType}}, {});
+      masked->guard([&](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument>) {
+        b.create<circt::cmt2::ReturnOp>(loc, UInt::constant(1, 1, b, loc).getValue());
+      });
+      masked->body([&](mlir::OpBuilder &b, llvm::ArrayRef<mlir::BlockArgument> args) {
+        If(Signal(args[0], &b, loc), [&](mlir::OpBuilder &b) {
+          entryInstances[entryIdx]->callMethod(entryWriteName, {args[1], args[2]}, b);
+        }, [&](mlir::OpBuilder &) {}, b, loc);
+        b.create<circt::cmt2::ReturnOp>(loc);
+      });
+      masked->finalize();
+
     }
   }
 }
@@ -1300,7 +1396,21 @@ APSToCMT2Pass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
     // single memory, we should convert it before to a globalload/store,
     // and should not treat it as a memory here.
     if (addrWidth == 0) {
-      continue; // Only one element, not a memory, skip this entry
+      bool conditional = false;
+      moduleOp.walk([&](aps::WriteSmemIf store) {
+        auto target = store.getMemref().getDefiningOp<memref::GetGlobalOp>();
+        if (!target) return;
+        for (auto symbol : bankSymbols)
+          conditional |= cast<FlatSymbolRefAttr>(symbol).getValue() == target.getName();
+      });
+      moduleOp.walk([&](tor::GuardedStoreOp store) {
+        auto target = store.getMemref().getDefiningOp<memref::GetGlobalOp>();
+        if (!target) return;
+        for (auto symbol : bankSymbols)
+          conditional |= cast<FlatSymbolRefAttr>(symbol).getValue() == target.getName();
+      });
+      if (!conditional) continue;
+      addrWidth = 1;
     }
 
     // Create MemoryEntryInfo for this entry

@@ -6,6 +6,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "APS/BlockHandler.h"
+#include "APS/HardwareValueUtils.h"
 #include "APS/BBHandler.h"
 #include "APS/IfHandler.h"
 #include "APS/LoopHandler.h"
@@ -876,11 +877,9 @@ std::string BlockHandler::getFIFOName(StringRef prefix, unsigned blockId, String
 }
 
 unsigned BlockHandler::getBitWidth(mlir::Type type) {
-  if (auto intType = dyn_cast<mlir::IntegerType>(type)) {
-    return intType.getWidth();
-  }
-  // Default to 32 bits for unknown types
-  return 32;
+  if (auto width = getHardwareBitWidth(type))
+    return *width;
+  llvm::report_fatal_error("unsupported cross-block hardware type (expected integer or f32)");
 }
 
 LogicalResult BlockHandler::processAllBlocks() {

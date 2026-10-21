@@ -1,0 +1,14 @@
+// Dedicated add/mul/sub IPs; each operation rounds separately.
+#[opcode(7'b0001011)]
+#[funct7(7'b0000000)]
+rtype fp32_add_mul(rs1: u5, rs2: u5, rd: u5) {
+    let a_bits: u32 = _irf[rs1];
+    let b_bits: u32 = _irf[rs2];
+    let a: f32 = bitcast<f32>(a_bits);
+    let b: f32 = bitcast<f32>(b_bits);
+    let sum: f32 = a + b;
+    let product: f32 = sum * a;
+    let diff: f32 = product - b;
+    let result: u32 = bitcast<u32>(diff);
+    _irf[rd] = result;
+}

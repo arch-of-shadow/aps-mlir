@@ -50,6 +50,34 @@ void APSToCMT2Pass::runOnOperation() {
   elideTokenPayloads = tokenPlan && tokenPlan.getValue();
   llvm::dbgs() << "DEBUG: APSToCMT2Pass::runOnOperation() started\n";
 
+  // Reject unsupported formats before allocating physical storage.
+  auto unsupportedStorage = [](Type type) {
+    auto memref = dyn_cast<mlir::MemRefType>(type);
+    return memref && isa<FloatType>(memref.getElementType()) &&
+           !memref.getElementType().isF32() && !memref.getElementType().isBF16();
+  };
+  auto check = moduleOp.walk([&](Operation *op) {
+    bool unsupported = llvm::any_of(op->getOperandTypes(), unsupportedStorage) ||
+                       llvm::any_of(op->getResultTypes(), unsupportedStorage);
+    if (auto global = dyn_cast<memref::GlobalOp>(op)) {
+      unsupported |= unsupportedStorage(global.getType());
+      if (auto initial = dyn_cast_or_null<DenseFPElementsAttr>(global.getInitialValueAttr())) {
+        if (initial.getNumElements() > 1) {
+          op->emitError("floating array initialization requires explicit hardware stores; scalar reset initialization is supported");
+          return WalkResult::interrupt();
+        }
+      }
+    }
+    if (!unsupported)
+      return WalkResult::advance();
+    op->emitError("floating storage supports only f32/bf16");
+    return WalkResult::interrupt();
+  });
+  if (check.wasInterrupted()) {
+    signalPassFailure();
+    return;
+  }
+
   // Find the aps.memorymap operation
   aps::MemoryMapOp memoryMapOp;
   moduleOp.walk([&](aps::MemoryMapOp op) {
@@ -193,7 +221,9 @@ MainModuleInstances APSToCMT2Pass::generateRuleBasedMainModule(
   auto &builder = mainModule->getBuilder();
   auto savedIP = builder.saveInsertionPoint();
   for (auto &[regName, regWidth] : glblRegister) {
-    auto *regMod = STLLibrary::createRegModule(regWidth, 0, circuit);
+    auto initial = floatRegisterInitializers.find(regName);
+    uint32_t resetBits = initial == floatRegisterInitializers.end() ? 0 : initial->second;
+    auto *regMod = STLLibrary::createRegModule(regWidth, resetBits, circuit);
     mainModule->addInstance("glbl_reg_" + regName, regMod,
                             {mainClk.getValue(), mainRst.getValue()});
   }

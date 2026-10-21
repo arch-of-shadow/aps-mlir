@@ -6,6 +6,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "APS/IfHandler.h"
+#include "APS/HardwareValueUtils.h"
 #include "APS/APSOps.h"
 #include "circt/Dialect/Cmt2/ECMT2/SignalHelpers.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -343,11 +344,8 @@ Value IfHandler::materializeCondition(OpBuilder &builder, Location loc,
 
   if (auto constOp = condition.getDefiningOp<arith::ConstantOp>())
   {
-    auto intAttr = cast<IntegerAttr>(constOp.getValueAttr());
-    unsigned width = cast<IntegerType>(intAttr.getType()).getWidth();
-    return UInt::constant(intAttr.getValue().getZExtValue(), width, builder,
-                          loc)
-        .getValue();
+    auto v = materializeHardwareConstant(constOp.getValueAttr(), builder, loc);
+    if (succeeded(v)) return *v;
   }
 
   if (isa<circt::firrtl::FIRRTLBaseType>(condition.getType()))
@@ -519,11 +517,8 @@ LogicalResult IfHandler::generateYieldOnlyBranchRule(StringRef branchName,
       }
       if (!payload) {
         if (auto constOp = value.getDefiningOp<arith::ConstantOp>()) {
-          auto intAttr = cast<IntegerAttr>(constOp.getValueAttr());
-          unsigned width = cast<IntegerType>(intAttr.getType()).getWidth();
-          payload = UInt::constant(intAttr.getValue().getZExtValue(), width,
-                                   builder, loc)
-                        .getValue();
+          auto v = materializeHardwareConstant(constOp.getValueAttr(), builder, loc);
+          if (succeeded(v)) payload = *v;
         }
       }
       if (!payload)

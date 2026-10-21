@@ -54,6 +54,27 @@ class ResourceDB {
 public:
   int getResourceID(mlir::Operation *op) {
     auto name = op->getName().stripDialect().str();
+    // All native FP intrinsic kinds share timing with their arith/math peers.
+    if (llvm::isa<aps::FPOp>(op)) {
+      static const char *names[] = {"addf","subf","mulf","divf","sqrt","fma",
+        "cmpf","sitofp","uitofp","fptosi","fptoui","extf","truncf","negf",
+        "absf","copysign","minf","maxf","classify"};
+      auto kind=op->getAttrOfType<mlir::IntegerAttr>("kind").getInt();
+      if (kind>=0 && kind<19) name=names[kind];
+    }
+    unsigned fpWidth=0;
+    if (llvm::isa<aps::FPOp>(op))
+      fpWidth=op->getAttrOfType<mlir::IntegerAttr>("width").getInt();
+    else {
+      for (auto type: op->getResultTypes())
+        if (auto fp=llvm::dyn_cast<mlir::FloatType>(type)) fpWidth=fp.getWidth();
+      if (!fpWidth) for (auto type: op->getOperandTypes())
+        if (auto fp=llvm::dyn_cast<mlir::FloatType>(type)) fpWidth=fp.getWidth();
+    }
+    if (fpWidth==16 || fpWidth==32) {
+      auto precise=name+(fpWidth==16 ? "_bf16" : "_fp32");
+      if (hasResource(precise)) name=precise;
+    }
     if (op->hasAttr("latency") || op->hasAttr("bind_op_latency") || op->hasAttr("impl")) {
       assert(NameToID.find(name) != NameToID.end() && "user defined bind op name not found in RDB");
       if (Components[NameToID[name]].latency.back() == 0) {

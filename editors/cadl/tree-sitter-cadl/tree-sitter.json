@@ -1,0 +1,18 @@
+{
+  "grammars": [{
+    "name": "cadl",
+    "camelcase": "Cadl",
+    "scope": "source.cadl",
+    "path": ".",
+    "file-types": ["cadl"],
+    "highlights": "../zed/languages/cadl/highlights.scm"
+  }],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Computer Architecture Description Language",
+    "authors": [{ "name": "APS contributors" }],
+    "links": { "repository": "https://github.com/pku-eric-golem/aquas" }
+  },
+  "bindings": { "c": false, "go": false, "node": false, "python": false, "rust": false, "swift": false }
+}

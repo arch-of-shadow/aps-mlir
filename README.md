@@ -80,6 +80,12 @@ rtype hello(rs1: u5, rs2: u5, rd: u5) {
 
 See the `tutorial/` directory for more examples including matrix operations (`vgemv3d.cadl`) and distance calculations (`v3ddist_vv.cadl`).
 
+#### CADL Editor Support
+
+VS Code and Zed syntax-highlighting extensions are available in
+[`editors/cadl/`](editors/cadl/README.md), with build, installation, and testing
+instructions. Both recognize `.cadl` files and follow the current frontend grammar.
+
 #### Full ASIP Pipeline
 ```bash
 # Synthesize CADL to hardware

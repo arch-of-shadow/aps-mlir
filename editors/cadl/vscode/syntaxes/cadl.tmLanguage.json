@@ -1,0 +1,100 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "CADL",
+  "scopeName": "source.cadl",
+  "patterns": [{ "include": "#code" }],
+  "repository": {
+    "code": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#attributes" },
+        { "include": "#directives" },
+        { "include": "#declarations" },
+        { "include": "#types" },
+        { "include": "#keywords" },
+        { "include": "#numbers" },
+        { "include": "#builtins" },
+        { "name": "entity.name.function.cadl", "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*\\()" },
+        { "name": "keyword.operator.cadl", "match": "->|=>|\\+:|==|!=|<=|>=|&&|\\|\\||<<|>>|[+*/%=<>!&|~^\\-]" },
+        { "include": "#arrays" },
+        { "name": "punctuation.section.block.begin.cadl", "match": "\\{" },
+        { "name": "punctuation.section.block.end.cadl", "match": "\\}" },
+        { "name": "punctuation.section.parens.cadl", "match": "[()]" },
+        { "name": "punctuation.separator.cadl", "match": "[,;:]" },
+        { "name": "variable.other.cadl", "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b" }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.cadl", "begin": "//", "end": "$" },
+        { "name": "comment.block.cadl", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.cadl",
+      "begin": "\"",
+      "end": "\""
+    },
+    "attributes": {
+      "name": "meta.annotation.cadl",
+      "begin": "(#\\s*\\[)\\s*([a-zA-Z_][a-zA-Z0-9_]*)?",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.annotation.begin.cadl" },
+        "2": { "name": "entity.name.tag.cadl" }
+      },
+      "end": "\\]",
+      "endCaptures": { "0": { "name": "punctuation.definition.annotation.end.cadl" } },
+      "patterns": [{ "include": "#code" }]
+    },
+    "directives": {
+      "name": "meta.directive.cadl",
+      "begin": "(\\[\\[)\\s*([a-zA-Z_][a-zA-Z0-9_]*)?",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.directive.begin.cadl" },
+        "2": { "name": "entity.name.tag.cadl" }
+      },
+      "end": "\\]\\]",
+      "endCaptures": { "0": { "name": "punctuation.definition.directive.end.cadl" } },
+      "patterns": [{ "include": "#code" }]
+    },
+    "arrays": {
+      "begin": "\\[",
+      "beginCaptures": { "0": { "name": "punctuation.section.brackets.begin.cadl" } },
+      "end": "\\]",
+      "endCaptures": { "0": { "name": "punctuation.section.brackets.end.cadl" } },
+      "patterns": [{ "include": "#code" }]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(flow|rtype)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.cadl" },
+            "2": { "name": "entity.name.function.cadl" }
+          }
+        },
+        { "name": "storage.type.cadl", "match": "\\b(static|register|regfile|let)\\b" }
+      ]
+    },
+    "types": { "name": "storage.type.cadl", "match": "\\b(bf16|[fui][1-9][0-9]*c*|usize|Instance)\\b" },
+    "keywords": {
+      "patterns": [
+        { "name": "constant.language.boolean.cadl", "match": "\\b(true|false)\\b" },
+        { "name": "keyword.control.cadl", "match": "\\b(if|else|while|with|do|in|spawn|return|break|continue|sel)\\b" },
+        { "name": "storage.type.function.cadl", "match": "\\b(flow|rtype)\\b" }
+      ]
+    },
+    "numbers": {
+      "name": "constant.numeric.cadl",
+      "match": "(?<![a-zA-Z0-9_])(?:[0-9]+(?:\\.[0-9]+(?:[eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)(?:_(?:bf16|f32|f64))?|[0-9]+'[sS]?(?:[bB][01]+|[oO][0-7]+|[dD][0-9]+|[hH][0-9a-fA-F]+)(?:_[ui][1-9][0-9]*)?|0[sS]?(?:x[0-9a-fA-F]+|b[01]+|o[0-7]+)(?:_[ui][1-9][0-9]*)?|[0-9]+(?:_(?:[fui][1-9][0-9]*|bf16))?)(?![a-zA-Z0-9_])"
+    },
+    "builtins": {
+      "patterns": [
+        { "name": "support.function.cadl", "match": "\\$(signed|unsigned|f32|f64|int|uint)\\b|\\bbitcast\\b" },
+        { "name": "support.function.cadl", "match": "\\b(?:bf16|fp32)_(?:add|sub|mul|div|sqrt|fma|fmsub|fnmadd|fnmsub|cmp|from_i32|from_u32|to_i32|to_u32|widen|narrow|neg|abs|copysign|min|max|classify)(?:_flags)?\\b(?=\\s*\\()" },
+        { "name": "support.variable.cadl", "match": "\\b_(irf|mem|burst_read|burst_write|csr)\\b" }
+      ]
+    }
+  }
+}

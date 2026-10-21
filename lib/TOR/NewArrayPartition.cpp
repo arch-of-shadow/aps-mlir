@@ -7,6 +7,7 @@
 #include "mlir/Support/LLVM.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -973,26 +974,29 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
 
         Value storeValue = store.getValue();
 
-        // Reuse the existing guarded-store IR and scheduler dependency model.
+        // A nonselected bank must not be touched: read/select/write loses
+        // updates when another pipelined iteration writes between the read
+        // and writeback.
+        auto expanded = expandAffineMap(rewriter, store.getLoc(), indexMap,
+                                        indexOperands);
+        if (!expanded) {
+          store.emitError("cannot expand partitioned store address");
+          return;
+        }
+        SmallVector<Value> bankIndices;
+        for (Value index : *expanded)
+          bankIndices.push_back(rewriter.create<arith::IndexCastOp>(
+              store.getLoc(), rewriter.getI32Type(), index));
         for (int64_t bankIdx : possibleBanks) {
-          auto bankConst =
-              rewriter.create<arith::ConstantIndexOp>(store.getLoc(), bankIdx);
+          auto bankConst = rewriter.create<arith::ConstantIndexOp>(
+              store.getLoc(), bankIdx);
           auto cmp = rewriter.create<arith::CmpIOp>(
               store.getLoc(), arith::CmpIPredicate::eq, runtimeBank, bankConst);
-          SmallVector<Value> indices;
-          for (AffineExpr expr : indexMap.getResults()) {
-            auto map = AffineMap::get(indexMap.getNumDims(), indexMap.getNumSymbols(), expr, ctx);
-            Value index = rewriter.create<AffineApplyOp>(store.getLoc(), map, indexOperands);
-            indices.push_back(rewriter.create<arith::IndexCastOp>(store.getLoc(), rewriter.getI32Type(), index));
-          }
-          auto newStore = rewriter.create<tor::GuardedStoreOp>(
-              store.getLoc(), storeValue, newArray[bankIdx], cmp,
-              rewriter.getI32IntegerAttr(0), rewriter.getI32IntegerAttr(0), indices);
-          // Copy all attributes from original store except the affine map
-          for (auto attr : store->getAttrs()) {
+          auto newStore = rewriter.create<aps::WriteSmemIf>(
+              store.getLoc(), cmp, storeValue, newArray[bankIdx], bankIndices);
+          for (auto attr : store->getAttrs())
             if (attr.getName() != store.getMapAttrStrName())
               newStore->setAttr(attr.getName(), attr.getValue());
-          }
         }
 
         // Erase original store

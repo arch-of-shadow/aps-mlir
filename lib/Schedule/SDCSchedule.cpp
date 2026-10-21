@@ -128,6 +128,11 @@ int SDCSchedule::resourceMII(Loop *L) {
       int pressure = RDB.getII(RId);
 
       resPressure[RId] += pressure;
+      // amount=-1 gives each SSA operation a dedicated unit, not a fresh
+      // unit for every loop iteration. Successive uses of that same unit
+      // still have to respect its initiation interval (e.g. iterative FP).
+      if (RDB.getAmount(RId) == -1)
+        resII = std::max(resII, pressure);
     }
 
   for (int i = 1; i < ResourceKind; ++i)
@@ -740,16 +745,8 @@ bool SDCSchedule::isScheduleResultWithIIValid(Loop *L, int II) {
                 << ", " << Lat + sdcOp->SDCTime << ") \n");
         }
     }
-    if (maxTime - minTime <= II) {
-        llvm::errs() << "warning: pipeline II (" << II
-            << ") greater than or equal to for loop cycle "
-            << maxTime - minTime
-            << ". There is no need to pipeline loop.\n";
-        L->PipelineFlag = false;
-        L->AchievedII = -1;
-        LLVM_DEBUG(llvm::dbgs() << "warning: pipeline loop (" << L << ") PipelineFlag set to false.\n");
-        return false;
-    }
+    // A short body is still a legal pipelined schedule. Do not silently
+    // discard an explicit initiation-interval contract when latency <= II.
     return true;
 }
 

@@ -28,7 +28,7 @@ clean = { cmd = "rm -rf build"}
 # Prepare Chipyard environment
 setup-yosys-slang = { cmd = "test -f __setup-yosys-slang.success || (bash scripts/setup-yosys-slang.sh && touch __setup-yosys-slang.success)" }
 setup-verilator = { cmd = "test -f \"$CONDA_PREFIX/.aps-setup-verilator.success\" || (sed -i -e 's|^AR *= *.*|AR = /usr/bin/ar|' -e 's|^CXX *= *.*|CXX = /usr/bin/g++|' -e 's|^LINK *= *.*|LINK = /usr/bin/g++|' \"$CONDA_PREFIX/share/verilator/include/verilated.mk\" && touch \"$CONDA_PREFIX/.aps-setup-verilator.success\")" }
-setup-firtool = { cmd = "test -f  __setup-firtool.success || (mkdir -p thirdparty && cd thirdparty && wget -O firtool.tar.gz \"$LEGACY_FIRTOOL_PATH\" && tar xvzf firtool.tar.gz && rm firtool.tar.gz && touch __setup-firtool.success)"}
+setup-firtool = { cmd = "test -x \"$LEGACY_FIRTOOL\" || (mkdir -p thirdparty && cd thirdparty && wget -O firtool.tar.gz \"$LEGACY_FIRTOOL_PATH\" && tar xvzf firtool.tar.gz && rm firtool.tar.gz)"}
 setup-chipyard = { cmd = "git submodule update --init && cd thirdparty/chipyard && bash ./scripts/init-submodules-no-riscv-tools-nolog.sh && bash ./scripts/build-toolchain-extra-32.sh -p \"$RISCV\"", depends-on = ["setup-yosys-slang", "setup-verilator", "setup-firtool"]}
 check-chipyard = { cmd = "test -f thirdparty/chipyard/toolchains/riscv-tools/riscv-pk/README.md"}
 # or, install extra RISC-V tools after after submodule init with
@@ -67,6 +67,15 @@ cmd = "tools/aps-megg compile {{ cadl }} {{ test_c }} {{ output }} --handson"
 [tasks.compile-native]
 args = ["test_c", "output"]
 cmd = "riscv32-unknown-elf-gcc -std=gnu99 -O3 -Wall -Wextra -fno-common -fno-builtin-printf -march=rv32imaf_zicsr_zifencei -mabi=ilp32f -mcmodel=medany -specs=htif_nano.specs -static -T htif.ld -I$MEGGINCLUDE -o {{ output }} {{ test_c }} -lm"
+
+[tasks.build-hardfloat-ip]
+cmd = "mkdir -p build/hardfloat && cd build/hardfloat && bash ../../hardware/hardfloat/build-hardfloat-ip.sh --resource-output=resource.json"
+
+[tasks.hardfloat-acceptance]
+cmd = "bash examples/hardfloat/hardfloat-acceptance.sh"
+
+[tasks.bf16-gemm-rocket]
+cmd = "bash examples/hardfloat/bf16_gemm/bf16-gemm-rocket.sh"
 
 # APS Spike + Verilator co-sim
 [tasks.aps-cosim-clean]

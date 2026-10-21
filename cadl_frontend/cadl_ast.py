@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 from enum import Enum
+import re
 
 
 # Type aliases
@@ -26,6 +27,7 @@ __all__ = [
     "TupleExpr",
     "BinaryExpr",
     "UnaryExpr",
+    "BitcastExpr",
     "CallExpr",
     "IndexExpr",
     "SliceExpr",
@@ -39,6 +41,7 @@ __all__ = [
     "BasicType",
     "BasicType_ApFixed",
     "BasicType_ApUFixed",
+    "BasicType_BFloat16",
     "BasicType_Float32",
     "BasicType_Float64",
     "BasicType_String",
@@ -177,6 +180,17 @@ class UnaryExpr(Expr):
             return f"{self.op.value}({self.operand})"
         else:
             return f"{self.op.value}{self.operand}"
+
+
+@dataclass
+class BitcastExpr(Expr):
+    """Explicit same-width bit reinterpretation, never a numeric conversion."""
+
+    target_type: str
+    operand: Expr
+
+    def __str__(self) -> str:
+        return f"bitcast<{self.target_type}>({self.operand})"
 
 
 @dataclass
@@ -336,6 +350,16 @@ class BasicType_ApUFixed(BasicType):
 
 
 @dataclass
+class BasicType_BFloat16(BasicType):
+    @property
+    def width(self):
+        return 16
+
+    def __str__(self):
+        return "bf16"
+
+
+@dataclass
 class BasicType_Float32(BasicType):
     """32-bit float type - BasicType::Float32"""
 
@@ -450,9 +474,10 @@ class LiteralInner_Fixed(LiteralInner):
 
 @dataclass
 class LiteralInner_Float(LiteralInner):
-    """Float literal - LiteralInner::Float(f64)"""
+    """Floating literal; preserve decimal text for single APFloat rounding."""
 
     value: float
+    text: Optional[str] = None
 
 
 @dataclass
@@ -945,6 +970,8 @@ def parse_basic_type_from_string(type_str: str) -> BasicType:
     elif type_str.startswith("i"):
         width = int(type_str[1:])
         return BasicType_ApFixed(width)
+    elif type_str == "bf16":
+        return BasicType_BFloat16()
     elif type_str == "f32":
         return BasicType_Float32()
     elif type_str == "f64":
@@ -957,6 +984,12 @@ def parse_basic_type_from_string(type_str: str) -> BasicType:
 
 def parse_literal_from_string(literal_str: str) -> Literal:
     """Parse a number literal string into a Literal with proper type"""
+
+    floating = re.fullmatch(r"(-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)(?:_(bf16|f32|f64))?", literal_str)
+    if floating and (floating[2] or any(c in floating[1] for c in '.eE')):
+        kind = floating[2] or 'f32'
+        ty = BasicType_BFloat16() if kind == 'bf16' else BasicType_Float64() if kind == 'f64' else BasicType_Float32()
+        return Literal(LiteralInner_Float(float(floating[1]), floating[1]), ty)
 
     if "'" in literal_str:
         # Handle width-specified literals like "5'b101010"

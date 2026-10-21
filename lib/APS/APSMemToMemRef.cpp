@@ -4,6 +4,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -81,11 +82,29 @@ struct APSMemStoreToMemRefStorePattern : public OpRewritePattern<aps::WriteSmem>
   }
 };
 
+struct APSConditionalStoreToMemRef : public OpRewritePattern<aps::WriteSmemIf> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(aps::WriteSmemIf op, PatternRewriter &rewriter) const override {
+    auto indices = castIndicesToIndex(rewriter, op.getLoc(), op.getIndices());
+    auto conditional = rewriter.create<scf::IfOp>(op.getLoc(), op.getCondition(), false);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(&conditional.getThenRegion().front());
+      rewriter.create<memref::StoreOp>(op.getLoc(), op.getValue(), op.getMemref(), indices);
+    }
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 struct APSMemToMemRefPass : APSMemToMemRefBase<APSMemToMemRefPass> {
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<scf::SCFDialect>();
+  }
   void runOnOperation() override {
     auto op = getOperation();
     RewritePatternSet patterns(&getContext());
-    patterns.add<APSMemLoadToMemRefLoadPattern, APSMemStoreToMemRefStorePattern>(
+    patterns.add<APSMemLoadToMemRefLoadPattern, APSMemStoreToMemRefStorePattern, APSConditionalStoreToMemRef>(
         &getContext());
     GreedyRewriteConfig config;
     config.setStrictness(GreedyRewriteStrictness::ExistingOps);

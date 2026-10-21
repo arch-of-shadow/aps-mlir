@@ -6,6 +6,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "APS/LoopHandler.h"
+#include "APS/HardwareValueUtils.h"
 #include "APS/APSOps.h"
 #include "APS/BBHandler.h"
 #include "APS/BlockHandler.h"
@@ -133,6 +134,19 @@ LogicalResult LoopHandler::processLoopBlock(BlockInfo &loopBlock) {
     return forOp.emitError(
         "pipeline loop with iter_args/results is not supported by APSToCMT2 "
         "loop lowering yet");
+  }
+
+  if (loop.isPipeline) {
+    auto ii = forOp->getAttrOfType<IntegerAttr>("II");
+    if (!ii || ii.getInt() < 1)
+      return forOp.emitError("pipeline loop requires a positive scheduled II");
+    for (Operation &op : forOp.getBody()->getOperations()) {
+      if (isa<tor::ForOp, tor::WhileOp, tor::IfOp, aps::CopyIssue,
+              aps::CopyWait, aps::LoadIssue, aps::LoadWait, aps::StoreIssue,
+              aps::StoreWait, aps::WriteIRF, aps::GlobalStore>(op))
+        return op.emitError("operation is not supported in an elastic pipeline body; "
+                            "requires ordered multi-block/side-effect lowering");
+    }
   }
 
   // 4. Create simplified loop infrastructure.
@@ -353,10 +367,8 @@ LogicalResult LoopHandler::generateLoopEntryRule(BlockInfo &loopBlock) {
       if (auto it = entryValueMap.find(val); it != entryValueMap.end())
         return it->second;
       if (auto constOp = val.getDefiningOp<arith::ConstantOp>()) {
-        auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
-        unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
-        return UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc)
-            .getValue();
+        auto v = materializeHardwareConstant(constOp.getValueAttr(), b, loc);
+        if (succeeded(v)) return *v;
       }
       llvm::report_fatal_error(
           "LoopHandler: cannot materialize loop iter_arg initializer");
@@ -646,15 +658,17 @@ LogicalResult LoopHandler::generatePipelineLoopEntryRule(BlockInfo &loopBlock) {
     if (loop.scopeResources.boundary.entryTokenFIFO)
       loop.scopeResources.boundary.entryTokenFIFO->callMethod("deq", {}, b);
 
+    llvm::DenseMap<Value, Value> entryValueMap;
     for (auto &[value, fifo] : input_fifos) {
       if (!fifo || value.getDefiningOp<arith::ConstantOp>())
         continue;
       if (!loop.input_state_registers.count(value))
         continue;
       auto dequeuedValue = fifo->callMethod("deq", {}, b);
-      if (!dequeuedValue.empty())
-        loop.input_state_registers[value]->callMethod("write",
-                                                      {dequeuedValue[0]}, b);
+      if (!dequeuedValue.empty()) {
+        entryValueMap[value] = dequeuedValue[0];
+        loop.input_state_registers[value]->callMethod("write", {dequeuedValue[0]}, b);
+      }
     }
 
     for (auto &[value, reg] : loopBlock.scopeResources.inputValueRegs) {
@@ -663,9 +677,10 @@ LogicalResult LoopHandler::generatePipelineLoopEntryRule(BlockInfo &loopBlock) {
       if (!loop.input_state_registers.count(value))
         continue;
       auto capturedValue = reg->callValue("read", b);
-      if (!capturedValue.empty())
-        loop.input_state_registers[value]->callMethod("write",
-                                                      {capturedValue[0]}, b);
+      if (!capturedValue.empty()) {
+        entryValueMap[value] = capturedValue[0];
+        loop.input_state_registers[value]->callMethod("write", {capturedValue[0]}, b);
+      }
     }
 
     auto convertToFIRRTL = [&](mlir::Value val) -> mlir::Value {
@@ -673,13 +688,12 @@ LogicalResult LoopHandler::generatePipelineLoopEntryRule(BlockInfo &loopBlock) {
         llvm::report_fatal_error(
             "LoopHandler: loop boundary is not a constant!");
       if (auto constOp = val.getDefiningOp<arith::ConstantOp>()) {
-        auto intAttr = mlir::cast<IntegerAttr>(constOp.getValueAttr());
-        unsigned width = mlir::cast<IntegerType>(intAttr.getType()).getWidth();
-        return UInt::constant(intAttr.getValue().getZExtValue(), width, b, loc)
-            .getValue();
+        auto v = materializeHardwareConstant(constOp.getValueAttr(), b, loc);
+        if (succeeded(v)) return *v;
       }
-      llvm::report_fatal_error(
-          "LoopHandler: Cannot convert non-constant MLIR type to FIRRTL");
+      auto current = entryValueMap.find(val);
+      if (current != entryValueMap.end()) return current->second;
+      llvm::report_fatal_error("LoopHandler: missing captured dynamic pipeline boundary");
     };
 
     Signal loopState(convertToFIRRTL(loop.lowerBound), &b, loc);
@@ -1126,10 +1140,8 @@ LogicalResult LoopHandler::createLoopInfrastructure(BlockInfo &loopBlock) {
 }
 
 unsigned LoopHandler::getBitWidth(mlir::Type type) {
-  if (auto intType = dyn_cast<mlir::IntegerType>(type)) {
-    return intType.getWidth();
-  }
-  return 32; // Default width
+  if (auto width = getHardwareBitWidth(type)) return *width;
+  return 32; // Index width
 }
 
 bool LoopHandler::isValueUsedInLoopBody(Value value, Block *loopBody) {

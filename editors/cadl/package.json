@@ -1,0 +1,20 @@
+{
+  "name": "cadl-editor-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Build and test CADL syntax highlighting for VS Code and Zed",
+  "scripts": {
+    "generate": "cd tree-sitter-cadl && tree-sitter generate",
+    "test": "npm run generate && node scripts/test-vscode.mjs && node scripts/test-tree-sitter.mjs",
+    "build:vscode": "node -e \"require('fs').mkdirSync('build', {recursive: true})\" && cd vscode && vsce package --allow-missing-repository --out ../build/cadl-0.1.0.vsix",
+    "build:zed": "npm run generate && node scripts/build-zed.mjs",
+    "build": "npm run test && npm run build:vscode && npm run build:zed"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "4.0.0",
+    "tree-sitter-cli": "0.25.10",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.0"
+  },
+  "engines": { "node": ">=22" }
+}

@@ -10,6 +10,7 @@ import circt.dialects.memref as memref
 from .state import ConversionState
 from .types import cast_cadl_type_to_mlir
 from .. import cadl_ast
+from .literals import exact_float_attr
 
 
 def _create_symbol_read_op(
@@ -240,12 +241,12 @@ class GlobalEmitter:
         initial_values_list = None
         if expr:
             if isinstance(expr, cadl_ast.LitExpr):
-                initial_value = expr.literal.lit.value
+                initial_value = expr.literal.lit if isinstance(expr.literal.lit, cadl_ast.LiteralInner_Float) else expr.literal.lit.value
             elif isinstance(expr, cadl_ast.AggregateExpr):
                 initial_values_list = []
                 for elem_expr in expr.elements:
                     if isinstance(elem_expr, cadl_ast.LitExpr):
-                        initial_values_list.append(elem_expr.literal.lit.value)
+                        initial_values_list.append(elem_expr.literal.lit if isinstance(elem_expr.literal.lit, cadl_ast.LiteralInner_Float) else elem_expr.literal.lit.value)
                     else:
                         initial_values_list = None
                         break
@@ -261,7 +262,7 @@ class GlobalEmitter:
                     f"Scalar initialization provided for array type: {mlir_type}"
                 )
 
-            element_attr = ir.IntegerAttr.get(mlir_type, initial_value)
+            element_attr = self._initializer_attr(mlir_type, initial_value)
             attr = ir.DenseElementsAttr.get_splat(
                 ir.RankedTensorType.get([], mlir_type), element_attr
             )
@@ -276,7 +277,7 @@ class GlobalEmitter:
 
             element_type = mlir_type.element_type
             element_attrs = [
-                ir.IntegerAttr.get(element_type, val) for val in initial_values_list
+                self._initializer_attr(element_type, val) for val in initial_values_list
             ]
             tensor_type = ir.RankedTensorType.get(mlir_type.shape, element_type)
             dense_attr = ir.DenseElementsAttr.get(element_attrs, tensor_type)
@@ -296,6 +297,15 @@ class GlobalEmitter:
                     global_op.attributes[attr_name] = mlir_attr
 
         set_symbol(name, global_name)
+
+    @staticmethod
+    def _initializer_attr(ty: ir.Type, value) -> ir.Attribute:
+        if ir.BF16Type.isinstance(ty) or ir.F32Type.isinstance(ty) or ir.F64Type.isinstance(ty):
+            if isinstance(value, cadl_ast.LiteralInner_Float):
+                if value.text:return exact_float_attr(ty, value.text)
+                value=value.value
+            return ir.FloatAttr.get(ty, float(value))
+        return ir.IntegerAttr.get(ty, value)
 
     def convert_attribute_value(self, expr: Optional[cadl_ast.Expr]) -> Optional[ir.Attribute]:
         """Convert CADL static/directive attribute syntax to MLIR attributes."""

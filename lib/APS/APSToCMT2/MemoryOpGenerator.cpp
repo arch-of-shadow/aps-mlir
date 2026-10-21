@@ -6,8 +6,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "APS/APSOps.h"
+#include "APS/HardwareValueUtils.h"
 #include "APS/BBHandler.h"
 #include "circt/Dialect/Cmt2/ECMT2/Signal.h"
+#include "circt/Dialect/Cmt2/ECMT2/SignalHelpers.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
@@ -33,11 +35,12 @@ LogicalResult MemoryOpGenerator::generateRule(
     return generateSpmLoadReq(spmLoadReq, b, loc, slot, localMap);
   } else if (auto spmLoadCollect = dyn_cast<aps::ReadSmemWait>(op)) {
     return generateSpmLoadCollect(spmLoadCollect, b, loc, slot, localMap);
-  } else if (auto memStore = dyn_cast<aps::WriteSmem>(op)) {
-    return generateMemStore(memStore, b, loc, slot, localMap);
-  } else if (auto memStore = dyn_cast<tor::GuardedStoreOp>(op)) {
-    return generateMemStoreImpl(op, memStore.getValue(), memStore.getMemref(),
-                               memStore.getIndices(), memStore.getGuard(), b, loc, localMap);
+  } else if (isa<aps::WriteSmem, aps::WriteSmemIf>(op)) {
+    return generateMemStore(op, b, loc, slot, localMap);
+  } else if (auto store = dyn_cast<tor::GuardedStoreOp>(op)) {
+    return generateMemStoreImpl(op, store.getValue(), store.getMemref(),
+                                store.getIndices(), store.getGuard(), b, loc,
+                                localMap);
   } else if (auto copyIssue = dyn_cast<aps::CopyIssue>(op)) {
     return generateCopyIssue(copyIssue, b, loc, slot, localMap);
   } else if (auto copyWait = dyn_cast<aps::CopyWait>(op)) {
@@ -55,7 +58,8 @@ LogicalResult MemoryOpGenerator::generateRule(
 }
 
 bool MemoryOpGenerator::canHandle(Operation *op) const {
-  return isa<aps::WriteSmem, tor::GuardedStoreOp, aps::CopyIssue, aps::CopyWait,
+  return isa<aps::WriteSmem, aps::WriteSmemIf, tor::GuardedStoreOp,
+             aps::CopyIssue, aps::CopyWait,
              memref::GetGlobalOp,
              aps::GlobalStore, aps::GlobalLoad,
              aps::ReadSmemIssue, aps::ReadSmemWait>(op);
@@ -64,7 +68,9 @@ bool MemoryOpGenerator::canHandle(Operation *op) const {
 LogicalResult MemoryOpGenerator::generateGlobalMemLoad(
     aps::GlobalLoad op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  auto width = llvm::dyn_cast<mlir::IntegerType>(op.getResult().getType()).getWidth();
+  auto hwWidth = getHardwareBitWidth(op.getResult().getType());
+  if (!hwWidth) return op.emitError("unsupported global load type");
+  auto width = *hwWidth;
   
   StringRef globalName = op.getGlobalName();
   auto glblRegName = std::string("glbl_reg_").append(globalName);
@@ -128,6 +134,10 @@ LogicalResult MemoryOpGenerator::generateSpmLoadReq(
                  << " using rule " << memoryBankRule << "\n";
   }
 
+  auto channel = op->getAttrOfType<StringAttr>("aps.read_channel");
+  if (!channel) return op.emitError("missing scratchpad read transaction channel");
+  memoryBankRule = (channel.getValue() + "_issue").str();
+
   // Get the memref type to determine array size and element type
   auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
   if (!memrefType) {
@@ -188,6 +198,10 @@ LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
                  << " using rule " << memoryBankRule << "\n";
   }
 
+  auto channel = reqOp->getAttrOfType<StringAttr>("aps.read_channel");
+  if (!channel) return op.emitError("missing scratchpad read transaction channel");
+  memoryBankRule = (channel.getValue() + "_collect").str();
+
   // Get the memref type to determine element type for result width
   auto memrefType = dyn_cast<mlir::MemRefType>(memRef.getType());
   if (!memrefType) {
@@ -197,12 +211,9 @@ LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
 
   // Get element type for result width
   Type elementType = memrefType.getElementType();
-  auto intType = dyn_cast<mlir::IntegerType>(elementType);
-  if (!intType) {
-    op.emitError("Memref element type is not integer");
-    llvm::report_fatal_error("ReadSmemWait: memref element must be integer type");
-  }
-  unsigned resultWidth = intType.getWidth();
+  auto hwWidth = getHardwareBitWidth(elementType);
+  if (!hwWidth) return op.emitError("unsupported scratchpad element type");
+  unsigned resultWidth = *hwWidth;
 
   llvm::dbgs() << "DEBUG: SPM load collect - result width: " << resultWidth << "\n";
 
@@ -219,15 +230,25 @@ LogicalResult MemoryOpGenerator::generateSpmLoadCollect(
 }
 
 LogicalResult MemoryOpGenerator::generateMemStore(
-    aps::WriteSmem op, mlir::OpBuilder &b, Location loc, int64_t slot,
+    Operation *op, mlir::OpBuilder &b, Location loc, int64_t slot,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  return generateMemStoreImpl(op, op.getValue(), op.getMemref(), op.getIndices(),
-                             {}, b, loc, localMap);
+  Value storedValue, memref, condition;
+  OperandRange indices = op->getOperands().take_front(0);
+  if (auto store = dyn_cast<aps::WriteSmem>(op)) {
+    storedValue = store.getValue(); memref = store.getMemref();
+    indices = store.getIndices();
+  } else {
+    auto conditional = cast<aps::WriteSmemIf>(op);
+    storedValue = conditional.getValue(); memref = conditional.getMemref();
+    indices = conditional.getIndices(); condition = conditional.getCondition();
+  }
+  return generateMemStoreImpl(op, storedValue, memref, indices, condition, b,
+                              loc, localMap);
 }
 
 LogicalResult MemoryOpGenerator::generateMemStoreImpl(
     Operation *op, Value storedValue, Value memRef, ValueRange indices,
-    Value guard, mlir::OpBuilder &b, Location loc,
+    Value condition, mlir::OpBuilder &b, Location loc,
     llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
   // PANIC if no indices provided
   if (indices.empty()) {
@@ -271,12 +292,9 @@ LogicalResult MemoryOpGenerator::generateMemStoreImpl(
 
   // Get element type for data width
   Type elementType = memrefType.getElementType();
-  auto intType = dyn_cast<mlir::IntegerType>(elementType);
-  if (!intType) {
-    op->emitError("Memref element type is not integer");
-    llvm::report_fatal_error("WriteSmem: memref element must be integer type");
-  }
-  unsigned dataWidth = intType.getWidth();
+  auto hwWidth = getHardwareBitWidth(elementType);
+  if (!hwWidth) return op->emitError("unsupported scratchpad element type");
+  unsigned dataWidth = *hwWidth;
 
   // Calculate required address bit width from array size: ceil(log2(size))
   auto shape = memrefType.getShape();
@@ -294,20 +312,20 @@ LogicalResult MemoryOpGenerator::generateMemStoreImpl(
   // Truncate address to required bit width using Signal
   auto addrSignal = Signal(*addr, &b, loc).bits(addrWidth - 1, 0);
 
-  // Call the appropriate scratchpad pool bank write method
-  auto emitWrite = [&](OpBuilder &body) {
-    body.create<circt::cmt2::CallOp>(
-        loc, TypeRange{}, mlir::ValueRange{addrSignal.getValue(), *value},
-        mlir::SymbolRefAttr::get(body.getContext(), "scratchpad_pool"),
-        mlir::SymbolRefAttr::get(body.getContext(), memoryBankRule),
-        mlir::ArrayAttr(), mlir::ArrayAttr());
-  };
-  if (guard) {
-    auto condition = getValueInRule(guard, op, b, localMap, loc);
-    if (failed(condition)) return op->emitError("cannot resolve guarded scratchpad write predicate");
-    If(Signal(*condition, &b, loc), emitWrite, [](OpBuilder &) {}, b, loc);
-  } else emitWrite(b);
-
+  SmallVector<Value> args;
+  if (condition) {
+    auto pred = getValueInRule(condition, op, b, localMap, loc);
+    if (failed(pred)) return failure();
+    args.push_back(*pred);
+    memoryBankRule += "_if";
+  }
+  args.push_back(addrSignal.getValue());
+  args.push_back(*value);
+  b.create<circt::cmt2::CallOp>(
+      loc, TypeRange{}, args,
+      mlir::SymbolRefAttr::get(b.getContext(), "scratchpad_pool"),
+      mlir::SymbolRefAttr::get(b.getContext(), memoryBankRule),
+      mlir::ArrayAttr(), mlir::ArrayAttr());
   return success();
 }
 

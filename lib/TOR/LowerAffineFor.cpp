@@ -576,6 +576,50 @@ public:
               mapping.map(mulOp.getResult(), replacement.getResult());
               continue;
             }
+            if (auto binary = dyn_cast<arith::DivSIOp>(bodyOp)) {
+              Type resultType = lowerIndexScalarType(builder, binary.getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, binary.getLoc(), mapping, binary.getLhs(),
+                  binary.getRhs(), resultType);
+              auto replacement = builder.create<arith::DivSIOp>(
+                  binary.getLoc(), lhs, rhs);
+              replacement->setAttrs(binary->getAttrs());
+              mapping.map(binary.getResult(), replacement.getResult());
+              continue;
+            }
+            if (auto binary = dyn_cast<arith::DivUIOp>(bodyOp)) {
+              Type resultType = lowerIndexScalarType(builder, binary.getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, binary.getLoc(), mapping, binary.getLhs(),
+                  binary.getRhs(), resultType);
+              auto replacement = builder.create<arith::DivUIOp>(
+                  binary.getLoc(), lhs, rhs);
+              replacement->setAttrs(binary->getAttrs());
+              mapping.map(binary.getResult(), replacement.getResult());
+              continue;
+            }
+            if (auto binary = dyn_cast<arith::RemSIOp>(bodyOp)) {
+              Type resultType = lowerIndexScalarType(builder, binary.getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, binary.getLoc(), mapping, binary.getLhs(),
+                  binary.getRhs(), resultType);
+              auto replacement = builder.create<arith::RemSIOp>(
+                  binary.getLoc(), lhs, rhs);
+              replacement->setAttrs(binary->getAttrs());
+              mapping.map(binary.getResult(), replacement.getResult());
+              continue;
+            }
+            if (auto binary = dyn_cast<arith::RemUIOp>(bodyOp)) {
+              Type resultType = lowerIndexScalarType(builder, binary.getType());
+              auto [lhs, rhs] = lookupAndCastMappedOperandsToType(
+                  builder, binary.getLoc(), mapping, binary.getLhs(),
+                  binary.getRhs(), resultType);
+              auto replacement = builder.create<arith::RemUIOp>(
+                  binary.getLoc(), lhs, rhs);
+              replacement->setAttrs(binary->getAttrs());
+              mapping.map(binary.getResult(), replacement.getResult());
+              continue;
+            }
             if (auto shlOp = dyn_cast<arith::ShLIOp>(bodyOp)) {
               Type resultType =
                   lowerIndexScalarType(builder, shlOp.getResult().getType());

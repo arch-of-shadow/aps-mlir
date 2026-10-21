@@ -10,6 +10,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "circt/Dialect/Comb/CombOps.h"
 #include "APS/BBHandler.h"
+#include "APS/HardwareValueUtils.h"
 #include "circt/Dialect/Cmt2/ECMT2/Signal.h"
 #include "TOR/TOR.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -92,7 +93,17 @@ toTorCmpPredicate(mlir::arith::CmpIPredicate predicate) {
 LogicalResult ArithmeticOpGenerator::generateRule(Operation *op, mlir::OpBuilder &b,
                                                 Location loc, int64_t slot,
                                                 llvm::DenseMap<mlir::Value, mlir::Value> &localMap) {
-  if (auto addOp = dyn_cast<tor::AddIOp>(op)) {
+  if (auto bitcast = dyn_cast<arith::BitcastOp>(op)) {
+    auto sourceWidth = getHardwareBitWidth(bitcast.getIn().getType());
+    auto resultWidth = getHardwareBitWidth(bitcast.getResult().getType());
+    if (!sourceWidth || !resultWidth || sourceWidth != resultWidth)
+      return op->emitError("unsupported hardware bitcast (expected same-width integer/f32)");
+    auto value = getValueInRule(bitcast.getIn(), op, b, localMap, loc);
+    if (failed(value))
+      return failure();
+    localMap[bitcast.getResult()] = *value;
+    return success();
+  } else if (auto addOp = dyn_cast<tor::AddIOp>(op)) {
     auto lhs = getValueInRule(addOp.getLhs(), op, b, localMap, loc);
     auto rhs = getValueInRule(addOp.getRhs(), op, b, localMap, loc);
     if (failed(lhs) || failed(rhs))
@@ -141,6 +152,22 @@ LogicalResult ArithmeticOpGenerator::generateRule(Operation *op, mlir::OpBuilder
       return failure();
     return performDivOp(b, loc, *lhs, *rhs, divsiOp.getResult(),
                         DivisionKind::Signed, localMap);
+  } else if (isa<arith::RemSIOp, arith::RemUIOp>(op)) {
+    auto lhs = getValueInRule(op->getOperand(0), op, b, localMap, loc);
+    auto rhs = getValueInRule(op->getOperand(1), op, b, localMap, loc);
+    if (failed(lhs) || failed(rhs))
+      return failure();
+    unsigned width = *getHardwareBitWidth(op->getResult(0).getType());
+    if (isa<arith::RemSIOp>(op)) {
+      auto signedLhs = signExtendToWidth(b, loc, *lhs, width);
+      auto signedRhs = signExtendToWidth(b, loc, *rhs, width);
+      auto result = b.create<circt::firrtl::RemPrimOp>(loc, signedLhs, signedRhs);
+      localMap[op->getResult(0)] = signedValueToUIntWidth(b, loc, result, width);
+    } else {
+      auto result = b.create<circt::firrtl::RemPrimOp>(loc, *lhs, *rhs);
+      localMap[op->getResult(0)] = fitToWidth(Signal(result, &b, loc), width).getValue();
+    }
+    return success();
   } else if (auto selectOp = dyn_cast<arith::SelectOp>(op)) {
     auto condition = getValueInRule(selectOp.getCondition(), op, b, localMap, loc);
     auto trueValue = getValueInRule(selectOp.getTrueValue(), op, b, localMap, loc);
@@ -218,7 +245,7 @@ LogicalResult ArithmeticOpGenerator::generateRule(Operation *op, mlir::OpBuilder
 
 bool ArithmeticOpGenerator::canHandle(Operation *op) const {
   return isa<tor::AddIOp, tor::SubIOp, tor::MulIOp, tor::CmpIOp,
-             arith::CmpIOp, arith::DivUIOp, arith::DivSIOp, arith::SelectOp,
+             arith::BitcastOp, arith::CmpIOp, arith::DivUIOp, arith::DivSIOp, arith::RemSIOp, arith::RemUIOp, arith::SelectOp,
              arith::ExtUIOp, arith::ExtSIOp, arith::TruncIOp, circt::comb::ExtractOp,
              arith::ShLIOp, arith::ShRUIOp, arith::ShRSIOp,
              arith::AndIOp, arith::OrIOp, arith::XOrIOp>(op);
@@ -374,10 +401,11 @@ LogicalResult ArithmeticOpGenerator::performSelectOp(mlir::OpBuilder &b, Locatio
   // Signal::mux signature is: condition.mux(trueVal, falseVal)
   Signal resultSignal = condSignal.mux(trueSignal, falseSignal);
 
-  // Get required result width from the operation result type
-  auto requiredWidth = cast<IntegerType>(result.getType()).getWidth();
+  auto requiredWidth = getHardwareBitWidth(result.getType());
+  if (!requiredWidth)
+    return result.getDefiningOp()->emitError("unsupported hardware select type");
 
-  localMap[result] = fitToWidth(resultSignal, requiredWidth).getValue();
+  localMap[result] = fitToWidth(resultSignal, *requiredWidth).getValue();
   return success();
 }
 

@@ -1,0 +1,12 @@
+id = "cadl"
+name = "CADL (APS)"
+version = "0.1.0"
+schema_version = 1
+license = "MIT"
+authors = ["APS contributors"]
+description = "Syntax highlighting for Computer Architecture Description Language"
+repository = "https://github.com/pku-eric-golem/aquas"
+
+[grammars.cadl]
+repository = "__GRAMMAR_REPOSITORY__"
+rev = "__GRAMMAR_REVISION__"

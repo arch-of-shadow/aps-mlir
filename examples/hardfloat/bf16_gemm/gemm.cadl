@@ -1,0 +1,137 @@
+// BF16 version of examples/features/gemm.cadl. Same arrays, partitioning,
+// unrolling and tiled DMA, with flattened output traversal for continuous
+// pipelining across all 32 output pairs. Multiply and add round separately
+// to BF16 (RNE); no FMA contraction or reassociation.
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matA: [bf16; 131072]; // 256KB, 2048 tiles
+
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matB: [bf16; 131072]; // 256KB, 2048 tiles
+
+#[partition_dim_array([0])]
+#[partition_factor_array([8])]
+#[partition_cyclic_array([1])]
+static matC: [bf16; 131072]; // 256KB, 2048 tiles
+
+// GEMM 8x8: D = A * B + optional C, with packed tile offsets in rs1/rs2.
+#[opcode(7'b0001011)]
+#[funct7(7'b0000000)]
+rtype gemm8x8_bf16(rs1: u5, rs2: u5, rd: u5) {
+    let r1: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+
+    let offsetA: u16 = (r1 & 32'hEFFFFFFF) >> 16;
+    // Bit 15 is use_c, not part of the B tile offset.
+    let offsetB: u16 = r1 & 32'h7FFF;
+    let offsetC: u16 = r2 >> 16;
+    let offsetD: u16 = r2 & 32'hFFFF;
+    let use_c: u1 = (r1 & 16'h8000) >> 15;
+
+    // Unroll two adjacent outputs: 64 scalar outputs become 32 iterations.
+    // The row boundary no longer exits/re-enters the pipeline.
+    [[unroll(2)]]
+    [[pipeline(1)]]
+    [[II(1)]]
+    with output: u32 = (0, output_) do {
+        let i: u32 = output / 8;
+        let j: u32 = output % 8;
+        let c_idx: u32 = output + offsetC * 64;
+        let c_val_raw: bf16 = matC[c_idx];
+        let c_val: bf16 = if (use_c) {c_val_raw} else {0.0_bf16};
+        [[unroll(8)]]
+        with k: u32 = (0, k_) zacc: bf16 = (0.0_bf16, zacc_) do {
+            let a_idx: u32 = i * 8 + k + offsetA * 64;
+            let a_val: bf16 = matA[a_idx];
+            let b_idx: u32 = j * 8 + k + offsetB * 64; // B tile is stored transposed.
+            let b_val: bf16 = matB[b_idx];
+            let zacc_: bf16 = zacc + a_val * b_val;
+            let k_: u32 = k + 1;
+        } while (k_ < 8);
+        let d_val: bf16 = zacc + c_val;
+        let d_idx: u32 = output + offsetD * 64;
+        matC[d_idx] = d_val;
+        let output_: u32 = output + 1;
+    } while (output_ < 64);
+
+    _irf[rd] = 0;
+}
+
+// DMA helpers. rs1 is DRAM address; rs2 high bits carry SPM address.
+#[opcode(7'b1111011)]
+#[funct7(7'b0000000)]
+rtype loadmat_a_8tile(rs1: u5, rs2: u5, rd: u5) { // 8 x 128B bursts, eight BF16 tiles
+    let dram_addr0: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+    let spm_addr0: u32 = r2 >> 16;
+    let block_w: u32 = (r2 & 32'hFFFF);
+
+    [[unroll(8)]]
+    with
+        i: u32 = (0, i_)
+        dram_addr: u32 = (dram_addr0, dram_addr_)
+        spm_addr : u32 = (spm_addr0,  spm_addr_)
+    do {
+        [[stride_x(16)]]
+        [[stride_y(8)]]
+        matA[spm_addr +: ] = _mem[dram_addr +: 64];
+        let dram_addr_: u32 = dram_addr + block_w;
+        let spm_addr_: u32 = spm_addr + 8;
+        let i_: u32 = i + 1;
+    } while (i_ < 8);
+
+    _irf[rd] = 0;
+}
+
+#[opcode(7'b1111011)]
+#[funct7(7'b0000001)]
+rtype loadmat_b_8tile(rs1: u5, rs2: u5, rd: u5) { // 8 x 128B bursts, eight BF16 tiles
+    let dram_addr0: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+    let spm_addr0: u32 = r2 >> 16;
+    let block_w: u32 = (r2 & 32'hFFFF);
+
+    [[unroll(8)]]
+    with
+        i: u32 = (0, i_)
+        dram_addr: u32 = (dram_addr0, dram_addr_)
+        spm_addr : u32 = (spm_addr0,  spm_addr_)
+    do {
+        [[stride_x(16)]]
+        [[stride_y(8)]]
+        matB[spm_addr +: ] = _mem[dram_addr +: 64];
+        let dram_addr_: u32 = dram_addr + block_w;
+        let spm_addr_: u32 = spm_addr + 8;
+        let i_: u32 = i + 1;
+    } while (i_ < 8);
+
+    _irf[rd] = 0;
+}
+
+#[opcode(7'b1111011)]
+#[funct7(7'b0000010)]
+rtype storemat_c_8tile(rs1: u5, rs2: u5, rd: u5) { // 8 x 128B bursts, eight BF16 tiles
+    let dram_addr0: u32 = _irf[rs1];
+    let r2: u32 = _irf[rs2];
+    let spm_addr0: u32 = r2 >> 16;
+    let block_w: u32 = (r2 & 32'hFFFF);
+
+    [[unroll(8)]]
+    with
+        i: u32 = (0, i_)
+        dram_addr: u32 = (dram_addr0, dram_addr_)
+        spm_addr : u32 = (spm_addr0,  spm_addr_)
+    do {
+        [[stride_x(16)]]
+        [[stride_y(8)]]
+        _mem[dram_addr +: 64] = matC[spm_addr +: ];
+        let dram_addr_: u32 = dram_addr + block_w;
+        let spm_addr_: u32 = spm_addr + 8;
+        let i_: u32 = i + 1;
+    } while (i_ < 8);
+
+    _irf[rd] = 0;
+}

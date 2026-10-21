@@ -1,0 +1,13 @@
+name = "CADL"
+grammar = "cadl"
+path_suffixes = ["cadl"]
+line_comments = ["// "]
+block_comment = ["/*", "*/"]
+word_characters = ["$"]
+
+brackets = [
+  { start = "{", end = "}", close = true, newline = true },
+  { start = "[", end = "]", close = true, newline = false },
+  { start = "(", end = ")", close = true, newline = false },
+  { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+]

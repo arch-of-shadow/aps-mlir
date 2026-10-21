@@ -9,8 +9,8 @@
 
 // Terminals - Basic tokens
 IDENTIFIER: /[a-zA-Z_][a-zA-Z0-9_]*/
-VARTYPE: /[fui]([1-9][0-9]*)c*|usize/
-NUMBER_LIT: /-?[0-9]+(_[fui]([1-9][0-9]*))?/
+VARTYPE: /bf16|[fui]([1-9][0-9]*)c*|usize/
+NUMBER_LIT: /-?[0-9]+(_[fui]([1-9][0-9]*)|_bf16)?/
             | /-?0([sS])?x[0-9a-fA-F]+(_[ui]([1-9][0-9]*))?/
             | /-?0([sS])?b[01]+(_[ui]([1-9][0-9]*))?/
             | /-?0([sS])?o[0-7]+(_[ui]([1-9][0-9]*))?/
@@ -18,7 +18,7 @@ NUMBER_LIT: /-?[0-9]+(_[fui]([1-9][0-9]*))?/
             | /-?[0-9]+'([sS])?[oO][0-7]+(_[ui]([1-9][0-9]*))?/
             | /-?[0-9]+'([sS])?[dD][0-9]+(_[ui]([1-9][0-9]*))?/
             | /-?[0-9]+'([sS])?[hH][0-9a-fA-F]+(_[ui]([1-9][0-9]*))?/
-            | /-?[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?(_[f]([1-9][0-9]*))?/
+            | /-?(?:[0-9]+\.[0-9]+(?:[eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+)(?:_(?:bf16|f32|f64))?/
 
 STRING_LIT: /"[^"]*"/
 
@@ -43,6 +43,7 @@ KW_TRUE: "true"
 KW_FALSE: "false"
 KW_REGFILE: "regfile"
 KW_REGISTER: "register"
+KW_BITCAST: "bitcast"
 
 // Cast operators
 SIGNED_CAST: "$signed"
@@ -217,6 +218,7 @@ primary_expr: LPAREN expr_list RPAREN                      -> paren_expr
             | STRING_LIT                                    -> string_lit
             | IDENTIFIER                                    -> identifier
             | IDENTIFIER LPAREN expr_list? RPAREN           -> call_expr
+            | KW_BITCAST OP_LESS_THAN VARTYPE OP_GREATER_THAN LPAREN expr RPAREN -> bitcast_expr
             | SIGNED_CAST LPAREN expr RPAREN               -> signed_cast
             | UNSIGNED_CAST LPAREN expr RPAREN             -> unsigned_cast
             | F32_CAST LPAREN expr RPAREN                  -> f32_cast

@@ -264,6 +264,32 @@ module {
     assert "affine.yield" in output
 
 
+def test_nested_dynamic_integer_bounds_remain_valid_symbols(tmp_path: Path):
+    output = run_aps_raise(
+        tmp_path,
+        """
+module {
+  func.func @nested(%m: i32, %n: i32, %x: i32) -> i32 {
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %result = scf.for %i = %c0 to %m step %c1 iter_args(%outer = %x) -> (i32) : i32 {
+      %row = scf.for %j = %c0 to %n step %c1 iter_args(%inner = %outer) -> (i32) : i32 {
+        %next = arith.addi %inner, %j : i32
+        scf.yield %next : i32
+      }
+      scf.yield %row : i32
+    }
+    return %result : i32
+  }
+}
+""",
+    )
+    # aps-opt also runs the verifier: previously the inner bound was an
+    # index_cast of an i32 inside the outer loop, which is not a valid symbol.
+    assert output.count("affine.for") == 2
+    assert "scf.for" not in output
+
+
 def test_raises_multiple_iter_args_without_changing_carry_types(tmp_path: Path):
     output = run_aps_raise(
         tmp_path,
@@ -540,3 +566,27 @@ def test_real_cases_raise_aps_memory_loops_to_affine(
     assert output.count("memref.load") == EXPECTED_RESIDUAL_MEMREF_LOADS.get(
         case_name, 0
     )
+
+
+@pytest.mark.parametrize('lower,upper,raised', [(0, 64, True), (-1, 64, False),
+                                               (0, 2147483649, False)])
+def test_flattened_unsigned_row_column_indices(tmp_path, lower, upper, raised):
+    result = run_aps_raise(tmp_path, f'''module {{
+      func.func @flat(%a: memref<64xi32>, %b: memref<64xi32>) {{
+        %c8 = arith.constant 8 : i32
+        affine.for %i = {lower} to {upper} {{
+          %v = arith.index_cast %i : index to i32
+          %row = arith.divui %v, %c8 : i32
+          %col = arith.remui %v, %c8 : i32
+          %r = arith.index_cast %row : i32 to index
+          %c = arith.index_cast %col : i32 to index
+          %x = memref.load %a[%r] : memref<64xi32>
+          memref.store %x, %b[%c] : memref<64xi32>
+        }}
+        return
+      }}
+    }}''', extra_passes=['--raise-memref-to-affine'])
+    assert ('affine.load' in result) == raised
+    assert ('affine.store' in result) == raised
+    if raised:
+        assert 'floordiv 8' in result and 'mod 8' in result

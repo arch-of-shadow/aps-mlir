@@ -1,0 +1,7 @@
+{
+  "name": "tree-sitter-cadl",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for APS CADL",
+  "license": "MIT",
+  "private": true
+}

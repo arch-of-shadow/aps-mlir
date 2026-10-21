@@ -1,2 +1,6 @@
 # SCM syntax highlighting & preventing 3-way merges
 pixi.lock merge=binary linguist-language=YAML linguist-generated=true
+
+# Preserve hash-pinned upstream HardFloat bytes, including CRLF and whitespace.
+thirdparty/HardFloat/source/** -text -whitespace
+thirdparty/HardFloat/COPYING.txt -text -whitespace

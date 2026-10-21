@@ -320,6 +320,16 @@ namespace {
                 for (auto idx : memStoreOp.getIndices()) {
                     j["indices"].push_back(get_value(idx));
                 }
+            } else if (auto memStoreOp = dyn_cast<aps::WriteSmemIf>(op)) {
+                // Handle conditional scratchpad stores
+                j["op_type"] = "memstore_if";
+                j["condition"] = get_value(memStoreOp.getCondition());
+                j["memory"] = get_value(memStoreOp.getMemref());
+                j["value"] = get_value(memStoreOp.getValue());
+                j["indices"] = json::array();
+                for (auto idx : memStoreOp.getIndices()) {
+                    j["indices"].push_back(get_value(idx));
+                }
             } else if (auto copyOp = dyn_cast<aps::Copy>(op)) {
                 // Handle aps.copy - bulk copy between CPU/global memory and scratchpad.
                 j["op_type"] = "copy";

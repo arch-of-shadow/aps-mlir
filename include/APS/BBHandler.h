@@ -30,6 +30,7 @@ using namespace circt::firrtl;
 
 class OperationGenerator;
 class ArithmeticOpGenerator;
+class FloatOpGenerator;
 class MemoryOpGenerator;
 class InterfaceOpGenerator;
 class RegisterOpGenerator;
@@ -47,6 +48,7 @@ public:
             InterfaceDecl *dmaItfc, InterfaceDecl *csrItfc,
             Circuit &circuit, Clock mainClk, Reset mainRst,
             unsigned long instructionId);
+  ~BBHandler();
 
 
   /// Get the slot order after analysis
@@ -110,6 +112,8 @@ private:
 
   // Operation generators
   std::unique_ptr<ArithmeticOpGenerator> arithmeticGen;
+  std::unique_ptr<FloatOpGenerator> floatGen;
+  unsigned floatInstanceCounter = 0;
   std::unique_ptr<MemoryOpGenerator> memoryGen;
   std::unique_ptr<InterfaceOpGenerator> interfaceGen;
   std::unique_ptr<RegisterOpGenerator> registerGen;
@@ -143,13 +147,24 @@ private:
                            int64_t slot,
                            llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 
-  void processPipelineBasicBlock(BlockInfo &block);
+  LogicalResult processPipelineBasicBlock(BlockInfo &block);
+
+  /// Normal results are produced at starttime; FP results at collect/endtime.
+  llvm::SmallVector<Value> getProducedValuesForSlot(int64_t slot);
 
   //===--------------------------------------------------------------------===//
   // Utility Methods
   //===--------------------------------------------------------------------===//
 
   public:
+  Module *getMainModule() const { return mainModule; }
+  Circuit &getCircuit() const { return circuit; }
+  Clock getMainClk() const { return mainClk; }
+  Reset getMainRst() const { return mainRst; }
+  std::string nextFloatInstanceName() {
+    return currentBlock->blockName + "_fp" + std::to_string(floatInstanceCounter++);
+  }
+
   /// Get slot for an operation
   std::optional<int64_t> getSlotForOp(Operation *op);
 
@@ -309,7 +324,7 @@ private:
 
   /// Handle regular memory store
   LogicalResult
-  generateMemStore(aps::WriteSmem op, mlir::OpBuilder &b, Location loc,
+  generateMemStore(Operation *op, mlir::OpBuilder &b, Location loc,
                    int64_t slot,
                    llvm::DenseMap<mlir::Value, mlir::Value> &localMap);
 

@@ -7,8 +7,8 @@ using namespace mlir;
 namespace {
 
 /// Extract linear coefficients: expr = sum(dimCoeffs[i] * d_i) + sum(symCoeffs[i] * s_i) + constant
-/// Returns false if expression is not purely linear (contains floordiv/ceildiv/mod)
-bool extractCoeffs(AffineExpr expr, unsigned numDims, unsigned numSyms,
+/// Returns false for nonlinear terms that still affect the residue.
+bool extractCoeffs(AffineExpr expr, unsigned numDims, unsigned numSyms, int64_t modulus,
                    SmallVector<int64_t> &dimCoeffs, SmallVector<int64_t> &symCoeffs,
                    int64_t &constant) {
   dimCoeffs.assign(numDims, 0);
@@ -16,6 +16,10 @@ bool extractCoeffs(AffineExpr expr, unsigned numDims, unsigned numSyms,
   constant = 0;
 
   std::function<bool(AffineExpr, int64_t)> extract = [&](AffineExpr e, int64_t mul) -> bool {
+    // An entire term divisible by the bank factor cannot select a bank,
+    // even if its remaining expression contains floor division or modulo.
+    if (mul % modulus == 0)
+      return true;
     if (auto c = dyn_cast<AffineConstantExpr>(e)) {
       constant += c.getValue() * mul;
       return true;
@@ -58,12 +62,12 @@ namespace tor {
 
 /// Simplify (expr % factor) by eliminating terms with coefficients divisible by factor.
 /// Example: (2x + 8y + 64) % 8 -> 2x % 8 (since 8y and 64 are divisible by 8)
-/// Returns the simplified expression, or nullptr if expression is not linear.
+/// Returns the simplified expression, or nullptr if a remaining term is not linear.
 AffineExpr simplifyMod(AffineExpr expr, int64_t factor, unsigned numDims, unsigned numSyms) {
   SmallVector<int64_t> dimCoeffs, symCoeffs;
   int64_t constant;
 
-  if (!extractCoeffs(expr, numDims, numSyms, dimCoeffs, symCoeffs, constant)) {
+  if (!extractCoeffs(expr, numDims, numSyms, factor, dimCoeffs, symCoeffs, constant)) {
     return nullptr; // Not linear
   }
 

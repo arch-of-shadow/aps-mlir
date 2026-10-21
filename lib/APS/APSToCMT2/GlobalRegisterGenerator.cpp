@@ -1,4 +1,5 @@
 #include "APS/APSToCMT2.h"
+#include "APS/HardwareValueUtils.h"
 #include "TOR/TORTypes.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -21,11 +22,17 @@ SmallVector<std::tuple<std::string, int8_t>, 8> APSToCMT2Pass::generateGlobalReg
   OpBuilder builder(context);
   SmallVector<std::tuple<std::string, int8_t>, 8> globalRegisterList;
 
+  floatRegisterInitializers.clear();
   auto insertGlblRegister =
-      [&globalRegisterList](StringRef registerName, mlir::MemRefType memrefType) {
-    auto intType = llvm::dyn_cast<IntegerType>(memrefType.getElementType());
-    if (intType)
-      globalRegisterList.push_back(std::make_tuple(registerName.str(),static_cast<int8_t>(intType.getWidth())));
+      [this, &globalRegisterList](StringRef registerName, memref::GlobalOp global) {
+    auto width = getHardwareBitWidth(global.getType().getElementType());
+    if (width)
+      globalRegisterList.push_back(std::make_tuple(registerName.str(),static_cast<int8_t>(*width)));
+    if (auto initial = dyn_cast_or_null<DenseFPElementsAttr>(global.getInitialValueAttr())) {
+      if (initial.getNumElements() == 1)
+        floatRegisterInitializers[registerName.str()] =
+            (*initial.getValues<llvm::APFloat>().begin()).bitcastToAPInt().getZExtValue();
+    }
   };
 
   if (memoryMapOp) {
@@ -52,11 +59,12 @@ SmallVector<std::tuple<std::string, int8_t>, 8> APSToCMT2Pass::generateGlobalReg
           }
           auto memrefType = globalOp.getType();
           if (memrefType.getRank() == 0) {
-            insertGlblRegister(entry.getName().str(), memrefType);
+            insertGlblRegister(entry.getName().str(), globalOp);
           } else if (memrefType.getRank() == 1 && memrefType.getDimSize(0) == 1) {
             for (auto bank: bankSymbols){
               auto bankName = llvm::dyn_cast<FlatSymbolRefAttr>(bank).getValue();
-              insertGlblRegister(bankName.str(), memrefType);
+              auto bankGlobal = getGlobalMemRef(moduleOp, bankName);
+              insertGlblRegister(bankName.str(), bankGlobal ? bankGlobal : globalOp);
             }
           }
         }

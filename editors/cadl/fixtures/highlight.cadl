@@ -1,0 +1,59 @@
+/* CADL editor fixture: all forms supported by the current frontend. */
+regfile gpr(32, 32);
+#[partition_dim_array([0, 1])]
+#[partition_factor_array([4, 2])]
+static matrix: [i32; 16; 8];
+#[volatile]
+register status: u8;
+static constant: bf16 = -1.25e-2_bf16;
+flow external(arg: Instance);
+
+#[opcode(7'b0101011)]
+#[funct7(7'sh00)]
+rtype example(rs1: u5, rs2: u5, rd: u5) {
+  // Comments must not turn keywords or literals into code: flow 32'hFF
+  let a: u32 = _irf[rs1];
+  let b: u32 = _mem[a];
+  let widths: u64 = 64'shFFFFFFFF_u64;
+  let signed_hex: i32 = -0sxFF_i32;
+  let bits: u8 = 0b1010_u8;
+  let octal: u8 = 0So77_u8;
+  let decimal: i32 = 32'sd42_i32;
+  let octal_width: u8 = 8'o77;
+  let f: f32 = 1.0e+2_f32;
+  let g: f64 = 2e-3_f64;
+  let h: bf16 = 1_bf16;
+  let fixed: u32cc = 42_u32;
+  let size: usize = 16;
+  let cast: f32 = $f32($signed(b));
+  let unsigned: u32 = $uint($unsigned(b));
+  let double: f64 = $f64($int(b));
+  let raw: u16 = bitcast<u16>(h);
+  let result: bf16 = bf16_add(h, h);
+  let flags: u5 = fp32_fma_flags(f, f, f);
+  let message = "flow #[opcode] // not a comment";
+  let choice: u32 = if true { a } else { b };
+  let selected: u32 = sel { a == b: a, true: b, };
+  let pair = {a, b};
+  let tuple = (a, b);
+  let slice: u8 = a[7:0];
+  matrix[0 +: ] = _burst_read[a +: 16];
+  [[unroll(4)]]
+  with i: u32 = (0, i + 1) acc: u32 = (a, b) do {
+    [i < 16]: matrix[i, 0] = $signed(i);
+    if i != 0 && !(a < b) {
+      spawn { status = 1; }
+    } else {
+      status = 0;
+    }
+    let math = a + b * 2 - 1 / 2 % 3;
+    let logical = (a << 1) >> 1 | b ^ a & ~b || false;
+    [[stride_x(2)]]
+  } while i + 1 <= 16;
+  with do; while false;
+  _burst_write[b +: 16] = matrix[0 +: ];
+  _irf[rd] = helper(choice);
+  return selected, flags;
+}
+
+flow helper(value: u32) { return value; }

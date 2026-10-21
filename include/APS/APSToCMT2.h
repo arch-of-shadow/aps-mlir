@@ -47,6 +47,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <string>
 #include <iomanip>
+#include <map>
 
 namespace mlir {
 
@@ -226,6 +227,9 @@ struct APSToCMT2Pass
   void getDependentDialects(DialectRegistry &registry) const override;
 
   void runOnOperation() override;
+
+  // IEEE bit patterns for scalar reset initialization (never host arithmetic).
+  std::map<std::string, uint32_t> floatRegisterInitializers;
 
 private:
   /// Get memref.global by symbol name

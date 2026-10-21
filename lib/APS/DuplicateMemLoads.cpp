@@ -48,6 +48,9 @@ static bool hasMemoryConflict(Value memref, int64_t cycle, Block *block,
     } else if (auto memstore = dyn_cast<aps::WriteSmem>(&op)) {
       if (memstore.getMemref() == memref)
         return true;
+    } else if (auto memstore = dyn_cast<aps::WriteSmemIf>(&op)) {
+      if (memstore.getMemref() == memref)
+        return true;
     }
   }
   return false;

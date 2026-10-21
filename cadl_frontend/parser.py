@@ -391,6 +391,10 @@ class CADLTransformer(Transformer):
         return cadl_ast.UnaryExpr(cadl_ast.UnaryOp.UINT_CAST, items[2])
 
     # Complex expressions
+    def bitcast_expr(self, items):
+        # bitcast < VARTYPE > ( expr )
+        return cadl_ast.BitcastExpr(str(items[2]), items[5])
+
     def call_expr(self, items):
         name = str(items[0])  # IDENTIFIER
         # items[1] is LPAREN, items[2] is expr_list (optional), items[3] is RPAREN

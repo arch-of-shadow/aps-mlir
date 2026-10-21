@@ -45,6 +45,12 @@ static Value materializeIndexBound(PatternRewriter &rewriter, Location loc,
   if (value.getType().isIndex())
     return value;
 
+  // Keep the cast in the bound's defining scope. An index_cast introduced
+  // inside a nested loop cannot be an affine symbol when its operand is an
+  // integer, even if that integer was computed outside all the loops.
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointAfterValue(value);
+
   if (auto constInt = value.getDefiningOp<arith::ConstantIntOp>())
     return rewriter.create<arith::ConstantIndexOp>(loc, constInt.value());
 

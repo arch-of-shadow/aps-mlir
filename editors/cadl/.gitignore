@@ -1,0 +1,4 @@
+node_modules/
+build/
+tree-sitter-cadl/*.wasm
+tree-sitter-cadl/*.so

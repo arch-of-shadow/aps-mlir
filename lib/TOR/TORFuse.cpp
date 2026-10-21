@@ -24,11 +24,9 @@ namespace {
                     number++;
                 }
             });
-            designOp.walk([&](tor::AddFOp addOp) {
-                if (fuse<tor::AddFOp, tor::MulFOp, tor::MacFOp>(addOp, rewriter) != nullptr) {
-                    number++;
-                }
-            });
+            // Strict floating point: mul+add has two rounding steps. Never
+            // contract it implicitly into MacFOp/FMA. Explicit FMA lowering
+            // uses the dedicated HardFloat operation instead.
             LLVM_DEBUG(llvm::dbgs() << "mac fuse number: " << number << "\n");
             return success();
         }

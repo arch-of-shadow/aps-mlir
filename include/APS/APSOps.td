@@ -10,6 +10,13 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 class APSOp<string mnemonic, list<Trait> traits = []> :
   Op<APSDialect, mnemonic, traits>;
 
+// Bit-accurate floating operation, including separately observable IEEE flags.
+def APS_FPOp : APSOp<"fp", [Pure]> {
+  let arguments = (ins Variadic<AnyType>:$inputs, I32Attr:$kind,
+                       I32Attr:$width, I32Attr:$rm, I32Attr:$predicate);
+  let results = (outs AnyType:$data, AnySignlessInteger:$flags);
+}
+
 def CopyIn : I32EnumAttrCase<"In", 0, "in">;
 def CopyOut : I32EnumAttrCase<"Out", 1, "out">;
 
@@ -111,6 +118,18 @@ def WriteSmem : APSOp<"write_smem", [MemoryEffects<[MemRead, MemWrite]>]> {
   let arguments = (ins AnyType:$value, AnyMemRef:$memref, Variadic<AnySignlessInteger>:$indices);
   let assemblyFormat = "$value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices)";
   let hasCanonicalizer = 1;
+}
+
+def WriteSmemIf : APSOp<"write_smem_if", [MemoryEffects<[MemWrite]>]> {
+  let summary = "conditionally store to a scratchpad bank";
+  let description = [{
+    A false condition performs no memory access. In particular, it does not
+    read and write back the old location. The condition is an SSA operand
+    belonging to the same transaction as the address and value.
+  }];
+  let arguments = (ins I1:$condition, AnyType:$value, AnyMemRef:$memref,
+                       Variadic<AnySignlessInteger>:$indices);
+  let assemblyFormat = "$condition `,` $value `,` $memref `[` $indices `]` attr-dict `:` type($value) `,` type($memref) `,` type($indices)";
 }
 
 def MemItfc : APSOp<"memitfc", [Symbol]> {

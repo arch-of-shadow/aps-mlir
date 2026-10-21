@@ -1504,6 +1504,8 @@ class CTranspiler:
                 return "int32_t"
             else:
                 return "int64_t"
+        elif isinstance(basic_type, cadl_ast.BasicType_BFloat16):
+            raise NotImplementedError("BF16 has no portable native C arithmetic type; use the paired bit-pattern ISAX C tests")
         elif isinstance(basic_type, cadl_ast.BasicType_Float32):
             return "float"
         elif isinstance(basic_type, cadl_ast.BasicType_Float64):
@@ -1559,6 +1561,9 @@ class CTranspiler:
                     static_obj = self.proc.statics[array_name]
                     return self.map_static_array_type(static_obj)
             return "uint32_t"
+
+        if isinstance(expr, cadl_ast.BitcastExpr):
+            return {"f32": "float", "u32": "uint32_t", "i32": "int32_t"}[expr.target_type]
 
         if isinstance(expr, cadl_ast.BinaryExpr):
             left = self.infer_c_type_from_expr(expr.left)
@@ -1847,6 +1852,16 @@ class CTranspiler:
             if alias_key and alias_key in self.irf_read_params:
                 return self.irf_read_params[alias_key]
             return name
+        elif isinstance(expr, cadl_ast.BitcastExpr):
+            target = expr.target_type
+            source = self.infer_c_type_from_expr(expr.operand)
+            operand = self.generate_expr(expr.operand)
+            if target == "f32" and source in {"uint32_t", "int32_t"}:
+                return f"((union {{ uint32_t bits; float value; }}){{.bits = {operand}}}).value"
+            if target in {"u32", "i32"} and source == "float":
+                integer = "uint32_t" if target == "u32" else "int32_t"
+                return f"((union {{ {integer} bits; float value; }}){{.value = {operand}}}).bits"
+            raise TypeError(f"Unsupported C bitcast: {source} to {target}")
         elif isinstance(expr, cadl_ast.BinaryExpr):
             return self.generate_binop(expr)
         elif isinstance(expr, cadl_ast.UnaryExpr):
@@ -1874,7 +1889,11 @@ class CTranspiler:
         if isinstance(lit.lit, cadl_ast.LiteralInner_Fixed):
             return str(lit.lit.value)
         elif isinstance(lit.lit, cadl_ast.LiteralInner_Float):
-            return str(lit.lit.value)
+            text = lit.lit.text or str(lit.lit.value)
+            if isinstance(lit.ty, cadl_ast.BasicType_Float32):
+                if not any(c in text for c in '.eE'):text += '.0'
+                return text + 'f'
+            return text
         elif isinstance(lit.lit, LiteralInner_Bool):
             return "true" if lit.lit.value else "false"
         else:

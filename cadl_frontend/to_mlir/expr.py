@@ -8,6 +8,7 @@ import circt.dialects.aps as aps
 import circt.dialects.comb as comb
 
 from .. import cadl_ast
+from .literals import exact_float_attr
 from .types import cast_cadl_type_to_mlir
 
 
@@ -27,10 +28,15 @@ class ExprEmitter:
 
             if isinstance(literal.lit, (cadl_ast.LiteralInner_Fixed, cadl_ast.LiteralInner_Float)):
                 value = literal.lit.value
+                if isinstance(literal.lit, cadl_ast.LiteralInner_Float) and literal.lit.text:
+                    value = exact_float_attr(mlir_type, literal.lit.text)
                 return arith.ConstantOp(mlir_type, value).result
             raise NotImplementedError(
                 f"Literal type not supported: {type(literal.lit)}"
             )
+
+        if isinstance(expr, cadl_ast.CallExpr):
+            return self.emit_float_call(expr)
 
         if isinstance(expr, cadl_ast.IdentExpr):
             return self.emit_ident(expr)
@@ -39,6 +45,23 @@ class ExprEmitter:
             left = self.emit(expr.left)
             right = self.emit(expr.right)
             return self.convert_binary_op(expr.op, left, right, expr)
+
+        if isinstance(expr, cadl_ast.BitcastExpr):
+            value = self.emit(expr.operand)
+            target = cast_cadl_type_to_mlir(cadl_ast.parse_basic_type_from_string(expr.target_type))
+            def width(ty):
+                if isinstance(ty, ir.IntegerType):
+                    return ty.width
+                if isinstance(ty, ir.F32Type):
+                    return 32
+                if isinstance(ty, ir.BF16Type):
+                    return 16
+                return None
+            if width(value.type) is None or width(value.type) != width(target):
+                raise TypeError("bitcast requires same-width integer/bf16/f32 types")
+            if value.type == target:
+                return value
+            return arith.BitcastOp(target, value).result
 
         if isinstance(expr, cadl_ast.UnaryExpr):
             operand = self.emit(expr.operand)
@@ -57,6 +80,55 @@ class ExprEmitter:
             return self.convert_select_expr(expr)
 
         raise NotImplementedError(f"Expression type not yet supported: {type(expr)}")
+
+    def emit_float_call(self, expr):
+        import re
+        match = re.fullmatch(r"(bf16|fp32)_(add|sub|mul|div|sqrt|fma|fmsub|fnmadd|fnmsub|cmp|from_i32|from_u32|to_i32|to_u32|widen|narrow|neg|abs|copysign|min|max|classify)(_flags)?", expr.name)
+        if not match:
+            raise NotImplementedError(f"Unknown intrinsic: {expr.name}")
+        precision, name, flags = match.groups()
+        variant = name if name in {'fmsub','fnmadd','fnmsub'} else None
+        if variant:
+            name = 'fma'
+        if name == 'widen' and precision != 'bf16' or name == 'narrow' and precision != 'fp32':
+            raise TypeError('Use bf16_widen / fp32_narrow for cross-format conversion')
+        names = ["add","sub","mul","div","sqrt","fma","cmp","from_i32","from_u32","to_i32","to_u32","widen","narrow","neg","abs","copysign","min","max","classify"]
+        kind = names.index(name)
+        width = 16 if precision == "bf16" else 32
+        arity = 3 if name == "fma" else 2 if name in {"add","sub","mul","div","cmp","copysign","min","max"} else 1
+        args = list(expr.args)
+        predicate = 0
+        def integer_literal(value):
+            if not isinstance(value, cadl_ast.LitExpr) or not isinstance(value.literal.lit, cadl_ast.LiteralInner_Fixed):
+                raise TypeError("rounding mode/predicate must be an integer literal")
+            return value.literal.lit.value
+        if name == "cmp":
+            if len(args) != 3:
+                raise TypeError("cmp requires a,b,predicate (MLIR predicates 0..15)")
+            predicate = integer_literal(args.pop())
+        rm = 1 if name in {"to_i32","to_u32"} else 0
+        if len(args) == arity + 1:
+            rm = integer_literal(args.pop())
+        if len(args) != arity or rm not in range(5) or predicate not in range(16):
+            raise TypeError("invalid floating intrinsic arity/rounding/predicate")
+        operands = [self.emit(a) for a in args]
+        fp_type = ir.BF16Type.get() if width == 16 else ir.F32Type.get()
+        expected = ir.F32Type.get() if name == "narrow" else ir.BF16Type.get() if name == "widen" else fp_type
+        if name in {"from_i32","from_u32"}:
+            if not isinstance(operands[0].type, ir.IntegerType) or operands[0].type.width != 32:
+                raise TypeError("from_i32/u32 requires a 32-bit integer")
+        elif any(v.type != expected for v in operands):
+            raise TypeError(f"{expr.name} requires {expected} operands")
+        output = ir.F32Type.get() if name == "widen" else ir.BF16Type.get() if name == "narrow" else ir.IntegerType.get_signless(32) if name in {"to_i32","to_u32","classify"} else ir.IntegerType.get_signless(1) if name == "cmp" else fp_type
+        attrs = {k: ir.IntegerAttr.get(ir.IntegerType.get_signless(32), v) for k,v in {"kind":kind,"width":width,"rm":rm,"predicate":predicate}.items()}
+        if variant:
+            for index in ([2] if variant == 'fmsub' else [0,2] if variant == 'fnmadd' else [0]):
+                neg_attrs = dict(attrs)
+                neg_attrs['kind'] = ir.IntegerAttr.get(ir.IntegerType.get_signless(32), 13)
+                neg = ir.Operation.create('aps.fp', results=[fp_type,ir.IntegerType.get_signless(5)], operands=[operands[index]], attributes=neg_attrs)
+                operands[index] = neg.results[0]
+        op = ir.Operation.create("aps.fp", results=[output, ir.IntegerType.get_signless(5)], operands=operands, attributes=attrs)
+        return op.results[1 if flags else 0]
 
     def convert_type_if_needed(
         self, value: ir.Value, type_annotation: Optional[cadl_ast.DataType]
@@ -205,6 +277,26 @@ class ExprEmitter:
         """Convert a CADL binary operator to MLIR."""
         is_signed = expr and self.get_expr_signedness(expr.left)
 
+        float_types = (ir.BF16Type, ir.F32Type, ir.F64Type)
+        if isinstance(left.type, float_types) or isinstance(right.type, float_types):
+            if left.type != right.type or not isinstance(left.type, (ir.BF16Type, ir.F32Type)):
+                raise TypeError("floating arithmetic requires matching bf16/f32 operands")
+            operations = {
+                cadl_ast.BinaryOp.ADD: arith.AddFOp,
+                cadl_ast.BinaryOp.SUB: arith.SubFOp,
+                cadl_ast.BinaryOp.MUL: arith.MulFOp,
+                cadl_ast.BinaryOp.DIV: arith.DivFOp,
+            }
+            operation = operations.get(op)
+            predicates = {cadl_ast.BinaryOp.EQ: 1, cadl_ast.BinaryOp.NE: 14,
+                          cadl_ast.BinaryOp.LT: 4, cadl_ast.BinaryOp.LE: 5,
+                          cadl_ast.BinaryOp.GT: 2, cadl_ast.BinaryOp.GE: 3}
+            if op in predicates:
+                return arith.CmpFOp(predicates[op], left, right).result
+            if operation is None:
+                raise NotImplementedError(f"Floating operation not supported: {op}")
+            return operation(left, right).result
+
         if op == cadl_ast.BinaryOp.AND:
             i1_type = ir.IntegerType.get_signless(1)
             left = self.cast_type(left, i1_type, condition_context=True)
@@ -274,6 +366,10 @@ class ExprEmitter:
 
     def convert_unary_op(self, op: cadl_ast.UnaryOp, operand: ir.Value) -> ir.Value:
         """Convert a CADL unary operator to MLIR."""
+        if isinstance(operand.type, (ir.BF16Type, ir.F32Type, ir.F64Type)):
+            if op == cadl_ast.UnaryOp.NEG:
+                return arith.NegFOp(operand).result
+            raise NotImplementedError(f"Floating unary operation not supported: {op}")
         if op == cadl_ast.UnaryOp.NEG:
             zero = arith.ConstantOp(operand.type, 0).result
             return arith.SubIOp(zero, operand).result

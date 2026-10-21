@@ -1,0 +1,30 @@
+# Native register boundaries; transaction latency is not STA characterization.
+version: 2
+hardfloat_release: 1
+specialization: RISCV
+precisions: [16, 32]
+rounding: [RNE, RTZ, RDN, RUP, RMM]
+tininess: after_rounding
+nan: canonical
+response_slack: 2
+# Ordered by the public APS FP operation kind. Iterative bounds use sigWidth.
+operations:
+  add: {resource: addf, latency: 3}
+  sub: {resource: subf, latency: 3}
+  mul: {resource: mulf, latency: 3}
+  div: {resource: divf, sig_latency: 3}
+  sqrt: {resource: sqrt, sig_latency: 2}
+  fma: {resource: fma, latency: 3}
+  cmp: {resource: cmpf, latency: 1}
+  from_i32: {resource: sitofp, latency: 2}
+  from_u32: {resource: uitofp, latency: 2}
+  to_i32: {resource: fptosi, latency: 1}
+  to_u32: {resource: fptoui, latency: 1}
+  widen: {resource: extf, latency: 1}
+  narrow: {resource: truncf, latency: 2}
+  neg: {resource: negf, latency: 1}
+  abs: {resource: absf, latency: 1}
+  copysign: {resource: copysign, latency: 1}
+  min: {resource: minf, latency: 2}
+  max: {resource: maxf, latency: 2}
+  classify: {resource: classify, latency: 1}
