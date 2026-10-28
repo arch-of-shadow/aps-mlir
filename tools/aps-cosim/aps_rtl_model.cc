@@ -1,12 +1,15 @@
 #include "aps_rtl_model.h"
 
 #include "Vmain.h"
+#include "Vmain___024root.h"
+#include "Vmain__Syms.h"
 
 #include <stdexcept>
 #include <cstdlib>
 #include <iostream>
 #include <verilated.h>
 #include <verilated_vcd_c.h>
+#include <verilated_sym_props.h>
 
 namespace {
 
@@ -112,6 +115,18 @@ ApsResult ApsRtlModel::execute(const ApsCommand &cmd,
   uint64_t start = cycle_;
   bool accepted = false;
   ApsResult result;
+  const std::string completionName = "instruction_completed_" +
+      std::to_string((unsigned(cmd.opcode) << 8) | cmd.funct7) + "_";
+  const auto *completionVar =
+      top_->rootp->vlSymsp->__Vscopep_TOP->varFind(completionName.c_str());
+  const auto *completion = completionVar
+      ? static_cast<const uint8_t *>(completionVar->datap()) : nullptr;
+  // Older RTL can still run response-producing instructions. Void commands
+  // require an explicit completion indication; DMA inactivity is insufficient.
+  if (!cmd.xd && !completion)
+    throw std::runtime_error("missing RTL instruction completion port: " +
+                             completionName);
+  const uint8_t initialCompletion = completion ? *completion : 0;
 
   for (;;) {
     if (!accepted) {
@@ -137,7 +152,13 @@ ApsResult ApsRtlModel::execute(const ApsCommand &cmd,
       top_->rocc_cmd_enable = 0;
     }
 
-    if (result.hasResponse) {
+    const bool completed = completion ? *completion != initialCompletion
+                                      : result.hasResponse;
+    if (accepted && completed && (!cmd.xd || result.hasResponse) && dma_.idle()) {
+      if (cmd.xd && result.rd != cmd.rd)
+        throw std::runtime_error("APS RTL response destination mismatch: expected x" +
+                                 std::to_string(cmd.rd) + ", got x" +
+                                 std::to_string(result.rd));
       result.cycles = cycle_ - start;
       return result;
     }
@@ -151,12 +172,6 @@ ApsResult ApsRtlModel::execute(const ApsCommand &cmd,
                 << " poll0=" << unsigned(top_->dma_poll_for_idle_ch0_ready)
                 << " hella=" << unsigned(top_->hella_cmd_hella_cmd_to_bus_enable)
                 << "\n";
-    }
-
-    if (accepted && dma_.idle() && !cmd.xd) {
-      result.hasResponse = false;
-      result.cycles = cycle_ - start;
-      return result;
     }
 
     if (cycle_ - start > timeoutCycles)

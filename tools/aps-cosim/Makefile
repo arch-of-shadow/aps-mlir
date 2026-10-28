@@ -9,8 +9,8 @@ OBJ_DIR ?= obj_dir
 SPIKE_OBJ_DIR ?= obj_dir_spike
 SPIKE_DIR ?= ../../thirdparty/chipyard/toolchains/riscv-tools/riscv-isa-sim
 SPIKE_BUILD ?= $(SPIKE_DIR)/build
-SPIKE_OBJ_SPIKE_DIR := ../../../thirdparty/chipyard/toolchains/riscv-tools/riscv-isa-sim
-SPIKE_OBJ_SPIKE_BUILD := $(SPIKE_OBJ_SPIKE_DIR)/build
+SPIKE_OBJ_SPIKE_DIR := $(abspath $(SPIKE_DIR))
+SPIKE_OBJ_SPIKE_BUILD := $(abspath $(SPIKE_BUILD))
 PROJECT_ROOT := $(abspath ../..)
 RTL_PATH := $(if $(filter /%,$(RTL)),$(RTL),$(if $(wildcard $(RTL)),$(abspath $(RTL)),$(PROJECT_ROOT)/$(RTL)))
 ELF ?=
@@ -35,7 +35,7 @@ SPIKE_SRCS := \
   spike_memory_bridge.cc \
   spike_aps_main.cc
 
-SPIKE_CFLAGS := -std=c++17 -I.. -I$(SPIKE_OBJ_SPIKE_DIR) -I$(SPIKE_OBJ_SPIKE_BUILD)
+SPIKE_CFLAGS := -std=c++17 -I$(CURDIR) -I$(SPIKE_OBJ_SPIKE_DIR) -I$(SPIKE_OBJ_SPIKE_BUILD)
 SPIKE_LIBS := \
   $(SPIKE_OBJ_SPIKE_BUILD)/libriscv.a \
   $(SPIKE_OBJ_SPIKE_BUILD)/libdisasm.a \

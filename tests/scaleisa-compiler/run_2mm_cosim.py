@@ -19,8 +19,13 @@ def main():
         "--binary-dir", type=Path, default=ROOT / "build/scaleisa-compiler-2mm"
     )
     parser.add_argument("--skip-prepare", action="store_true")
+    parser.add_argument("--output-rows", type=int, default=64)
+    parser.add_argument("--output-cols", type=int, default=64)
     parser.add_argument("--timeout", type=int, default=600)
     args = parser.parse_args()
+    if not (1 <= args.output_rows <= 64 and 1 <= args.output_cols <= 64):
+        parser.error("output rows and columns must be between 1 and 64")
+    checked_elements = args.output_rows * args.output_cols
     binary = args.binary_dir.resolve()
     output = binary / "cosim"
     output.mkdir(parents=True, exist_ok=True)
@@ -34,6 +39,8 @@ def main():
         "area_budget": 1000,
         "max_extra_csrs": 5,
         "pragma": "none",
+        "output_rows": args.output_rows,
+        "output_cols": args.output_cols,
         "commands": [],
         "simulation_started": False,
     }
@@ -42,7 +49,7 @@ def main():
     def save():
         report_path.write_text(json.dumps(report, indent=2) + "\n")
 
-    def run(stage, argv):
+    def run(stage, argv, *, cwd=ROOT):
         report["stage"] = stage
         save()
         command = list(map(str, argv))
@@ -50,7 +57,7 @@ def main():
         with log.open("w") as stream:
             result = subprocess.run(
                 command,
-                cwd=ROOT,
+                cwd=cwd,
                 env=env,
                 stdout=stream,
                 stderr=subprocess.STDOUT,
@@ -87,16 +94,22 @@ def main():
                     args.discovery_dir.resolve(),
                     "--output-dir",
                     binary,
+                    "--output-rows", args.output_rows,
+                    "--output-cols", args.output_cols,
                 ],
             )
+        prepared = json.loads((binary / "binary-report.json").read_text())
+        if (prepared.get("output_rows", 64), prepared.get("output_cols", 64)) != (args.output_rows, args.output_cols):
+            raise RuntimeError("prepared binary has different output dimensions")
         fixtures = ROOT / "tests/scaleisa-compiler/fixtures"
         baseline = output / "2mm-cpu-baseline.elf"
         run(
             "compile-cpu-baseline",
             [
-                sys.executable,
-                ROOT / "tools/scaleisa-compile",
-                ROOT / "scaleisa/examples/2mm_new/2mm_new.mlir",
+                ROOT / "build/tools/aps-scaleisa-opt/aps-scaleisa-opt",
+                "--compile-only",
+                binary / "baseline.mlir" if (binary / "baseline.mlir").exists()
+                else ROOT / "scaleisa/examples/2mm_new/2mm_new.mlir",
                 "--hardware",
                 binary / "hardware.mlir",
                 "--allow-no-ci",
@@ -127,16 +140,28 @@ def main():
         )
         report["cpu_baseline"] = {
             "status": "passed",
-            "checked_output_elements": 4096,
+            "checked_output_elements": checked_elements,
             "custom_instructions": 0,
             "elf": str(baseline),
         }
+        resource = output / "resource.json"
+        run(
+            "prepare-float-resources",
+            [
+                sys.executable,
+                ROOT / "hardware/hardfloat/build-hardfloat-ip.py",
+                f"--resource-output={resource}",
+            ],
+            cwd=output,
+        )
         run(
             "synthesis",
             [
                 ROOT / "build/tools/aps-opt/aps-e2e",
                 "--clock",
                 "4.0",
+                "--resource",
+                resource,
                 "-i",
                 binary / "hardware.mlir",
                 "-o",
@@ -173,8 +198,10 @@ def main():
                 binary / "2mm.elf",
             ],
         )
-        report.update(status="passed", checked_output_elements=4096)
-        print("2mm APS co-simulation passed: all 4096 output values checked.")
+        report.update(status="passed", checked_output_elements=checked_elements,
+                      expected_ci_invocations=prepared.get(
+                          "expected_ci_invocations", args.output_rows * (64 + args.output_cols)))
+        print(f"2mm APS co-simulation passed: all {checked_elements} output values checked.")
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
         report.update(status="failed", error=str(error))
         print(

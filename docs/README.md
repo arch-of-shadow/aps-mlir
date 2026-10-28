@@ -57,6 +57,10 @@ A unified interface for ISAX integration across RISC-V platforms (Rocket/RoCC, C
 
 ## Resources
 
+- [APS ScaleISA driver](COMPILER/aps-scaleisa-opt.md) — discovery, selected AU
+  software, matching RTL, and cosimulation through one C++ tool.
+- [ScaleISA benchmark comparison](COMPILER/scaleisa-benchmark-report.md) — full
+  Rocket cycle measurements, model estimates, and exact AU/APS MLIR artifacts.
 - [ScaleISA adapter](COMPILER/scaleisa-adapter.md) — candidate conversion,
   instruction splitting, loop pragmas, and scalar APS interfaces.
 - [ScaleISA software compiler](COMPILER/scaleisa-compiler.md) — exposed CI sites

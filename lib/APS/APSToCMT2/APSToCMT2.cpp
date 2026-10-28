@@ -129,6 +129,10 @@ void APSToCMT2Pass::runOnOperation() {
   addCSRInterface(circuit, moduleOp);
   auto memoryPoolResult = generateMemoryPool(circuit, moduleOp, memoryMapOp);
   Module *poolModule = memoryPoolResult.poolModule;
+  if (!poolModule) {
+    signalPassFailure();
+    return;
+  }
   memEntryMap = std::move(memoryPoolResult.memEntryMap);
 
   auto glblRegister = generateGlobalRegisterList(circuit, moduleOp, memoryMapOp);

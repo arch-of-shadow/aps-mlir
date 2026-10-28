@@ -7,7 +7,7 @@ interfaces live in `include/scaleisa-adapter`; implementations live in
 Build with `cmake --build build --target scaleisa-adapter-opt`. The pipeline is:
 
 ```bash
-build/tools/scaleisa-adapter-opt/scaleisa-adapter-opt candidate.mlir \
+build/tools/aps-scaleisa-opt/scaleisa-adapter-opt candidate.mlir \
   --scaleisa-adapter='max-extra-csrs=5 pragma=none' -o planned.mlir
 ```
 
@@ -20,6 +20,9 @@ explicit request; correctness runs use `max-extra-csrs=5 pragma=none`.
 1. `--scaleisa-convert`: lower buffer-based linalg to affine loops and convert
    affine/memref loads and stores to APS scratchpad operations. Preserve arithmetic
    and loop semantics; remove previous scheduling attributes and loop pragmas.
+   `preserve-implementation-pragmas=true` retains the selected `pipeline`, `II`,
+   and `unroll` choices while still clearing stale schedules and costs. The
+   [APS ScaleISA driver](aps-scaleisa-opt.md) uses this mode for selected kernels.
 2. `--scaleisa-split='max-extra-csrs=1'`: limit each instruction helper to two
    register inputs plus the configured number of CSR inputs. Keep a candidate
    intact when it fits. Otherwise partition a pure, single-block scalar SSA graph
@@ -30,7 +33,7 @@ explicit request; correctness runs use `max-extra-csrs=5 pragma=none`.
    not a latency-optimal ILP. Oversized candidates must be extracted before
    splitting if other functions already reference them.
 3. `--scaleisa-insert-pragmas='mode=pipeline'`: annotate innermost loops after
-   splitting. `mode=unroll` requests full unrolling of static affine loops within
+   splitting. `mode=unroll` requests full unrolling of static affine or constant-bound SCF loops within
    an expanded-operation limit; `mode=none` retains sequential loops. Ineligible
    loops remain sequential and carry an explicit rejection reason.
 
@@ -55,7 +58,7 @@ the corresponding CPU instruction sequence is handled by the
 Materialize the RV32 scalar and CPU-memory operand ABI:
 
 ```bash
-build/tools/scaleisa-adapter-opt/scaleisa-adapter-opt planned.mlir \
+build/tools/aps-scaleisa-opt/scaleisa-adapter-opt planned.mlir \
   --scaleisa-materialize-aps='csr-base=2049 opcode=43 funct7-base=0' \
   -o hardware.mlir
 ```
@@ -83,13 +86,26 @@ compute using aps.read_smem / aps.write_smem
 aps.copy scratchpad -> CPU for writable operands
 ```
 
-Input copies include writable buffers so partial writes preserve untouched
-elements. Output copies precede `aps.write_irf` and function completion. Only
-rank-zero scalar references use `aps.load`/`aps.store`; array computation uses
-scratchpads. No physical interface declarations, interface-bound operations, or
+Input copies preserve untouched elements for partial writes. A read-free buffer
+with one unconditional store covering every element of a static rectangular
+loop nest needs only its output copy. The proof requires distinct induction
+variables, zero-based unit-step bounds matching each extent, and no enclosing
+conditionals or extra loops. Other buffers retain their input copy.
+Output copies precede `aps.write_irf` and function completion.
+rank-zero scalar references use one-element scratchpads with the same
+import/writeback protocol and alias contract as arrays. Local scalar slots
+remain local hardware state. No physical interface declarations, interface-bound operations, or
 transfer-length canonicalization are emitted. Copy lengths remain the original
-logical counts, including non-power-of-two lengths. Interface selection and
-transaction decomposition belong to downstream APS lowering.
+logical counts, including non-power-of-two lengths. For 32-bit elements, copies
+use a whole-beat DMA prefix (8-byte reads, 16-byte writes) and exact scalar CPU
+accesses for the remaining elements. This preserves adjacent CPU storage for
+12-byte and other short buffers. Interface binding and decomposition of the
+DMA prefix belong to downstream APS lowering.
+An explicit cyclic partition hint is refined when needed to provide one physical
+bank per 64-bit DMA lane. For example, factor 1 on an f32 buffer becomes two
+physical banks. Larger compatible partition factors are preserved. The scheduled
+TOR dump records the realized memory map. CMT2 lowering rejects a DMA copy whose
+banks cannot carry a complete beat.
 Software must provide the memref's aligned base pointer, not an MLIR descriptor
 or an offset-adjusted pointer; the operand bindings record the memref type and
 `value_kind = "cpu_aligned_base"` for that purpose. Static source offsets are
@@ -190,3 +206,8 @@ guards, and the final staged matrices. The report and executable standard MLIR
 are saved in the output directory. This remains functional validation, without
 physical interfaces, instruction encoding execution, RTL, timing, or new area
 measurements. No pragmas are inserted.
+
+When preserving ScaleISA implementation pragmas, the adapter translates
+`pipeline = 0` (automatic II in ScaleISA) to APS's `pipeline = 1` enable flag.
+A positive ScaleISA pipeline value supplies `II` separately. This preserves the
+implementation's scheduling intent across the two pragma conventions.

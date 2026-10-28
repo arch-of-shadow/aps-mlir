@@ -77,6 +77,25 @@ module {
     assert "affine.for" not in result
 
 
+def test_nested_conditional_preserves_captured_index_types(tmp_path):
+    result = lower(tmp_path, """
+module {
+  func.func @conditional(%flag: i1, %mem: memref<40xi32>) {
+    affine.for %i = 0 to 40 {
+      scf.if %flag {
+        %value = arith.index_cast %i : index to i32
+        memref.store %value, %mem[%i] : memref<40xi32>
+      }
+    }
+    return
+  }
+}
+""", "--lower-affine-for", "--canonicalize")
+    assert "scf.if" in result
+    assert "memref.store" in result
+    assert "affine.for" not in result
+
+
 def test_nested_loops_and_modulo_expression(tmp_path):
     result = lower(
         tmp_path,
@@ -289,5 +308,127 @@ int main(void) {
         check=True,
         capture_output=True,
         text=True,
+    )
+    subprocess.run([str(binary)], check=True, timeout=10)
+
+
+def test_symbolic_banks_preserve_values_and_avoid_global_name_collisions(tmp_path):
+    result = lower(
+        tmp_path,
+        """
+module {
+  memref.global @buffer : memref<8xi32> = dense<[1,2,3,4,5,6,7,8]> {partition_dim_array = [0 : i32], partition_factor_array = [2 : i32], partition_cyclic_array = [1 : i32]}
+  memref.global @buffer_0 : memref<8xi32> = dense<[11,12,13,14,15,16,17,18]> {partition_dim_array = [0 : i32], partition_factor_array = [2 : i32], partition_cyclic_array = [1 : i32]}
+  func.func @read_banks(%i: index) -> i32 {
+    %a = memref.get_global @buffer : memref<8xi32>
+    %b = memref.get_global @buffer_0 : memref<8xi32>
+    %x = affine.load %a[symbol(%i)] : memref<8xi32>
+    %y = affine.load %b[symbol(%i)] : memref<8xi32>
+    %sum = arith.addi %x, %y : i32
+    return %sum : i32
+  }
+}
+""",
+        "--new-array-partition",
+        "--canonicalize",
+    )
+    assert result.count("memref.global") == 4
+    source = tmp_path / "partitioned.mlir"
+    llvm_mlir = tmp_path / "llvm.mlir"
+    llvm_ir = tmp_path / "test.ll"
+    source.write_text(result)
+    subprocess.run(
+        [str(MLIR_BIN / "mlir-opt"), "--test-lower-to-llvm", str(source), "-o", str(llvm_mlir)],
+        check=True, capture_output=True, text=True,
+    )
+    translation = subprocess.run(
+        [str(MLIR_BIN / "mlir-translate"), "--mlir-to-llvmir", str(llvm_mlir)],
+        check=True, capture_output=True, text=True,
+    )
+    llvm_ir.write_text(translation.stdout)
+    harness = tmp_path / "check.c"
+    harness.write_text("""
+#include <stdint.h>
+extern int32_t read_banks(int64_t);
+int main(void) {
+  for (int64_t i = 0; i < 8; ++i)
+    if (read_banks(i) != 12 + 2 * i) return 1;
+  return 0;
+}
+""")
+    binary = tmp_path / "check"
+    subprocess.run(
+        ["clang", "-O2", str(llvm_ir), str(harness), "-o", str(binary)],
+        check=True, capture_output=True, text=True,
+    )
+    subprocess.run([str(binary)], check=True, timeout=10)
+
+
+@pytest.mark.parametrize("factor", [2, 4])
+def test_nonaffine_banks_preserve_loads_and_guard_stores(tmp_path, factor):
+    result = lower(tmp_path, f"""
+module {{
+  memref.global @buffer : memref<8xi32> = dense<[1,2,3,4,5,6,7,8]> {{partition_dim_array = [0 : i32], partition_factor_array = [{factor} : i32], partition_cyclic_array = [1 : i32]}}
+  func.func @write_slot(%raw: index, %value: i32) {{
+    %zero = arith.constant 0 : index
+    %last = arith.constant 7 : index
+    %negative = arith.cmpi slt, %raw, %zero : index
+    %lo = arith.select %negative, %zero, %raw : index
+    %large = arith.cmpi sgt, %lo, %last : index
+    %index = arith.select %large, %last, %lo : index
+    %mem = memref.get_global @buffer : memref<8xi32>
+    memref.store %value, %mem[%index] : memref<8xi32>
+    return
+  }}
+  func.func @read_slot(%index: index) -> i32 {{
+    %mem = memref.get_global @buffer : memref<8xi32>
+    %value = memref.load %mem[%index] : memref<8xi32>
+    return %value : i32
+  }}
+}}
+""", "--new-array-partition", "--canonicalize")
+    assert result.count("memref.global") == factor
+    assert result.count("aps.write_smem_if") == factor
+    # Execute both reads and writes; every store must preserve all other banks.
+    source = tmp_path / "partitioned.mlir"
+    source.write_text(result)
+    lowered = subprocess.run(
+        [str(APS_OPT), str(source), "--aps-mem-to-memref"],
+        check=True, capture_output=True, text=True,
+    )
+    source.write_text(lowered.stdout)
+    llvm_mlir = tmp_path / "llvm.mlir"
+    subprocess.run(
+        [str(MLIR_BIN / "mlir-opt"), "--test-lower-to-llvm", str(source), "-o", str(llvm_mlir)],
+        check=True, capture_output=True, text=True,
+    )
+    translation = subprocess.run(
+        [str(MLIR_BIN / "mlir-translate"), "--mlir-to-llvmir", str(llvm_mlir)],
+        check=True, capture_output=True, text=True,
+    )
+    llvm_ir = tmp_path / "test.ll"
+    llvm_ir.write_text(translation.stdout)
+    harness = tmp_path / "check.c"
+    harness.write_text("""
+#include <stdint.h>
+extern void write_slot(int64_t, int32_t);
+extern int32_t read_slot(int64_t);
+int main(void) {
+  int32_t expected[8] = {1,2,3,4,5,6,7,8};
+  for (int i = 0; i < 128; ++i) {
+    int index = (i * 7) % 13 - 3;
+    int clamped = index < 0 ? 0 : index > 7 ? 7 : index;
+    expected[clamped] = i * 19 - 37;
+    write_slot(index, expected[clamped]);
+    for (int j = 0; j < 8; ++j)
+      if (read_slot(j) != expected[j]) return 1;
+  }
+  return 0;
+}
+""")
+    binary = tmp_path / "check"
+    subprocess.run(
+        ["clang", "-O2", str(llvm_ir), str(harness), "-o", str(binary)],
+        check=True, capture_output=True, text=True,
     )
     subprocess.run([str(binary)], check=True, timeout=10)

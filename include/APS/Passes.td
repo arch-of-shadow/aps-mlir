@@ -294,7 +294,7 @@ def PlaceReadRFAtEntry : Pass<"place-readrf-at-entry", "::mlir::func::FuncOp"> {
   let dependentDialects = ["aps::APSDialect"];
 }
 
-def PromoteSingletonMemRefToGlobal : Pass<"promote-singleton-memref-to-global", "::mlir::func::FuncOp"> {
+def PromoteSingletonMemRefToGlobal : Pass<"promote-singleton-memref-to-global", "::mlir::ModuleOp"> {
   let summary = "Convert aps.read_smem/memstore on memref<1xT> to aps.globalload/globalstore";
   let description = [{
     This pass converts aps.read_smem and aps.write_smem operations that access
@@ -319,7 +319,9 @@ def PromoteSingletonMemRefToGlobal : Pass<"promote-singleton-memref-to-global", 
       %1 = aps.globalload @vec_0 : i32
 
     The pass traces memref values back to memref.get_global operations to
-    determine the global symbol name for the conversion.
+    determine the global symbol name for the conversion. It runs at module scope
+    because conditional writes in any function must preserve the memory protocol
+    for all accesses to the same global.
   }];
   let constructor = "mlir::createPromoteSingletonMemRefToGlobalPass()";
   let dependentDialects = ["aps::APSDialect", "memref::MemRefDialect"];

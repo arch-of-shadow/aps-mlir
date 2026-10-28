@@ -23,7 +23,7 @@ std::unique_ptr<OperationPass<mlir::ModuleOp>> createAPSMemorySchedulePass();
 std::unique_ptr<OperationPass<mlir::ModuleOp>> createAPSOptimizeStoragePass();
 std::unique_ptr<OperationPass<mlir::tor::DesignOp>> createLowerAPSMemToReqCollectPass();
 std::unique_ptr<Pass> createPlaceReadRFAtEntryPass();
-std::unique_ptr<OperationPass<mlir::func::FuncOp>> createPromoteSingletonMemRefToGlobalPass();
+std::unique_ptr<OperationPass<mlir::ModuleOp>> createPromoteSingletonMemRefToGlobalPass();
 std::unique_ptr<Pass> createAPSToCMT2Pass();
 std::unique_ptr<Pass> createAPSToStandardPass();
 std::unique_ptr<Pass> createCombExtractToArithTruncPass();

@@ -488,21 +488,8 @@ Module *APSToCMT2Pass::generateMemoryEntryModule(
   if (entryInfo.isCyclic) {
     uint32_t totalBankWidth = entryInfo.numBanks * entryInfo.dataWidth;
     if (totalBankWidth < 64) {
-      llvm::errs()
-          << "  ERROR: Cyclic partition configuration causes bank conflicts!\n";
-      llvm::errs() << "    Entry: " << entryInfo.name << "\n";
-      llvm::errs() << "    Config: " << entryInfo.numBanks << " banks × "
-                   << entryInfo.dataWidth << " bits = " << totalBankWidth
-                   << " bits\n";
-      llvm::errs() << "    A 64-bit burst contains "
-                   << (64 / entryInfo.dataWidth) << " elements\n";
-      llvm::errs() << "    Elements per bank: "
-                   << ((64 / entryInfo.dataWidth + entryInfo.numBanks - 1) /
-                       entryInfo.numBanks)
-                   << " (CONFLICT!)\n";
-      llvm::errs() << "    Requirement: num_banks × data_width >= 64\n";
-      llvm::errs()
-          << "    Valid examples: 8×8, 4×16, 2×32, 1×64, 4×32, 8×16, etc.\n";
+      // Scalar-only banks need no burst methods. Actual DMA users are checked
+      // before constructing the pool, so unsupported copies fail the pass.
       burstEnable = false;
     }
   }
@@ -825,21 +812,23 @@ void APSToCMT2Pass::generateBurstAccessLogic(
   auto u64Type = UIntType::get(builder.getContext(), 64);
   auto u32Type = UIntType::get(builder.getContext(), 32);
 
+  llvm::StringMap<llvm::SmallVector<std::string, 4>> bankNamesByEntry;
+  getOperation().walk([&](aps::MemEntryOp entry) {
+    auto &names = bankNamesByEntry[entry.getName()];
+    for (Attribute symbol : entry.getBankSymbols())
+      names.push_back(cast<FlatSymbolRefAttr>(symbol).getValue().str());
+  });
+
   // Step 1: Create all memory entry submodules
   // Save the insertion point first, since circuit.addModule() will change it
   auto savedIP = builder.saveInsertionPoint();
 
   llvm::SmallVector<Module *, 4> entryModules;
   for (const auto &entryInfo : memEntryInfos) {
-    // Collect bank names
-    llvm::SmallVector<std::string, 4> bankNames;
-    for (size_t i = 0; i < entryInfo.numBanks; ++i) {
-      bankNames.push_back(entryInfo.name + "_" + std::to_string(i));
-    }
-
     // Create submodule for this memory entry (this will change insertion point)
     auto *entryMod =
-        generateMemoryEntryModule(entryInfo, circuit, clk, rst, bankNames);
+        generateMemoryEntryModule(entryInfo, circuit, clk, rst,
+                                  bankNamesByEntry[entryInfo.name]);
     entryModules.push_back(entryMod);
   }
 
@@ -1037,18 +1026,10 @@ void APSToCMT2Pass::generateBurstAccessLogic(
         UIntType::get(builder.getContext(), entryInfo.dataWidth);
 
     for (size_t bankIdx = 0; bankIdx < entryInfo.numBanks; ++bankIdx) {
-      std::string topRead0Name =
-          entryInfo.name + "_" + std::to_string(bankIdx) + "_read_0";
-      std::string topRead1Name =
-          entryInfo.name + "_" + std::to_string(bankIdx) + "_read_1";
-      std::string topWriteName =
-          entryInfo.name + "_" + std::to_string(bankIdx) + "_write";
-      if (entryInfo.numBanks == 1) {
-        // Not array_partitioned, we should not add a bankIdx on it
-        topRead0Name = entryInfo.name + "_read_0";
-        topRead1Name = entryInfo.name + "_read_1";
-        topWriteName = entryInfo.name + "_write";
-      }
+      const std::string &bankSymbol = bankNamesByEntry[entryInfo.name][bankIdx];
+      std::string topRead0Name = bankSymbol + "_read_0";
+      std::string topRead1Name = bankSymbol + "_read_1";
+      std::string topWriteName = bankSymbol + "_write";
       std::string entryRead0Name = "bank_read_0_" + std::to_string(bankIdx);
       std::string entryRead1Name = "bank_read_1_" + std::to_string(bankIdx);
       std::string entryWriteName = "bank_write_" + std::to_string(bankIdx);
@@ -1392,25 +1373,39 @@ APSToCMT2Pass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
                    << firstBankSymAttr.getValue() << ", using defaults\n";
     }
 
-    // We only check addrWidth here. If it's array partitioned to be a
-    // single memory, we should convert it before to a globalload/store,
-    // and should not treat it as a memory here.
+    // Singleton banks may retain the memory protocol for conditional or
+    // pipelined writes. Any remaining scratchpad access needs a real bank;
+    // register-promoted objects have no such accesses left.
     if (addrWidth == 0) {
-      bool conditional = false;
-      moduleOp.walk([&](aps::WriteSmemIf store) {
-        auto target = store.getMemref().getDefiningOp<memref::GetGlobalOp>();
-        if (!target) return;
-        for (auto symbol : bankSymbols)
-          conditional |= cast<FlatSymbolRefAttr>(symbol).getValue() == target.getName();
+      bool hasMemoryAccess = false;
+      moduleOp.walk([&](Operation *op) {
+        if (!isa<aps::ReadSmem, aps::ReadSmemIssue, aps::WriteSmem,
+                 aps::WriteSmemIf, tor::GuardedStoreOp>(op)) return;
+        for (Value operand : op->getOperands()) {
+          auto target = operand.getDefiningOp<memref::GetGlobalOp>();
+          if (!target) continue;
+          for (auto symbol : bankSymbols)
+            hasMemoryAccess |= cast<FlatSymbolRefAttr>(symbol).getValue() == target.getName();
+        }
       });
-      moduleOp.walk([&](tor::GuardedStoreOp store) {
-        auto target = store.getMemref().getDefiningOp<memref::GetGlobalOp>();
-        if (!target) return;
-        for (auto symbol : bankSymbols)
-          conditional |= cast<FlatSymbolRefAttr>(symbol).getValue() == target.getName();
-      });
-      if (!conditional) continue;
+      if (!hasMemoryAccess) continue;
       addrWidth = 1;
+    }
+
+    if (uint64_t(numBanks) * dataWidth < 64) {
+      bool hasDMA = false;
+      moduleOp.walk([&](aps::CopyIssue copy) {
+        for (Value memory : copy.getMemrefs()) {
+          auto global = memory.getDefiningOp<memref::GetGlobalOp>();
+          if (!global) continue;
+          for (Attribute symbol : bankSymbols)
+            hasDMA |= cast<FlatSymbolRefAttr>(symbol).getValue() == global.getName();
+        }
+      });
+      if (hasDMA) {
+        memEntry.emitError("DMA scratchpad banks must provide at least 64 bits per beat; refine the cyclic partition before lowering");
+        return {nullptr, {}};
+      }
     }
 
     // Create MemoryEntryInfo for this entry
@@ -1427,6 +1422,8 @@ APSToCMT2Pass::generateMemoryPool(Circuit &circuit, ModuleOp moduleOp,
 
     // Add this memory entry info to the list and map
     memEntryInfos.push_back(entryInfo);
+    for (Attribute symbol : bankSymbols)
+      memEntryMap[cast<FlatSymbolRefAttr>(symbol).getValue()] = entryInfo;
     memEntryMap[memEntry.getName()] = std::move(entryInfo);
   }
 

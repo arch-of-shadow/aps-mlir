@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOL = Path(
     os.environ.get(
         "SCALEISA_ADAPTER_OPT",
-        ROOT / "build/tools/scaleisa-adapter-opt/scaleisa-adapter-opt",
+        ROOT / "build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
     )
 )
 MLIR_OPT = ROOT / "circt/build/bin/mlir-opt"
@@ -87,6 +87,24 @@ func.func @dot(%a: memref<8xi32>, %b: memref<8xi32>) -> i32
 
 
 class AdapterTests(unittest.TestCase):
+    def test_partition_plan_reaches_flat_scratchpad(self):
+        text = '''module {func.func @banked(%a:memref<8xf32>)->f32 attributes {
+          au.generated=true, partition_dim_array_0=[0:i64],
+          partition_factor_array_0=[2:i64], partition_cyclic_array_0=[true]} {
+          %c0=arith.constant 0:index
+          %x=memref.load %a[%c0]:memref<8xf32>
+          return %x:f32
+        }}'''
+        passes = ('--scaleisa-convert=preserve-implementation-pragmas=true',
+                  '--scaleisa-split=max-extra-csrs=5', '--scaleisa-materialize-aps')
+        output = self.run_adapter(text, *passes)
+        global_line = next(line for line in output.splitlines() if 'memref.global @banked_buffer' in line)
+        self.assertIn('partition_factor_array = [2]', global_line)
+        self.assertIn('partition_cyclic_array = [1]', global_line)
+        invalid = text.replace('memref<8xf32>', 'memref<2x4xf32>').replace('%a[%c0]', '%a[%c0,%c0]')
+        error = self.run_adapter(invalid, *passes, success=False)
+        self.assertIn('innermost extent', error)
+
     def run_adapter(self, text, *passes, success=True):
         result = subprocess.run(
             [str(TOOL), *passes],
@@ -226,7 +244,7 @@ class AdapterTests(unittest.TestCase):
         self.assertNotIn("pipeline =", converted)
         self.assertNotIn("unroll =", converted)
         planned = self.planned(DOT, pragma="pipeline")
-        self.assertIn("pipeline = 0 : i64", planned)
+        self.assertIn("pipeline = 1 : i64", planned)
         self.assertIn("scaleisa.instruction", planned)
 
     def test_correctness_defaults_do_not_insert_pragmas(self):
@@ -236,6 +254,24 @@ class AdapterTests(unittest.TestCase):
         for attr in ("pipeline =", "unroll =", "II ="):
             self.assertNotIn(attr, output)
         self.assertIn("scaleisa.max_extra_csrs = 5 : i32", output)
+
+    def test_selected_loop_choices_survive_conversion(self):
+        source = DOT.replace("pipeline = 7", "ref_starttime = 3 : i64, pipeline = 7")
+        output = self.run_adapter(
+            "module {" + source + "}",
+            "--scaleisa-convert=preserve-implementation-pragmas=true",
+        )
+        self.assertIn("pipeline = 1 : i64", output)
+        self.assertIn("II = 7 : i64", output)
+        self.assertIn("unroll = 2 : i64", output)
+        self.assertNotIn("ref_starttime", output)
+
+    def test_automatic_pipeline_is_enabled_for_aps(self):
+        source = DOT.replace('pipeline = 7', 'pipeline = 0')
+        output = self.run_adapter('module {' + source + '}',
+            '--scaleisa-convert=preserve-implementation-pragmas=true')
+        self.assertIn('pipeline = 1 : i64', output)
+        self.assertNotIn('II = 0', output)
 
     def test_old_schedule_costs_are_invalidated(self):
         source = TREE.replace(
@@ -277,8 +313,31 @@ class AdapterTests(unittest.TestCase):
             )
         )
         self.assertIn(
-            "static affine trip count", self.planned(dynamic, pragma="unroll")
+            "static affine or SCF trip count", self.planned(dynamic, pragma="unroll")
         )
+
+    def test_constant_scf_unroll_reaches_the_native_backend(self):
+        source = '''func.func @fill(%out:memref<10xi32>,%v:i32)
+          attributes {au.generated=true} {
+          %lo=arith.constant -3:index
+          %hi=arith.constant 6:index
+          %step=arith.constant 2:index
+          %offset=arith.constant 3:index
+          scf.for %i=%lo to %hi step %step {
+            %at=arith.addi %i,%offset:index
+            memref.store %v,%out[%at]:memref<10xi32>
+          }
+          return
+        }'''
+        planned = self.planned(source, pragma='unroll')
+        self.assertNotIn('scaleisa.pragma_rejected', planned)
+        self.assertIn('unroll = 0 : i64', planned)
+        result = subprocess.run([str(ROOT/'build/tools/aps-opt/aps-opt'),
+            '-p=builtin.module(hls-unroll,canonicalize)'], input=planned,
+            text=True, capture_output=True, cwd=ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('scf.for', result.stdout)
+        self.assertEqual(result.stdout.count('aps.write_smem '), 5)
 
     def test_linalg_buffer_conversion(self):
         source = """module {
@@ -608,6 +667,47 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("aps.read_smem", output)
         self.assertNotIn("unrealized_conversion_cast", output)
 
+    def test_complete_overwrite_omits_input_copy(self):
+        affine = """func.func @clear(%a: memref<2x4xi32>) attributes {au.generated = true} {
+          %v = arith.constant 7 : i32
+          affine.for %i = 0 to 2 {
+            affine.for %j = 0 to 4 {
+              affine.store %v, %a[%i, %j] : memref<2x4xi32>
+            }
+          }
+          return
+        }"""
+        scf = """func.func @clear(%a: memref<2x4xi32>) attributes {au.generated = true} {
+          %v = arith.constant 7 : i32
+          %c0 = arith.constant 0 : index
+          %c1 = arith.constant 1 : index
+          %c2 = arith.constant 2 : index
+          %c4 = arith.constant 4 : index
+          scf.for %i = %c0 to %c2 step %c1 {
+            scf.for %j = %c0 to %c4 step %c1 {
+              memref.store %v, %a[%i, %j] : memref<2x4xi32>
+            }
+          }
+          return
+        }"""
+        for source in (affine, scf):
+            output = self.run_adapter(self.planned(source), "--scaleisa-materialize-aps")
+            self.assertEqual(output.count("aps.copy "), 1)
+            self.assertIn("aps.copy (", output)
+        for source in (affine.replace("%j = 0 to 4", "%j = 0 to 3"),
+                       affine.replace("%j = 0 to 4", "%j = 0 to 4 step 2"),
+                       affine.replace("[%i, %j]", "[%i, %i]"),
+                       affine.replace("%a: memref<2x4xi32>)", "%a: memref<2x4xi32>, %n: index)").replace(
+                           "affine.for %i", "%c0 = arith.constant 0 : index\n"
+                           "          %c1 = arith.constant 1 : index\n"
+                           "          scf.for %extra = %c0 to %n step %c1 { affine.for %i", 1).replace(
+                           "          return", "          }\n          return", 1),
+                       scf.replace("memref.store %v", "scf.if %flag { memref.store %v").replace(
+                           " : memref<2x4xi32>\n", " : memref<2x4xi32> }\n").replace(
+                           "%a: memref<2x4xi32>)", "%a: memref<2x4xi32>, %flag: i1)")):
+            output = self.run_adapter(self.planned(source), "--scaleisa-materialize-aps")
+            self.assertEqual(output.count("aps.copy "), 2)
+
     def test_partial_output_preserves_contents_and_unrounded_length(self):
         source = """func.func @update(%a: memref<5xi32>, %v: i32) -> i32
             attributes {au.generated = true} {
@@ -621,13 +721,13 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(output.count("aps.copy "), 2)
         lengths = re.findall(r"aps.copy .*?, (%\w+) :", output)
         for length in lengths:
-            self.assertRegex(output, re.escape(length) + r" = arith.constant 5 : i32")
+            self.assertRegex(output, re.escape(length) + r" = arith.constant 4 : i32")
+        self.assertEqual(output.count("aps.load "), 1)
+        self.assertEqual(output.count("aps.store "), 1)
         for forbidden in (
             "transfer_bytes",
             "segment_count",
             "aps.copy_by",
-            "aps.load ",
-            "aps.store ",
         ):
             self.assertNotIn(forbidden, output)
         memory = {0x5000 + 4 * i: i + 10 for i in range(5)}
@@ -666,16 +766,32 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("aps.globalload", output)
         self.assertNotIn("memref.alloca", output)
 
-    def test_rank_zero_scalar_reference_uses_scalar_load(self):
+    def test_rank_zero_scalar_reference_is_buffered_once(self):
         source = """func.func @scalar(%a: memref<i32>) -> i32
             attributes {au.generated = true} {
           %v = memref.load %a[] : memref<i32>
           return %v : i32
         }"""
         output = self.run_adapter(self.planned(source), "--scaleisa-materialize-aps")
-        self.assertIn("aps.load ", output)
-        self.assertNotIn("aps.copy ", output)
+        self.assertIn("aps.read_smem ", output)
+        self.assertEqual(output.count("aps.load "), 1)
+        self.assertEqual(output.count("aps.copy "), 0)
         self.assertEqual(self.eval_memory_export(output, [0x6000], {0x6000: 41}), 41)
+
+    def test_rank_zero_update_preserves_alias_contract_and_writes_back(self):
+        source = """func.func @scalar(%a: memref<i32>) -> i32
+            attributes {au.generated = true} {
+          %v = memref.load %a[] : memref<i32>
+          %one = arith.constant 1 : i32
+          %r = arith.addi %v, %one : i32
+          memref.store %r, %a[] : memref<i32>
+          return %r : i32
+        }"""
+        output = self.run_adapter(self.planned(source), "--scaleisa-materialize-aps")
+        self.assertEqual(output.count("aps.load "), 1)
+        self.assertEqual(output.count("aps.store "), 1)
+        self.assertEqual(output.count("aps.copy "), 0)
+        self.assertEqual(self.eval_memory_export(output, [0x6000], {0x6000: 41}), 42)
 
     def test_noncontiguous_arrays_require_layout_legalization(self):
         source = """func.func @strided(%a: memref<4xi32, strided<[2]>>) -> i32

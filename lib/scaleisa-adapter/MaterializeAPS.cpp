@@ -150,15 +150,17 @@ struct MaterializeAPSPass : impl::ScaleISAMaterializeAPSBase<MaterializeAPSPass>
         if (isa<MemRefType>(argument.getType())) {
           binding.append("value_kind", builder.getStringAttr("cpu_aligned_base"));
           binding.append("memref_type", TypeAttr::get(argument.getType()));
-          auto type = cast<MemRefType>(argument.getType());
-          binding.append("memory_mode", builder.getStringAttr(
-              type.getRank() ? "scratchpad" : "scalar"));
+          binding.append("memory_mode", builder.getStringAttr("scratchpad"));
           if (auto noalias = source.getArgAttr(index, "scaleisa.noalias"))
             binding.append("noalias", noalias);
           // A temporary typed handle permits cloning nested regions without
           // creating cross-function SSA references. It is removed below.
           auto handle = builder.create<UnrealizedConversionCastOp>(
               loc, TypeRange{argument.getType()}, ValueRange{bits});
+          for (StringRef name : {"partition_dim_array", "partition_factor_array",
+                                 "partition_cyclic_array"})
+            if (auto plan = source->getAttr(name.str() + "_" + std::to_string(index)))
+              handle->setAttr(name, plan);
           mapping.map(argument, handle.getResult(0));
           cpuMemrefs.emplace_back(handle, bits);
         } else {

@@ -231,10 +231,15 @@ def test_split_pass_accepts_reordered_segments_of_one_transfer(tmp_path, write):
     assert starts == sorted(starts)
 
 
-def test_large_transfer_counts_identical_segments(tmp_path):
-    rows = events(run_pass(tmp_path, copy_module([2064])))
-    assert len(rows) == 33
-    assert sorted(row["transfer_bytes"] for row in rows) == [16] + [64] * 32
+def test_large_transfer_compacts_identical_segments(tmp_path):
+    output = run_pass(tmp_path, copy_module([2064]))
+    rows = events(output)
+    loop = re.search(r"affine.for .* = 0 to (\d+)", output)
+    assert loop and int(loop[1]) == 32
+    assert len(rows) == 2
+    assert sorted(row["transfer_bytes"] for row in rows) == [16, 64]
+    assert int(loop[1]) * max(row["transfer_bytes"] for row in rows) + min(
+        row["transfer_bytes"] for row in rows) == 2064
     assert max(row["memory_search_states"] for row in rows) < 10000
 
 

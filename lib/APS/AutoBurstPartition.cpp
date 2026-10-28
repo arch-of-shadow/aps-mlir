@@ -89,13 +89,29 @@ struct AutoBurstPartitionPass
 
     for (Operation *op : burstGlobals) {
       auto globalOp = cast<memref::GlobalOp>(op);
-      if (hasUserPartitionAttrs(globalOp))
-        continue;
-
       std::optional<int64_t> factor =
           getDefaultBurstPartitionFactor(globalOp);
       if (!factor)
         continue;
+
+      if (hasUserPartitionAttrs(globalOp)) {
+        auto dims = globalOp->getAttrOfType<ArrayAttr>("partition_dim_array");
+        auto factors = globalOp->getAttrOfType<ArrayAttr>("partition_factor_array");
+        auto modes = globalOp->getAttrOfType<ArrayAttr>("partition_cyclic_array");
+        if (!dims || !factors || !modes || dims.size() != 1 ||
+            factors.size() != 1 || modes.size() != 1)
+          continue;
+        auto dim = dyn_cast<IntegerAttr>(dims[0]);
+        auto requested = dyn_cast<IntegerAttr>(factors[0]);
+        auto cyclic = dyn_cast<IntegerAttr>(modes[0]);
+        if (!dim || !requested || !cyclic || dim.getInt() != 0 ||
+            !cyclic.getInt() || requested.getInt() <= 0 ||
+            requested.getInt() >= *factor || *factor % requested.getInt())
+          continue;
+        // A logical partition plan can request fewer banks than the DMA beat
+        // needs. Refine it to the target's lane count; a factor of one must
+        // not disable both physical burst reads and writes.
+      }
 
       addCyclicPartitionAttrs(globalOp, *factor);
     }

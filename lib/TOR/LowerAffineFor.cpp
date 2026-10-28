@@ -14,6 +14,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/RegionUtils.h"
 // #include "mlir/Transforms/Passes.h"
 
 #include "APS/APSDialect.h"
@@ -22,6 +23,7 @@
 #include "TOR/Utils.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/ADT/SetVector.h"
 
 #define DEBUG_TYPE "lower-affine-for"
 
@@ -699,7 +701,12 @@ public:
             }
             // Preserve operand types for operations not explicitly narrowed.
             IRMapping typedMapping(mapping);
-            for (Value operand : bodyOp.getOperands())
+            llvm::SetVector<Value> operands(bodyOp.operand_begin(),
+                                           bodyOp.operand_end());
+            // Nested regions also capture loop values without listing them as
+            // operands of their parent operation (for example scf.if).
+            getUsedValuesDefinedAbove(bodyOp.getRegions(), operands);
+            for (Value operand : operands)
               typedMapping.map(operand, castMappedValue(
                   builder, bodyOp.getLoc(), mapping.lookupOrDefault(operand),
                   operand.getType()));

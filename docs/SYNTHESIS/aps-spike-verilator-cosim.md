@@ -34,6 +34,11 @@ Spike memory / shared host memory image
 
 Spike 负责 CPU 指令、寄存器和程序控制流。Verilated APS RTL 负责 APS 自定义指令语义。Fake DMA 负责把 RTL 的数据搬运请求转换成对 CPU memory 的读写。
 
+运行长程序时，可设置 `APS_COSIM_PROGRESS=1`，每完成 10,000 条自定义指令
+输出一次完成计数、累计 RTL cycles 和耗时。`APS_COSIM_TRACE=1` 输出每条指令、
+每个周期及 DMA/response 的详细状态；`--vcd <path>` 保存 RTL 波形。
+这些选项需要在启动模拟器时启用。
+
 ## 为什么不直接接 TileLink
 
 当前 Chipyard 集成里，TileLink 是 `ApsRoccWrapper` 额外加出来的 SoC 侧接口：
@@ -80,6 +85,13 @@ output        rocc_resp_rocc_resp_to_bus_enable
 ```
 
 Harness 常置 `rocc_resp_rocc_resp_to_bus_ready = 1`。当 `rocc_resp_rocc_resp_to_bus_enable` 为 1 时，把 `rddata` 写回 Spike 的 `rd`。
+
+新生成的 RTL 另有 `instruction_completed_<id>_` 输出，其中
+`id = (opcode << 8) | funct7`。指令最后一个 block 完成后，此 bit 翻转一次；
+显式 copy wait 也在这条完成路径上。Harness 等待本次翻转及 DMA idle，
+`xd=1` 时还要收到寄存器响应，才恢复 Spike 执行。`xd=0` 不产生寄存器响应；
+不能仅凭 DMA 暂时为空就判断完成，因为计算可能还未开始。旧 RTL 若没有此端口，
+仍可运行有寄存器响应的指令，void 指令则需先重新生成 RTL。
 
 ### Fake DMA / scratchpad 访问
 
@@ -130,6 +142,10 @@ Fake DMA 的职责是：
 4. 把读出的数据写回 CPU memory 的 `cpu_addr`。
 
 当前实现让各 DMA channel 的请求入口可以排队，scratchpad `burst_*` 访问仍串行执行。这样更接近 Chipyard 里的 `TlDmaMultichannel`：多个 channel 可以先接受请求，`dma_poll_for_idle_chN_ready/res0` 只有在 active request 和 queue 都为空时才为 1。
+
+DMA 使用 64-bit beat，但 CPU 缓冲区可只有元素类型要求的对齐（例如 f32
+只有 4-byte 对齐）。Spike memory bridge 对未按 8-byte 对齐的 beat 使用
+逐字节读写，保留 store mask，避免把 DMA 访问当成会触发未对齐异常的 CPU 指令。
 
 ## Fake DMA 传输语义
 

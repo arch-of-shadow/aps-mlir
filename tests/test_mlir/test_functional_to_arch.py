@@ -30,7 +30,7 @@ FUNCTIONAL_TO_ARCH_PIPELINE = (
     "canonicalize,"
     "func.func(affine-mem-to-aps,memref-to-aps),"
     "aps-functional-to-arch,"
-    "func.func(promote-singleton-memref-to-global)"
+    "promote-singleton-memref-to-global"
     ")"
 )
 
@@ -289,6 +289,33 @@ def test_binding_emits_only_single_transaction_copies(tmp_path, size, expected):
     for line, count in zip(parts, sizes):
         assert f"transfer_offset = {offset} : i64" in line
         offset += count
+
+
+@pytest.mark.parametrize("direction", [0, 1])
+def test_long_regular_copy_uses_loop_and_preserves_tail(tmp_path, direction):
+    # Seventeen full bursts plus one legal tail. Large transfers must not
+    # become one static rule group per burst in the CMT2 backend.
+    size = 17 * 64 + 16
+    buf_type = f"memref<{size + 5}xi8>"
+    operation = (f"aps.copy %addr, (%buf)[%start], %length : i64, ({buf_type}), i32, i32"
+                 if direction == 0 else
+                 f"aps.copy (%buf)[%start], %addr, %length : ({buf_type}), i32, i64, i32")
+    output = run_arch_pass_on_mlir(tmp_path, "module { aps.memitfc @busitfc\n" + f"""
+      func.func @copy(%addr: i64, %buf: {buf_type}) {{
+        %start = arith.constant 5 : i32
+        %length = arith.constant {size} : i32
+        {operation}
+        return
+      }}
+    }}""")
+    assert re.search(r"affine.for .* = 0 to 17", output)
+    bursts = [line for line in output.splitlines() if "aps.copy_by" in line]
+    assert len(bursts) == 2
+    assert "transfer_bytes = 64 : i64" in bursts[0]
+    assert "transfer_bytes = 16 : i64" in bursts[1]
+    assert "transfer_offset = 1088 : i64" in bursts[1]
+    assert "arith.index_cast" in output
+    assert "arith.muli" in output
 
 
 def test_binding_rejects_unknown_transaction_length(tmp_path):

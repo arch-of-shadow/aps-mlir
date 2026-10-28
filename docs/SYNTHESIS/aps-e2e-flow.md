@@ -111,13 +111,26 @@ Relevant files:
 
 This part prepares the input for HLS-style transforms:
 
+`auto-burst-partition` ensures a flat cyclic scratchpad has enough banks for a
+64-bit DMA beat, refining smaller compatible explicit partition hints. Runtime
+bank selection also handles flattened addresses containing several loop indices,
+such as `row * 3 + column`, when bank depths are equal. CMT2 lowering fails if
+an actual DMA transfer still has insufficient bank width.
+
 - `place-readrf-at-entry` moves register-file reads to function entry so scheduling can place them early.
 - `aps-memory-map` creates `aps.memorymap` with `aps.mem_entry` records for global memories.
 - `normalize-scf-for-indices`, `aps-mem-to-memref`, affine raising, and affine inference normalize loops and memory access patterns.
 - `hls-unroll`, `affine-loop-normalize`, and `new-array-partition` expose parallel memory access and transform globals.
 - `affine-mem-to-aps` and `memref-to-aps` return memory operations to APS-specific hardware operations.
-- `promote-singleton-memref-to-global` converts scalar single-element memories into `aps.globalload` and `aps.globalstore`.
+- `promote-singleton-memref-to-global` converts scalar single-element memories into `aps.globalload` and `aps.globalstore`. It runs at module scope so conditional writes in any function preserve the memory protocol for all users of the same global, without inspecting other functions during parallel rewrites.
 - `arith-muldiv-to-shift` simplifies power-of-two arithmetic before scheduling.
+
+For one-dimensional cyclic partitions with equal bank sizes,
+`new-array-partition` also handles non-affine `memref.load`/`memref.store`
+indices, including clamped indices produced by comparisons and selects.
+The index remainder chooses the bank and the quotient addresses that bank.
+Loads select among bank results; stores enable only the selected bank. This
+keeps dynamically indexed 32-bit buffers compatible with 64-bit burst DMA.
 
 Relevant files:
 
@@ -135,6 +148,9 @@ Relevant files:
 
 This stage moves from software-like control flow to scheduled TOR:
 
+- `lower-affine-for` narrows loop counters while preserving the original types
+  of values captured by nested regions, including conditional index casts and
+  memory indices.
 - `convert-input` prepares scheduling inputs using the clock period and resource database.
 - `scf-to-tor` converts SCF structure into TOR design/function/control operations.
 - `schedule-tor` assigns timing attributes such as `ref_starttime`, `ref_endtime`, and `dump`.

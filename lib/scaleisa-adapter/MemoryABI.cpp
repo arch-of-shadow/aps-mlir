@@ -1,10 +1,14 @@
 #include "scaleisa-adapter/MemoryABI.h"
 #include "APS/APSOps.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/IR/Matchers.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
 
@@ -15,6 +19,65 @@ struct Layout {
   int64_t offset;
   unsigned elementBytes;
 };
+
+// Prove a complete write without observing any original buffer contents.
+// Restrict the proof to a rectangular, unconditional nest: partial stores,
+// repeated dimensions, conditional writes, and zero-trip outer loops require
+// importing the untouched elements.
+bool completelyOverwrites(Value memory) {
+  aps::WriteSmem store;
+  for (Operation *user : memory.getUsers()) {
+    if (auto write = dyn_cast<aps::WriteSmem>(user)) {
+      if (store)
+        return false;
+      store = write;
+    } else if (!isa<memref::DimOp>(user)) {
+      return false;
+    }
+  }
+  auto type = cast<MemRefType>(memory.getType());
+  if (!store || store.getIndices().size() != unsigned(type.getRank()))
+    return false;
+  llvm::SmallPtrSet<Operation *, 4> loops;
+  for (auto [dimension, index] : llvm::enumerate(store.getIndices())) {
+    if (auto cast = index.getDefiningOp<arith::IndexCastOp>())
+      index = cast.getIn();
+    APInt constantIndex;
+    if (type.getDimSize(dimension) == 1 &&
+        matchPattern(index, m_ConstantInt(&constantIndex)) && constantIndex.isZero())
+      continue;
+    auto argument = dyn_cast<BlockArgument>(index);
+    if (!argument || argument.getArgNumber() != 0)
+      return false;
+    Operation *loop = argument.getOwner()->getParentOp();
+    if (auto affineLoop = dyn_cast<affine::AffineForOp>(loop)) {
+      if (!affineLoop.hasConstantLowerBound() ||
+          !affineLoop.hasConstantUpperBound() ||
+          affineLoop.getConstantLowerBound() != 0 ||
+          affineLoop.getConstantUpperBound() != type.getDimSize(dimension) ||
+          affineLoop.getStepAsInt() != 1)
+        return false;
+    } else if (auto scfLoop = dyn_cast<scf::ForOp>(loop)) {
+      APInt lower, upper, step;
+      if (!matchPattern(scfLoop.getLowerBound(), m_ConstantInt(&lower)) ||
+          !matchPattern(scfLoop.getUpperBound(), m_ConstantInt(&upper)) ||
+          !matchPattern(scfLoop.getStep(), m_ConstantInt(&step)) || lower != 0 ||
+          upper != type.getDimSize(dimension) || step != 1)
+        return false;
+    } else {
+      return false;
+    }
+    if (!loops.insert(loop).second)
+      return false;
+  }
+  Operation *parent = store->getParentOp();
+  while (!isa<func::FuncOp>(parent)) {
+    if (!loops.erase(parent))
+      return false;
+    parent = parent->getParentOp();
+  }
+  return loops.empty();
+}
 
 FailureOr<Layout> getLayout(MemRefType type) {
   Layout layout;
@@ -90,6 +153,32 @@ Value createScratchpad(OpBuilder &builder, Location loc, MemRefType type,
   return builder.create<memref::GetGlobalOp>(loc, type, global.getSymName());
 }
 
+LogicalResult transferPartition(Operation *source, Value scratchpad,
+                                MemRefType originalType, SymbolTable &symbols) {
+  auto dims = source->getAttrOfType<ArrayAttr>("partition_dim_array");
+  auto factors = source->getAttrOfType<ArrayAttr>("partition_factor_array");
+  auto modes = source->getAttrOfType<ArrayAttr>("partition_cyclic_array");
+  if (!dims && !factors && !modes)
+    return success();
+  if (!dims || !factors || !modes || dims.size() != 1 || factors.size() != 1 ||
+      modes.size() != 1 || !originalType.getRank())
+    return source->emitError("flat scratchpad partition requires one cyclic innermost dimension");
+  auto dim = dyn_cast<IntegerAttr>(dims[0]);
+  auto factor = dyn_cast<IntegerAttr>(factors[0]);
+  auto cyclic = dyn_cast<IntegerAttr>(modes[0]);
+  if (!dim || !factor || !cyclic || !cyclic.getInt() || factor.getInt() <= 0 ||
+      dim.getInt() != originalType.getRank() - 1 ||
+      originalType.getDimSize(dim.getInt()) % factor.getInt())
+    return source->emitError("flat scratchpad cyclic partition must divide the innermost extent");
+  auto get = scratchpad.getDefiningOp<memref::GetGlobalOp>();
+  auto global = cast<memref::GlobalOp>(symbols.lookup(get.getName()));
+  OpBuilder builder(source);
+  global->setAttr("partition_dim_array", builder.getArrayAttr({builder.getI64IntegerAttr(0)}));
+  global->setAttr("partition_factor_array", factors);
+  global->setAttr("partition_cyclic_array", builder.getArrayAttr({builder.getI64IntegerAttr(1)}));
+  return success();
+}
+
 LogicalResult lowerScratchpadAccesses(Value memory, Value scratchpad,
                                       const Layout &layout) {
   auto type = cast<MemRefType>(memory.getType());
@@ -125,7 +214,7 @@ LogicalResult lowerScratchpadAccesses(Value memory, Value scratchpad,
       return user->emitError("unsupported scratchpad alias or escaping local buffer");
     }
     Value result;
-    if (!type.getRank()) {
+    if (!cast<MemRefType>(scratchpad.getType()).getRank()) {
       if (stored)
         builder.create<aps::GlobalStore>(loc, stored, global.getName());
       else
@@ -180,7 +269,7 @@ LogicalResult validateBufferedMemoryAliasing(Operation *operation) {
   auto function = cast<func::FuncOp>(operation);
   SmallVector<BlockArgument> active;
   SmallVector<BlockArgument> written;
-  bool hasArray = false;
+  bool hasBuffer = false;
   for (BlockArgument argument : function.getArguments()) {
     auto type = dyn_cast<MemRefType>(argument.getType());
     if (!type)
@@ -193,12 +282,12 @@ LogicalResult validateBufferedMemoryAliasing(Operation *operation) {
     }
     if (accessed) {
       active.push_back(argument);
-      hasArray |= type.getRank() != 0;
+      hasBuffer = true;
     }
     if (writes)
       written.push_back(argument);
   }
-  if (!hasArray)
+  if (!hasBuffer)
     return success();
   if (active.size() > 1)
     for (BlockArgument argument : written)
@@ -225,28 +314,51 @@ LogicalResult lowerCPUMemoryArgument(Value memref, Value cpuBase,
   SmallVector<Operation *> users(memref.getUsers());
   bool read = false, written = false;
   for (Operation *user : users) {
-    read |= isa<aps::ReadSmem>(user);
-    written |= isa<aps::WriteSmem>(user);
+    read |= isa<aps::ReadSmem, memref::LoadOp>(user);
+    written |= isa<aps::WriteSmem, memref::StoreOp>(user);
   }
   Value scratchpad;
-  if (type.getRank() && (read || written)) {
+  if (read || written) {
     OpBuilder builder(memref.getDefiningOp());
     Location loc = memref.getLoc();
     auto bufferType = MemRefType::get({type.getNumElements()}, type.getElementType());
     auto function = memref.getDefiningOp()->getParentOfType<func::FuncOp>();
     scratchpad = createScratchpad(builder, loc, bufferType,
         function.getName().str() + "_buffer", function->getParentOfType<ModuleOp>(), symbols);
+    if (failed(transferPartition(memref.getDefiningOp(), scratchpad, type, symbols)))
+      return failure();
     Value address = cpuBase;
     if (layout->offset)
       address = builder.create<arith::AddIOp>(
           loc, cpuBase, constant(builder, loc, static_cast<uint32_t>(
               static_cast<uint64_t>(layout->offset) * layout->elementBytes)));
-    Value start = constant(builder, loc, 0);
-    Value length = constant(builder, loc, type.getNumElements());
-    // Import the original contents even for write-only arguments: a partial
-    // store must preserve untouched elements when the buffer is written back.
-    builder.create<aps::Copy>(loc, aps::CopyDirection::In, address,
-                              ValueRange{scratchpad}, start, length);
+    auto transfer = [&](aps::CopyDirection direction) {
+      int64_t count = type.getNumElements();
+      // Native DMA reads use 8-byte beats and writes require at least 16 bytes.
+      // Transfer a complete prefix and use scalar CPU accesses for the exact
+      // 32-bit tail; neighboring CPU storage must never be imported or changed.
+      int64_t quantum = direction == aps::CopyDirection::In ? 8 : 16;
+      int64_t bulk = layout->elementBytes == 4
+          ? count - count % (quantum / layout->elementBytes) : count;
+      if (bulk)
+        builder.create<aps::Copy>(loc, direction, address, ValueRange{scratchpad},
+                                  constant(builder, loc, 0), constant(builder, loc, bulk));
+      for (int64_t i = bulk; i < count; ++i) {
+        Value cpuAddress = builder.create<arith::AddIOp>(loc, address,
+            constant(builder, loc, i * layout->elementBytes));
+        Value index = constant(builder, loc, i);
+        if (direction == aps::CopyDirection::In) {
+          Value value = builder.create<aps::Load>(loc, type.getElementType(), cpuAddress);
+          builder.create<aps::WriteSmem>(loc, value, scratchpad, ValueRange{index});
+        } else {
+          Value value = builder.create<aps::ReadSmem>(loc, type.getElementType(),
+                                                    scratchpad, ValueRange{index});
+          builder.create<aps::Store>(loc, value, cpuAddress);
+        }
+      }
+    };
+    if (!completelyOverwrites(memref))
+      transfer(aps::CopyDirection::In);
     if (written) {
       auto function = memref.getDefiningOp()->getParentOfType<func::FuncOp>();
       Operation *completion = function.front().getTerminator();
@@ -256,8 +368,7 @@ LogicalResult lowerCPUMemoryArgument(Value memref, Value cpuBase,
           break;
         }
       builder.setInsertionPoint(completion);
-      builder.create<aps::Copy>(loc, aps::CopyDirection::Out, address,
-                                ValueRange{scratchpad}, start, length);
+      transfer(aps::CopyDirection::Out);
     }
   }
   if (scratchpad)
@@ -265,27 +376,7 @@ LogicalResult lowerCPUMemoryArgument(Value memref, Value cpuBase,
   for (Operation *user : users) {
     OpBuilder builder(user);
     Location loc = user->getLoc();
-    if (auto load = dyn_cast<memref::LoadOp>(user)) {
-      Value address = byteAddress(builder, loc, cpuBase, {}, *layout);
-      auto value = builder.create<aps::Load>(loc, load.getType(), address);
-      load.getResult().replaceAllUsesWith(value.getResult());
-      load.erase();
-    } else if (auto store = dyn_cast<memref::StoreOp>(user)) {
-      Value address = byteAddress(builder, loc, cpuBase, {}, *layout);
-      builder.create<aps::Store>(loc, store.getValue(), address);
-      store.erase();
-    } else if (auto load = dyn_cast<aps::ReadSmem>(user)) {
-      Value address = byteAddress(builder, loc, cpuBase, load.getIndices(), *layout);
-      auto value = builder.create<aps::Load>(loc, load.getType(), address);
-      value->setAttrs(load->getAttrs());
-      load.getResult().replaceAllUsesWith(value.getResult());
-      load.erase();
-    } else if (auto store = dyn_cast<aps::WriteSmem>(user)) {
-      Value address = byteAddress(builder, loc, cpuBase, store.getIndices(), *layout);
-      auto write = builder.create<aps::Store>(loc, store.getValue(), address);
-      write->setAttrs(store->getAttrs());
-      store.erase();
-    } else if (auto dim = dyn_cast<memref::DimOp>(user)) {
+    if (auto dim = dyn_cast<memref::DimOp>(user)) {
       auto value = builder.create<arith::ConstantIndexOp>(
           loc, type.getDimSize(*dim.getConstantIndex()));
       dim.getResult().replaceAllUsesWith(value.getResult());
@@ -315,6 +406,8 @@ LogicalResult hoistScratchpadAllocations(func::FuncOp function,
     OpBuilder builder(allocation);
     Value scratchpad = createScratchpad(builder, allocation->getLoc(), globalType,
         function.getName().str() + "_local", function->getParentOfType<ModuleOp>(), symbols);
+    if (failed(transferPartition(allocation, scratchpad, type, symbols)))
+      return failure();
     if (failed(lowerScratchpadAccesses(memory, scratchpad, *layout)))
       return failure();
     allocation->erase();

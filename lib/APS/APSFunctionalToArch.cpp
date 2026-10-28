@@ -2,6 +2,7 @@
 #include "APS/PassDetail.h"
 #include "APS/Passes.h"
 #include "TOR/TOR.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -621,6 +622,9 @@ LogicalResult lowerFullyExpandedCopy(aps::Copy copy, IRRewriter &rewriter,
 
 struct APSFunctionalToArchPass
     : public APSFunctionalToArchBase<APSFunctionalToArchPass> {
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<affine::AffineDialect, arith::ArithDialect, aps::APSDialect>();
+  }
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
 
@@ -795,7 +799,54 @@ struct APSFunctionalToArchPass
       }
 
       uint64_t byteOffset = 0;
-      for (auto [segment, transferBytes] : llvm::enumerate(choice.transfers)) {
+      for (size_t segment = 0; segment < choice.transfers.size();) {
+        uint64_t transferBytes = choice.transfers[segment];
+        size_t repeat = 1;
+        while (segment + repeat < choice.transfers.size() &&
+               choice.transfers[segment + repeat] == transferBytes)
+          ++repeat;
+        // Bound static control expansion. A serial loop also prevents a large
+        // copy from requiring one request/response rule group per transaction.
+        constexpr size_t maxStaticTransactions = 16;
+        if (repeat > maxStaticTransactions) {
+          auto loc = copy.getLoc();
+          auto loop = rewriter.create<affine::AffineForOp>(loc, 0, repeat, 1);
+          {
+            OpBuilder::InsertionGuard guard(rewriter);
+            rewriter.setInsertionPointToStart(loop.getBody());
+            auto offset = [&](Type type, uint64_t stride, uint64_t base) -> Value {
+              Value index = loop.getInductionVar();
+              if (!type.isIndex())
+                index = rewriter.create<arith::IndexCastOp>(loc, type, index);
+              Value scale = createIntegerConstant(rewriter, loc, type, stride);
+              Value initial = createIntegerConstant(rewriter, loc, type, base);
+              Value scaled = rewriter.create<arith::MulIOp>(loc, index, scale);
+              return rewriter.create<arith::AddIOp>(loc, scaled, initial);
+            };
+            Value cpuOffset = offset(copy.getCpuAddr().getType(), transferBytes,
+                                     byteOffset);
+            Value elementOffset = offset(copy.getStart().getType(),
+                                         transferBytes / elementBytes,
+                                         byteOffset / elementBytes);
+            Value cpuAddr = rewriter.create<arith::AddIOp>(
+                loc, copy.getCpuAddr(), cpuOffset);
+            Value start = rewriter.create<arith::AddIOp>(
+                loc, copy.getStart(), elementOffset);
+            Value count = createIntegerConstant(rewriter, loc,
+                copy.getLength().getType(), transferBytes / elementBytes);
+            auto burst = rewriter.create<aps::CopyBy>(
+                loc, copy.getDirection(), choice.model->name, cpuAddr,
+                copy.getMemrefs(), start, count);
+            copyAttrs(copy, burst);
+            auto one = makeChoice(*choice.model, transferBytes, elementBytes,
+                                  copy.getDirection() == aps::CopyDirection::In,
+                                  getCacheHint(copy));
+            annotateBinding(burst, one, transferBytes, 0, 1);
+          }
+          byteOffset += repeat * transferBytes;
+          segment += repeat;
+          continue;
+        }
         uint64_t elementOffset = byteOffset / elementBytes;
         uint64_t elementCount = transferBytes / elementBytes;
         Value cpuAddr = copy.getCpuAddr();
@@ -828,6 +879,7 @@ struct APSFunctionalToArchPass
                         choice.transfers.size(), transactionGroup);
         newCopy->setAttr("transfer_offset", rewriter.getI64IntegerAttr(byteOffset));
         byteOffset += transferBytes;
+        ++segment;
       }
       rewriter.eraseOp(copy);
       ++transactionGroup;

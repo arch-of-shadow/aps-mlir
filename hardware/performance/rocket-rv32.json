@@ -1,0 +1,162 @@
+{
+  "name": "aps-rocket-rv32",
+  "software": {
+    "cpu": "rocket-rv32imaf",
+    "execution": "serial_dependency_latency_estimate",
+    "clock_ns": 2,
+    "path_memory_cycles": 2,
+    "instructions": {
+      "alu": {
+        "compute_cycles": 1
+      },
+      "mul": {
+        "compute_cycles": 6
+      },
+      "div32": {
+        "compute_cycles": 35
+      },
+      "fp32": {
+        "compute_cycles": 4
+      },
+      "fpmul32": {
+        "compute_cycles": 4
+      },
+      "fpsub32": {
+        "compute_cycles": 4
+      },
+      "divf32": {
+        "compute_cycles": 28
+      },
+      "branch": {
+        "compute_cycles": 2
+      },
+      "return": {
+        "compute_cycles": 3
+      },
+      "fsgnj": {
+        "compute_cycles": 4
+      },
+      "fcmp": {
+        "compute_cycles": 4
+      }
+    },
+    "supported_operations": [
+      "arith.constant",
+      "arith.addi",
+      "arith.subi",
+      "arith.andi",
+      "arith.ori",
+      "arith.xori",
+      "arith.shli",
+      "arith.shrsi",
+      "arith.shrui",
+      "arith.cmpi",
+      "arith.select",
+      "arith.muli",
+      "arith.divsi",
+      "arith.divui",
+      "arith.remsi",
+      "arith.remui",
+      "arith.extui",
+      "arith.extsi",
+      "arith.trunci",
+      "arith.index_cast",
+      "arith.index_castui",
+      "arith.bitcast",
+      "arith.maxsi",
+      "arith.maxui",
+      "arith.minsi",
+      "arith.minui",
+      "arith.addf",
+      "arith.subf",
+      "arith.mulf",
+      "arith.divf",
+      "arith.sitofp",
+      "arith.fptosi",
+      "arith.negf",
+      "arith.cmpf"
+    ],
+    "calibration": {
+      "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+      "configuration": "APSRocketConfig",
+      "dependent_operations_per_measurement": 1024,
+      "warm_cycles": {
+        "empty": 275,
+        "alu": 1292,
+        "mul": 6151,
+        "div32": 35845,
+        "fp32": 4108,
+        "fpmul32": 4108,
+        "fpsub32": 4108,
+        "divf32": 28657
+      },
+      "policy": "Dependent ALU/MUL/DIV/FP chains measured with mcycle. Branch/return and L1 load costs are conservative serial estimates, not complete processor timing. Unsupported FP/library operations require calibration.",
+      "conversions": {
+        "source": "tests/aps-scaleisa/fixtures/rocket_conversion_calibration.cpp",
+        "pairs_per_measurement": 1024,
+        "warm_cycles": {
+          "empty": 274,
+          "moves": 7178,
+          "signed_to_float": 7178,
+          "float_to_signed": 7178,
+          "pair": 7178
+        },
+        "binary_sha256": "da505d24e2ddbf81ce66977f8a383dbdad78676051e4e410dc49872ee7fec1ee",
+        "policy": "Each dependent pair crosses integer and FP registers. Signed conversion/move and two-conversion chains have equal warm duration. Round their maximum net pair cost / 2 upward to four cycles per conversion or FP register move. Only i32->f32 and f32->i32 signed conversions are calibrated."
+      },
+      "fp_control": {
+        "source": "tests/aps-scaleisa/fixtures/rocket_fp_control_calibration.cpp",
+        "dependent_operations_per_chain": 1024,
+        "warm_cycles": {
+          "empty": 274,
+          "sign": 4108,
+          "moves_pair": 7180,
+          "move_compare_pair": 7306
+        },
+        "binary_sha256": "fcb7a71db8abe8c728c3a99adb5709e04777ed0f1174e17aa7105558c3f77f7b",
+        "policy": "Sign cost is ceil((sign-empty)/1024)=4. Cross-register move/compare and move/move chains use ceil(max(pair-empty)/2048)=4 cycles per operation, conservatively matching the typed conversion/move calibration. Only f32 sign and ordered comparisons are calibrated; control recipes charge composite comparisons separately."
+      }
+    },
+    "conversions": {
+      "arith.sitofp": {
+        "i32->f32": 4
+      },
+      "arith.fptosi": {
+        "f32->i32": 4
+      }
+    }
+  },
+  "interface": {
+    "max_extra_csrs": 5,
+    "command_cycles": 6,
+    "csr_write_cycles": 3,
+    "source": "Full Chipyard dependent multiply chains measure seven cycles per CI including processor issue and response stalls, versus the one-cycle Hector datapath estimate. Stateful FP, memory and region instructions add context admission; CSR writes and FP moves are charged separately.",
+    "fp_register_move_cycles": 4,
+    "dma_setup_cycles": 10,
+    "dma_bytes_per_cycle": 8,
+    "dma_calibration": {
+      "configuration": "APSRocketConfig",
+      "calls_per_warm_measurement": 16,
+      "warm_cycles": {
+        "32_bytes": 367,
+        "64_bytes": 431,
+        "128_bytes": 560
+      },
+      "policy": "Warm read-only complete-buffer transfers; setup10 + ceil(bytes/8), added to the scheduled kernel and command boundary. Cache misses and contention require RTL measurement."
+    },
+    "context_cycles": 1,
+    "pipeline_loop_results": false,
+    "command_calibration": {
+      "source": "tests/aps-scaleisa/fixtures/rocket_ci_mul_calibration.cpp",
+      "configuration": "APSRocketConfig",
+      "dependent_operations": 1024,
+      "warm_cycles": {
+        "empty": 274,
+        "native_mul": 6151,
+        "ci_mul": 7301
+      },
+      "raw_au_cycles": 1,
+      "policy": "ceil((ci_mul-empty)/1024) - raw_au_cycles = 6 command-boundary cycles. Native and CI chains produce identical i32 results; both binary runs exit successfully."
+    }
+  }
+}

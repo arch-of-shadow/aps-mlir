@@ -306,6 +306,27 @@ struct IndexCastOpConversion : public OpConversionPattern<IndexCastOp> {
   }
 };
 
+struct IndexCastUIOpConversion : public OpConversionPattern<IndexCastUIOp> {
+  using OpConversionPattern<IndexCastUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(IndexCastUIOp op, IndexCastUIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type resultType = getTypeConverter()->convertType(op.getType());
+    Value input = adaptor.getIn();
+    auto inputType = dyn_cast<IntegerType>(input.getType());
+    auto outputType = dyn_cast_or_null<IntegerType>(resultType);
+    if (!inputType || !outputType)
+      return failure();
+    if (inputType.getWidth() < outputType.getWidth())
+      input = rewriter.create<ExtUIOp>(op.getLoc(), resultType, input);
+    else if (inputType.getWidth() > outputType.getWidth())
+      input = rewriter.create<TruncIOp>(op.getLoc(), resultType, input);
+    rewriter.replaceOp(op, input);
+    return success();
+  }
+};
+
 // APS dialect operations conversion
 struct CpuRfReadConversion : public OpConversionPattern<aps::ReadIRF> {
   using OpConversionPattern<aps::ReadIRF>::OpConversionPattern;
@@ -1361,6 +1382,8 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
         return true;
       });
       target.addLegalOp<IndexCastOp>();
+      target.addLegalOp<ExtUIOp, TruncIOp>();
+      target.addIllegalOp<IndexCastUIOp>();
 
       patterns
           .add<AddIOpConversion, ConstIndexConversion, MulIOpConversion,
@@ -1374,7 +1397,8 @@ struct SCFToTORPass : SCFToTORBase<SCFToTORPass> {
                AndIConversionPattern, OrIConversionPattern,
                SelectConversionPattern, LoadOpConversion,
                StoreOpConversion, GuardedStoreOpConversion,
-               IndexCastOpConversion, CpuRfReadConversion, CpuRfWriteConversion
+               IndexCastOpConversion, IndexCastUIOpConversion,
+               CpuRfReadConversion, CpuRfWriteConversion
                /*MoveConstantUp, CallOpConversion*/>(converter, &getContext());
 
       patterns.add<ForOpConversion>(converter, &getContext(), pipeline);

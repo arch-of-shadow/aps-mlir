@@ -54,6 +54,28 @@ rtype reads(rs1:u5, rs2:u5, rd:u5) {
         run([tmp_path / 'obj/VScratchpadMemoryPool', seed], timeout=20)
 
 
+def test_partitioned_bank_symbols_match_read_channels(tmp_path, resource):
+    import re
+    output = compile_cadl(tmp_path, '''#[partition_dim_array([0])]
+#[partition_factor_array([2])]
+#[partition_cyclic_array([1])]
+static data: [u32; 8];
+#[partition_dim_array([0])]
+#[partition_factor_array([2])]
+#[partition_cyclic_array([1])]
+static data_0: [u32; 8];
+#[opcode(7'b0001011)]
+#[funct7(7'b0000000)]
+rtype bank_names(rs1:u5, rs2:u5, rd:u5) {
+    let idx:u32 = _irf[rs1];
+    _irf[rd] = data[idx] + data_0[idx];
+}
+''', resource, export='cmt2')
+    channels = re.findall(r'cmt2.method @(\w+_client0_issue)', output.read_text())
+    assert len(channels) == 4
+    assert len(set(channels)) == 4
+
+
 @pytest.mark.parametrize('kind,ii', [('independent', 1), ('independent', 2),
                                     ('independent', 10), ('raw', 1),
                                     ('distance2', 1), ('dualread', 1), ('war_waw', 1)])

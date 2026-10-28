@@ -14,6 +14,41 @@ import sys
 from test_compiler import ROOT, elf_text
 
 
+def limit_outputs(source, rows, cols, *, selected):
+    """Limit output coverage while retaining the discovered 64-term kernels."""
+    if (rows, cols) == (64, 64):
+        return source
+    from mlir import ir
+
+    with ir.Context(), ir.Location.unknown():
+        module = ir.Module.parse(source)
+        function = next(f for f in module.body.operations
+                        if f.attributes["sym_name"].value == "two_stage_mm")
+        body = function.regions[0].blocks[0]
+        kind = "scf.for" if selected else "affine.for"
+        outer = [op for op in body.operations if op.operation.name == kind]
+        if len(outer) != 2:
+            raise RuntimeError("Expected two 2mm stages")
+        inner = [next(op for op in loop.regions[0].blocks[0].operations
+                      if op.operation.name == kind) for loop in outer]
+        if selected:
+            with ir.InsertionPoint.at_block_begin(body):
+                bounds = [ir.Operation.create(
+                    "arith.constant", results=[ir.IndexType.get()],
+                    attributes={"value": ir.IntegerAttr.get(ir.IndexType.get(), n)}
+                ).results[0] for n in (rows, cols)]
+            # The materialized first stage iterates columns before rows.
+            inner[0].operands[1] = bounds[0]
+            outer[1].operands[1] = bounds[0]
+            inner[1].operands[1] = bounds[1]
+        else:
+            for loop, bound in ((outer[0], rows), (outer[1], rows), (inner[1], cols)):
+                loop.attributes["upperBoundMap"] = ir.AffineMapAttr.get(
+                    ir.AffineMap.get_constant(bound))
+        module.operation.verify()
+        return str(module)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -22,7 +57,11 @@ def main():
     parser.add_argument(
         "--output-dir", type=Path, default=ROOT / "build/scaleisa-compiler-2mm"
     )
+    parser.add_argument("--output-rows", type=int, default=64)
+    parser.add_argument("--output-cols", type=int, default=64)
     args = parser.parse_args()
+    if not (1 <= args.output_rows <= 64 and 1 <= args.output_cols <= 64):
+        parser.error("output rows and columns must be between 1 and 64")
     cache, output = args.discovery_dir.resolve(), args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
@@ -35,6 +74,9 @@ def main():
         "area_budget": 1000,
         "max_extra_csrs": 5,
         "pragma": "none",
+        "output_rows": args.output_rows,
+        "output_cols": args.output_cols,
+        "expected_ci_invocations": args.output_rows * (64 + args.output_cols),
         "commands": [],
         "binary_execution": "not run; floating-point APS RTL validation is separate",
     }
@@ -132,6 +174,12 @@ def main():
                 output / "selected.mlir",
             ],
         )
+        program = output / "selected.mlir"
+        program.write_text(limit_outputs(program.read_text(), args.output_rows,
+                                         args.output_cols, selected=True))
+        (output / "baseline.mlir").write_text(limit_outputs(
+            (ROOT / "scaleisa/examples/2mm_new/2mm_new.mlir").read_text(),
+            args.output_rows, args.output_cols, selected=False))
         selected = json.loads((output / "selection-report.json").read_text())
         if [i["impl_id"] for i in selected["selected_impls"]] != ["cand26.direct"]:
             raise RuntimeError(
@@ -157,7 +205,7 @@ def main():
         run(
             "export-hardware",
             [
-                ROOT / "build/tools/scaleisa-adapter-opt/scaleisa-adapter-opt",
+                ROOT / "build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
                 output / "candidates.mlir",
                 "--scaleisa-adapter=max-extra-csrs=5 pragma=none",
                 "--scaleisa-materialize-aps",
@@ -178,13 +226,15 @@ def main():
             "-c",
         ]
         fixtures = ROOT / "tests/scaleisa-compiler/fixtures"
-        run("main-object", [*common, fixtures / "2mm_main.c", "-o", output / "main.o"])
+        run("main-object", [*common, f"-DTEST_ROWS={args.output_rows}",
+                            f"-DTEST_COLS={args.output_cols}",
+                            fixtures / "2mm_main.c", "-o", output / "main.o"])
         run("startup-object", [*common, fixtures / "start.S", "-o", output / "start.o"])
         run(
             "compile-binary",
             [
-                sys.executable,
-                ROOT / "tools/scaleisa-compile",
+                ROOT / "build/tools/aps-scaleisa-opt/aps-scaleisa-opt",
+                "--compile-only",
                 output / "selected.mlir",
                 "--hardware",
                 output / "hardware.mlir",

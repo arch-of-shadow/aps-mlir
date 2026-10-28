@@ -30,18 +30,24 @@ static FlatSymbolRefAttr getPromotableGlobalSymbol(Value memref) {
   if (!getGlobalOp)
     return {};
 
-  bool conditional = false;
+  bool needsMemoryProtocol = false;
   getGlobalOp->getParentOfType<ModuleOp>().walk([&](aps::WriteSmemIf store) {
     auto target = store.getMemref().getDefiningOp<GetGlobalOp>();
-    conditional |= target && target.getName() == getGlobalOp.getName();
+    needsMemoryProtocol |= target && target.getName() == getGlobalOp.getName();
   });
   getGlobalOp->getParentOfType<ModuleOp>().walk([&](tor::GuardedStoreOp store) {
     auto target = store.getMemref().getDefiningOp<GetGlobalOp>();
-    conditional |= target && target.getName() == getGlobalOp.getName();
+    needsMemoryProtocol |= target && target.getName() == getGlobalOp.getName();
   });
-  // Keep one-element conditional banks in the memory protocol as a whole;
+  getGlobalOp->getParentOfType<ModuleOp>().walk([&](aps::WriteSmem store) {
+    auto target = store.getMemref().getDefiningOp<GetGlobalOp>();
+    if (!target || target.getName() != getGlobalOp.getName()) return;
+    for (Operation *parent = store->getParentOp(); parent; parent = parent->getParentOp())
+      if (parent->hasAttr("pipeline")) needsMemoryProtocol = true;
+  });
+  // Keep conditional and pipelined singleton banks in one memory protocol;
   // promoting just their reads would split one object into RAM and a register.
-  if (conditional) return {};
+  if (needsMemoryProtocol) return {};
   return FlatSymbolRefAttr::get(memref.getContext(), getGlobalOp.getName());
 }
 
@@ -97,7 +103,7 @@ struct PromoteSingletonMemRefToGlobalPass : PromoteSingletonMemRefToGlobalBase<P
 } // namespace
 
 namespace mlir {
-std::unique_ptr<OperationPass<func::FuncOp>> createPromoteSingletonMemRefToGlobalPass() {
+std::unique_ptr<OperationPass<ModuleOp>> createPromoteSingletonMemRefToGlobalPass() {
   return std::make_unique<PromoteSingletonMemRefToGlobalPass>();
 }
 } // namespace mlir

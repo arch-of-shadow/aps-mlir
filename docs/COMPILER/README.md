@@ -126,3 +126,7 @@ Matched instructions become inline assembly:
 
 - [egraph-architecture.md](egraph-architecture.md) - E-graph concepts and MLIR integration
 - [pattern-matching.md](pattern-matching.md) - Detailed matching algorithm
+
+- [APS ScaleISA driver](aps-scaleisa-opt.md): discovery through RTL, software compilation, and cosimulation.
+- [Benchmark comparison](scaleisa-benchmark-report.md): measured Rocket speedups,
+  ScaleISA estimates, and the corresponding AU and APS MLIR files.

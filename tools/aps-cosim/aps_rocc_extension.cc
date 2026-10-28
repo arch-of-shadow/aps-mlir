@@ -1,6 +1,9 @@
 #include "aps_rocc_extension.h"
 
 #include <cstdlib>
+#include <fstream>
+#include <iomanip>
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <riscv/processor.h>
@@ -147,7 +150,27 @@ reg_t ApsRoccExtension::execute(rocc_insn_t insn, reg_t xs1, reg_t xs2) {
               << " funct7=0x" << unsigned(cmd.funct7) << " rs1=0x"
               << cmd.rs1 << " rs2=0x" << cmd.rs2 << std::dec << "\n";
 
+  const bool reportProgress = std::getenv("APS_COSIM_PROGRESS") != nullptr;
+  if (reportProgress && completedCommands_ == 0)
+    progressStarted_ = std::chrono::steady_clock::now();
   ApsResult result = rtl_->execute(cmd);
+  auto &stats = statistics_[{cmd.opcode, cmd.funct7}];
+  ++stats.calls;
+  stats.total += result.cycles;
+  stats.minimum = std::min(stats.minimum, result.cycles);
+  stats.maximum = std::max(stats.maximum, result.cycles);
+  if (reportProgress) {
+    ++completedCommands_;
+    completedCycles_ += result.cycles;
+    if (completedCommands_ % 10000 == 0)
+      std::cerr << "aps-progress completed=" << completedCommands_
+                << " rtl_cycles=" << completedCycles_
+                << " elapsed_seconds="
+                << std::chrono::duration<double>(
+                       std::chrono::steady_clock::now() - progressStarted_)
+                       .count()
+                << "\n";
+  }
   if (std::getenv("APS_COSIM_TRACE")) {
     std::cerr << "aps-rocc opcode=0x" << std::hex << unsigned(cmd.opcode)
               << " funct7=0x" << unsigned(cmd.funct7) << " rs1=0x"
@@ -159,6 +182,26 @@ reg_t ApsRoccExtension::execute(rocc_insn_t insn, reg_t xs1, reg_t xs2) {
     std::cerr << "\n";
   }
   return result.hasResponse ? result.data : 0;
+}
+
+void ApsRoccExtension::writeStatistics(const std::string &path) const {
+  std::ofstream file(path);
+  if (!file)
+    throw std::runtime_error("Cannot write CI runtime statistics: " + path);
+  file << std::setprecision(17);
+  file << "{\"scope\":\"RTL command admission through completion, including DMA; CPU execution excluded\",\"instructions\":[";
+  bool first = true;
+  for (const auto &[encoding, stats] : statistics_) {
+    if (!first) file << ',';
+    first = false;
+    file << "{\"opcode\":" << encoding.first << ",\"funct7\":" << encoding.second
+         << ",\"calls\":" << stats.calls << ",\"total_cycles\":" << stats.total
+         << ",\"min_cycles\":" << stats.minimum << ",\"max_cycles\":" << stats.maximum
+         << ",\"mean_cycles\":" << double(stats.total) / stats.calls << '}';
+  }
+  file << "]}\n";
+  if (!file)
+    throw std::runtime_error("Failed writing CI runtime statistics: " + path);
 }
 
 reg_t ApsRoccExtension::custom0(rocc_insn_t insn, reg_t xs1, reg_t xs2) {

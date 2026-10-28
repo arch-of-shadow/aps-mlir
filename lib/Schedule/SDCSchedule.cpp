@@ -1958,8 +1958,20 @@ LogicalResult SDCSchedule::runSchedule() {
 
   for (auto &&L : Loops) {
     if (L->PipelineFlag == true) {
-      if (pipelineLoop(L.get()) == false)
+      auto *loopOp = L->getDefiningOp();
+      auto *context = loopOp->getContext();
+      loopOp->setAttr("aps.pipeline_requested", UnitAttr::get(context));
+      loopOp->setAttr("aps.pipeline_requested_ii",
+          IntegerAttr::get(IntegerType::get(context, 64), L->TargetII));
+      if (pipelineLoop(L.get()) == false) {
         L->PipelineFlag = false;
+        loopOp->setAttr("aps.pipeline_fallback", StringAttr::get(context,
+            "SDC pipeline scheduling failed; realized a sequential loop"));
+        loopOp->emitWarning("requested pipeline was lowered as a sequential loop");
+      } else {
+        loopOp->setAttr("aps.pipeline_achieved_ii",
+            IntegerAttr::get(IntegerType::get(context, 64), L->AchievedII));
+      }
     }
   }
 

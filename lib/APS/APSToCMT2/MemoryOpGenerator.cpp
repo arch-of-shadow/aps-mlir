@@ -348,27 +348,14 @@ LogicalResult MemoryOpGenerator::generateCopyIssue(
   }
   auto globalName = getGlobalOp.getName().str();
 
-  // Find the corresponding memory entry using the pre-built map with prefix matching
+  // The map includes the exact bank symbols recorded by aps.memorymap.
+  // Prefixes are ambiguous when an entry name is another entry's bank prefix.
   const MemoryEntryInfo *targetMemEntry = nullptr;
   if (!globalName.empty()) {
     auto &memEntryMap = bbHandler->getMemEntryMap();
-    
-    // First try exact match
     auto exactIt = memEntryMap.find(globalName);
-    if (exactIt != memEntryMap.end()) {
+    if (exactIt != memEntryMap.end())
       targetMemEntry = &exactIt->second;
-    } else {
-      // If exact match fails, try prefix matching with underscore
-      llvm::SmallVector<const MemoryEntryInfo *, 4> matchingEntries;
-      
-      for (auto &entry : memEntryMap) {
-        std::string key = entry.first.str();
-        // Check if the map key starts with globalName + "_"
-        if (globalName.rfind( key + "_", 0) == 0) {
-          targetMemEntry = &entry.second;
-        }
-      }
-    }
   }
 
   if (!targetMemEntry) {

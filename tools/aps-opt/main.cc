@@ -146,6 +146,7 @@ void enablePrintIrAfterAll(PassManager &pm) {
 
 void buildFunctionalPreparation(PassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createPlaceReadRFAtEntryPass());
+  pm.addNestedPass<func::FuncOp>(createAPSMemToMemRefPass());
   pm.addPass(createAPSRaiseSCFToAffinePass());
   addCanonicalize(pm);
   pm.addNestedPass<func::FuncOp>(affine::createRaiseMemrefToAffine());
@@ -166,7 +167,7 @@ void buildToScheduledTor(PassManager &pm, double clock, llvm::StringRef resource
   pm.addNestedPass<func::FuncOp>(createAffineMemToAPSPass());
   pm.addNestedPass<func::FuncOp>(createMemRefToAPSPass());
   pm.addPass(createAPSFunctionalToArchPass());
-  pm.addNestedPass<func::FuncOp>(createPromoteSingletonMemRefToGlobalPass());
+  pm.addPass(createPromoteSingletonMemRefToGlobalPass());
   pm.addPass(createArithMulDivToShiftPass());
   addCanonicalize(pm);
 

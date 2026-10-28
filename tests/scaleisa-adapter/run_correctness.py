@@ -238,7 +238,7 @@ def main():
         planned, functional = directory / "planned.mlir", directory / "functional.mlir"
         command(
             [
-                ROOT / "build/tools/scaleisa-adapter-opt/scaleisa-adapter-opt",
+                ROOT / "build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
                 source_file,
                 "--scaleisa-adapter=max-extra-csrs=5 pragma=none",
                 "-o",
@@ -248,7 +248,7 @@ def main():
         )
         command(
             [
-                ROOT / "build/tools/scaleisa-adapter-opt/scaleisa-adapter-opt",
+                ROOT / "build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
                 planned,
                 "--scaleisa-materialize-aps",
                 "-o",

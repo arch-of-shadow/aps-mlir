@@ -1,0 +1,18 @@
+[
+  {"id":"octree", "name":"Octree (2,048 points, 128 queries)", "source":"build/aps-octree-optimized", "chipyard":"build/aps-octree-optimized-chipyard/summary.json"},
+  {"id":"iss", "name":"ISS keypoints (16×16)", "source":"build/aps-iss-16-direct", "chipyard":"build/aps-iss-16-direct-chipyard/summary.json"},
+  {"id":"normal", "name":"Normal estimation (12×12)", "source":"build/aps-normal-12", "chipyard":"build/aps-normal-12-chipyard/summary.json"},
+  {"id":"morphological", "name":"Morphological filter (12×12)", "source":"build/aps-morphological-12", "chipyard":"build/aps-morphological-12-chipyard/summary.json"},
+  {"id":"knn", "name":"Brute-force top-8 KNN (32 points, 4 queries)", "source":"build/aps-knn-32", "chipyard":"build/aps-knn-32-chipyard/summary.json"},
+  {"id":"icp", "name":"ICP (32 points, 4 iterations)", "source":"build/aps-icp-32", "chipyard":"build/aps-icp-32-chipyard/summary.json"},
+  {"id":"ransac", "name":"RANSAC sphere (32 points, 4 hypotheses)", "source":"build/aps-suite-16/ransac", "chipyard":"build/aps-suite-16/ransac-chipyard/summary.json"},
+  {"id":"segmentation", "name":"Region growing (8×8, 2 iterations)", "source":"build/aps-suite-16/segmentation", "chipyard":"build/aps-suite-16/segmentation-chipyard/summary.json"},
+  {"id":"poisson", "name":"Poisson surface (6³ grid, 24 samples, 2 iterations)", "source":"build/aps-suite-16/poisson", "chipyard":"build/aps-suite-16/poisson-chipyard/summary.json"},
+  {"id":"sfm_batch", "name":"Batch SFM (8 cameras, 24 points, 6 iterations)", "source":"build/aps-suite-16/sfm_batch", "chipyard":"build/aps-suite-16/sfm_batch-chipyard/summary.json"},
+  {"id":"stereo_vo", "name":"Stereo VO (32 landmarks, 10 iterations)", "source":"build/aps-suite-16/stereo_vo", "chipyard":"build/aps-suite-16/stereo_vo-chipyard/summary.json"},
+  {"id":"planar_slam", "name":"Planar SLAM (16 poses, 20 landmarks)", "source":"build/aps-suite-16/planar_slam", "chipyard":"build/aps-suite-16/planar_slam-chipyard/summary.json"},
+  {"id":"pose2_slam", "name":"Pose2 graph solver (24 poses, 40 edges)", "source":"build/aps-suite-16/pose2_slam", "chipyard":"build/aps-suite-16/pose2_slam-chipyard/summary.json"},
+  {"id":"pose3_pose_graph", "name":"Pose3 graph solver (18 poses, 30 edges)", "source":"build/aps-suite-16/pose3_pose_graph", "chipyard":"build/aps-suite-16/pose3_pose_graph-chipyard/summary.json"},
+  {"id":"bitcount", "name":"Bitcount (64 inputs)", "source":"build/aps-suite-16/scalars/bitcount", "chipyard":"build/aps-suite-16/scalars-chipyard/bitcount/result.json"},
+  {"id":"sq_dist", "name":"Squared distance (64 inputs)", "source":"build/aps-suite-16/scalars/sq_dist", "chipyard":"build/aps-suite-16/scalars-chipyard/sq_dist/result.json"}
+]

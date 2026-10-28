@@ -15,7 +15,14 @@ uint32_t SpikeMemoryBridge::load32(uint32_t addr) const {
 }
 
 uint64_t SpikeMemoryBridge::load64(uint32_t addr) const {
-  return processor_.get_mmu()->load<uint64_t>(addr);
+  // A DMA beat is not a CPU load instruction: an f32 buffer only needs
+  // four-byte alignment, even when the scratchpad bus transfers eight bytes.
+  if ((addr & 7) == 0)
+    return processor_.get_mmu()->load<uint64_t>(addr);
+  uint64_t value = 0;
+  for (unsigned i = 0; i < 8; ++i)
+    value |= uint64_t(load8(addr + i)) << (8 * i);
+  return value;
 }
 
 void SpikeMemoryBridge::store8(uint32_t addr, uint8_t value) {
@@ -33,7 +40,7 @@ void SpikeMemoryBridge::store32(uint32_t addr, uint32_t value, uint8_t mask) {
 }
 
 void SpikeMemoryBridge::store64(uint32_t addr, uint64_t value, uint8_t mask) {
-  if (mask == 0xff) {
+  if (mask == 0xff && (addr & 7) == 0) {
     processor_.get_mmu()->store<uint64_t>(addr, value);
     return;
   }

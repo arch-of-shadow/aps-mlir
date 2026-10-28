@@ -3,6 +3,7 @@
 #include "mlir/Dialect/Affine/Analysis/LoopAnalysis.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Matchers.h"
 #include <optional>
 
 namespace mlir::scaleisa_adapter {
@@ -38,18 +39,35 @@ struct InsertPragmasPass : impl::ScaleISAInsertPragmasBase<InsertPragmasPass> {
         if (innerLoop || mode == "none")
           return;
         if (mode == "pipeline") {
-          op->setAttr("pipeline", builder.getI64IntegerAttr(initiationInterval));
+          op->setAttr("pipeline", builder.getI64IntegerAttr(1));
+          if (initiationInterval > 0)
+            op->setAttr("II", builder.getI64IntegerAttr(initiationInterval));
           return;
         }
         auto affineLoop = dyn_cast<affine::AffineForOp>(op);
         std::optional<uint64_t> tripCount;
         if (affineLoop)
           tripCount = affine::getConstantTripCount(affineLoop);
+        if (auto scfLoop = dyn_cast<scf::ForOp>(op)) {
+          APInt lower, upper, step;
+          if (matchPattern(scfLoop.getLowerBound(), m_ConstantInt(&lower)) &&
+              matchPattern(scfLoop.getUpperBound(), m_ConstantInt(&upper)) &&
+              matchPattern(scfLoop.getStep(), m_ConstantInt(&step)) && step.isStrictlyPositive() &&
+              (!scfLoop->hasAttr("unsignedCmp") || (!lower.isNegative() && !upper.isNegative()))) {
+            unsigned width = lower.getBitWidth() + 2;
+            APInt count = upper.sext(width) - lower.sext(width);
+            APInt stride = step.sext(width);
+            count = count.isNonPositive() ? APInt(width, 0) :
+                (count + stride - 1).sdiv(stride);
+            if (count.getActiveBits() <= 64)
+              tripCount = count.getZExtValue();
+          }
+        }
         uint64_t count = 0;
         op->walk([&](Operation *) { ++count; });
         if (!tripCount || !*tripCount || count > maxExpandedOps / *tripCount) {
           op->setAttr("scaleisa.pragma_rejected", builder.getStringAttr(
-              !tripCount ? "full unroll requires a static affine trip count"
+              !tripCount ? "full unroll requires a static affine or SCF trip count"
                          : "full unroll exceeds the expanded-operation limit or has zero iterations"));
           return;
         }

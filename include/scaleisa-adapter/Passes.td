@@ -3,6 +3,8 @@ include "mlir/Pass/PassBase.td"
 def ScaleISAConvert : Pass<"scaleisa-convert", "mlir::ModuleOp"> {
   let summary = "Normalize ScaleISA candidates to APS-compatible computation";
   let constructor = "mlir::scaleisa_adapter::createConvertPass()";
+  let options = [Option<"preserveImplementationPragmas", "preserve-implementation-pragmas",
+                        "bool", "false", "Keep selected loop pipeline, II, and unroll choices">];
 }
 def ScaleISASplit : Pass<"scaleisa-split", "mlir::ModuleOp"> {
   let summary = "Partition scalar candidate graphs into operand-feasible instructions";

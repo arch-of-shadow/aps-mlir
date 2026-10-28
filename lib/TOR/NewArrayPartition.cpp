@@ -4,6 +4,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Support/LLVM.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -131,8 +132,8 @@ AffineExpr buildRuntimeBankExpr(AffineExpr expr, int64_t factor,
   return simplified % factor;
 }
 
-// Compute all possible bank values for expression of form: d_i * coeff (+
-// offset) Only handles single dimension linear patterns - rejects complex cases
+// Enumerate a single loop dimension when possible. Multiple linear dimensions
+// conservatively cover every bank; admission checks uniform cyclic bank sizes.
 SmallVector<int64_t> getPossibleBankValues(AffineExpr expr, AffineMap map,
                                            ArrayRef<Value> operands,
                                            int factor) {
@@ -150,10 +151,13 @@ SmallVector<int64_t> getPossibleBankValues(AffineExpr expr, AffineMap map,
                           << factor << " -> " << exprToString(simplified)
                           << "\n");
 
-  // Reject if any symbol remains
+  // A runtime symbol can select any cyclic bank. Read every candidate and
+  // select its result (or guard the store) using the runtime bank expression.
   for (unsigned i = 0; i < numSyms; ++i) {
     if (simplified.isFunctionOfSymbol(i)) {
-      return result; // empty - symbol affects bank
+      for (int64_t bank = 0; bank < factor; ++bank)
+        result.push_back(bank);
+      return result;
     }
   }
 
@@ -169,7 +173,9 @@ SmallVector<int64_t> getPossibleBankValues(AffineExpr expr, AffineMap map,
   for (unsigned i = 0; i < numDims; ++i) {
     if (simplified.isFunctionOfDim(i)) {
       if (relevantDim >= 0) {
-        return result; // multiple dims - too complex
+        for (int64_t bank = 0; bank < factor; ++bank)
+          result.push_back(bank);
+        return result;
       }
       relevantDim = i;
     }
@@ -258,9 +264,17 @@ bool canBankPartition(AffineMap map, int rank, MLIRContext *ctx, int factor,
     return false;
   }
 
-  // Check if simplified result still has symbols - reject if so
+  // The runtime mux/guarded-write lowering supports one partitioned rank.
   for (unsigned i = 0; i < numSyms; ++i) {
     if (simplified.isFunctionOfSymbol(i)) {
+      if (isLoad && cyclic && op && map.getNumResults() == 1) {
+        if (possibleBanksOut) {
+          possibleBanksOut->clear();
+          for (int64_t bank = 0; bank < factor; ++bank)
+            possibleBanksOut->push_back(bank);
+        }
+        return true;
+      }
       if (op)
         op->emitWarning() << "array partition failed for rank " << rank << ": "
                           << "after simplification, symbol s" << i
@@ -280,8 +294,22 @@ bool canBankPartition(AffineMap map, int rank, MLIRContext *ctx, int factor,
     }
   }
 
-  // If more than one dimension, reject (too complex)
+  // A flattened address may combine several loop indices. The existing runtime
+  // bank mux and guarded stores handle this when every bank has equal depth.
   if (numRelevantDims > 1) {
+    Value memory;
+    if (auto load = dyn_cast_or_null<AffineLoadOp>(op)) memory = load.getMemRef();
+    if (auto store = dyn_cast_or_null<AffineStoreOp>(op)) memory = store.getMemRef();
+    auto type = memory ? dyn_cast<MemRefType>(memory.getType()) : MemRefType();
+    if (isLoad && cyclic && map.getNumResults() == 1 && type &&
+        type.hasStaticShape() && type.getRank() == 1 && type.getShape()[0] % factor == 0) {
+      if (possibleBanksOut) {
+        possibleBanksOut->clear();
+        for (int64_t bank = 0; bank < factor; ++bank)
+          possibleBanksOut->push_back(bank);
+      }
+      return true;
+    }
     if (op)
       op->emitWarning() << "array partition failed for rank " << rank << ": "
                         << "multiple dimensions affect bank selection "
@@ -416,6 +444,12 @@ bool checkValueUsers(Value val, int64_t rankNum) {
       if (store.getAffineMap().getNumResults() != rankNum) {
         return false;
       }
+    } else if (auto load = dyn_cast<memref::LoadOp>(op)) {
+      if (load.getIndices().size() != static_cast<size_t>(rankNum))
+        return false;
+    } else if (auto store = dyn_cast<memref::StoreOp>(op)) {
+      if (store.getIndices().size() != static_cast<size_t>(rankNum))
+        return false;
     } else if (auto call = dyn_cast<func::CallOp>(op)) {
       // ignore recursion
       // auto getFuncOpByVal = [](Value val) {
@@ -439,41 +473,6 @@ bool checkValueUsers(Value val, int64_t rankNum) {
   return true;
 }
 
-// Helper to check if memref.load/store indices can form affine expressions
-bool canFormAffineExpr(Value index) {
-  // Check if this is a constant
-  if (index.getDefiningOp<arith::ConstantOp>() ||
-      index.getDefiningOp<arith::ConstantIndexOp>())
-    return true;
-
-  // Check if this is an index_cast - look through it
-  if (auto cast = index.getDefiningOp<arith::IndexCastOp>())
-    return canFormAffineExpr(cast.getIn());
-
-  // Check if this is an arithmetic operation on affine-compatible values
-  if (auto addOp = index.getDefiningOp<arith::AddIOp>())
-    return canFormAffineExpr(addOp.getLhs()) &&
-           canFormAffineExpr(addOp.getRhs());
-
-  if (auto mulOp = index.getDefiningOp<arith::MulIOp>()) {
-    // For mul, one operand must be constant
-    return (canFormAffineExpr(mulOp.getLhs()) &&
-            (mulOp.getRhs().getDefiningOp<arith::ConstantOp>() ||
-             mulOp.getRhs().getDefiningOp<arith::ConstantIndexOp>())) ||
-           (canFormAffineExpr(mulOp.getRhs()) &&
-            (mulOp.getLhs().getDefiningOp<arith::ConstantOp>() ||
-             mulOp.getLhs().getDefiningOp<arith::ConstantIndexOp>()));
-  }
-
-  // Check if this is a block argument (loop induction variable)
-  if (auto blockArg = llvm::dyn_cast<BlockArgument>(index)) {
-    auto *parentOp = blockArg.getOwner()->getParentOp();
-    return llvm::isa<affine::AffineForOp, affine::AffineParallelOp>(parentOp);
-  }
-
-  return false;
-}
-
 bool rankCanBePartition(Value arg, size_t rank, unsigned bank_factor,
                         bool cyclic, MLIRContext *ctx) {
   for (auto *op : arg.getUsers()) {
@@ -489,22 +488,14 @@ bool rankCanBePartition(Value arg, size_t rank, unsigned bank_factor,
                             cyclic, op, /*isLoad=*/true)) {
         return false;
       }
-    } else if (auto load = dyn_cast<memref::LoadOp>(op)) {
-      // Check if memref.load indices can form affine expressions
-      if (load.getIndices().size() != 1 ||
-          !canFormAffineExpr(load.getIndices()[0])) {
-        op->emitWarning()
-            << "array partition failed: memref.load has non-affine index";
+    } else if (isa<memref::LoadOp, memref::StoreOp>(op)) {
+      auto type = cast<MemRefType>(arg.getType());
+      // Speculative loads from every bank are safe only for equal bank sizes.
+      // Valid source indices are nonnegative; quotient/remainder select the
+      // element and bank even when the index is computed by non-affine ops.
+      if (rank != 0 || type.getRank() != 1 || !cyclic || bank_factor == 0 ||
+          type.getShape()[0] % bank_factor != 0)
         return false;
-      }
-    } else if (auto store = dyn_cast<memref::StoreOp>(op)) {
-      // Check if memref.store indices can form affine expressions
-      if (store.getIndices().size() != 1 ||
-          !canFormAffineExpr(store.getIndices()[0])) {
-        op->emitWarning()
-            << "array partition failed: memref.store has non-affine index";
-        return false;
-      }
     }
   }
   return true;
@@ -622,11 +613,13 @@ void createNewArray(Operation *op, SmallVector<Value> &newArray,
       }
       std::string newMemrefName =
           (globalOp.getSymName() + "_" + std::to_string(newArray.size())).str();
+      SymbolTable symbols(globalOp->getParentOfType<ModuleOp>());
       auto newGlobalOp = rewriter.create<memref::GlobalOp>(
           globalOp->getLoc(), rewriter.getStringAttr(newMemrefName),
           /*sym_visibility*/ mlir::StringAttr(), mlir::TypeAttr::get(newMemref),
           initValue, mlir::UnitAttr(),
           /*alignment*/ nullptr);
+      symbols.insert(newGlobalOp);
       auto getGlobalOp = rewriter.create<memref::GetGlobalOp>(
           newGlobalOp->getLoc(), newMemref, newGlobalOp.getSymName());
       newArray.push_back(getGlobalOp->getResult(0));
@@ -1005,6 +998,39 @@ void changeMemrefAndOperands(Value arg, MemRefType memref,
       }
 
       new_part.push_back(Partition{store, bank});
+    } else if (isa<memref::LoadOp, memref::StoreOp>(op)) {
+      assert(memref.getRank() == 1 && partition[0] && cyclicMap[0]);
+      rewriter.setInsertionPoint(op);
+      auto loc = op->getLoc();
+      auto load = dyn_cast<memref::LoadOp>(op);
+      auto store = dyn_cast<memref::StoreOp>(op);
+      Value index = load ? load.getIndices()[0] : store.getIndices()[0];
+      Value factor = rewriter.create<arith::ConstantIndexOp>(loc, factorMap[0]);
+      Value bank = rewriter.create<arith::RemUIOp>(loc, index, factor);
+      Value offset = rewriter.create<arith::DivUIOp>(loc, index, factor);
+      Value address;
+      if (store)
+        address = rewriter.create<arith::IndexCastOp>(
+            loc, rewriter.getI32Type(), offset);
+      Value result;
+      for (auto [bankIndex, memory] : llvm::enumerate(newArray)) {
+        Value bankConstant = rewriter.create<arith::ConstantIndexOp>(loc, bankIndex);
+        Value selected = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::eq, bank, bankConstant);
+        if (load) {
+          Value value = rewriter.create<memref::LoadOp>(loc, memory, offset);
+          result = result ? rewriter.create<arith::SelectOp>(
+                                loc, selected, value, result).getResult()
+                          : value;
+        } else {
+          rewriter.create<aps::WriteSmemIf>(
+              loc, selected, store.getValue(), memory, ValueRange{address});
+        }
+      }
+      if (load)
+        rewriter.replaceOp(load, result);
+      else
+        rewriter.eraseOp(store);
     } else if (auto copy = dyn_cast<aps::Copy>(op)) {
       rewriter.setInsertionPoint(copy);
       auto newCopy = rewriter.create<aps::Copy>(
@@ -1834,6 +1860,11 @@ void colorAndCheckCallGraph(ModuleOp moduleOp) {
 }
 
 struct NewArrayPartitionPass : NewArrayPartitionBase<NewArrayPartitionPass> {
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<aps::APSDialect, arith::ArithDialect, memref::MemRefDialect,
+                    affine::AffineDialect>();
+  }
+
   void runOnOperation() override {
     auto moduleOp = getOperation();
     colorAndCheckCallGraph(moduleOp);

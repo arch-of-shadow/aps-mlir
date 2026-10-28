@@ -11,9 +11,9 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-ADAPTER = ROOT / "build/tools/scaleisa-adapter-opt/scaleisa-adapter-opt"
-COMPILER = ROOT / "build/tools/scaleisa-compiler-opt/scaleisa-compiler-opt"
-DRIVER = ROOT / "tools/scaleisa-compile"
+ADAPTER = ROOT / "build/tools/aps-scaleisa-opt/scaleisa-adapter-opt"
+COMPILER = ROOT / "build/tools/aps-scaleisa-opt/scaleisa-compiler-opt"
+DRIVER = ROOT / "build/tools/aps-scaleisa-opt/aps-scaleisa-opt"
 
 TREE = """func.func @expr(%a: i32, %x: i32, %w: i32, %y: i32, %z: i32) -> i32
   attributes {au.generated = true} {
@@ -160,8 +160,8 @@ class CompilerTests(unittest.TestCase):
         binary = self.directory / f"program.{emit}"
         result = self.run_command(
             [
-                sys.executable,
                 DRIVER,
+                "--compile-only",
                 source,
                 "--hardware",
                 self.hardware,
@@ -252,6 +252,32 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("fence rw, rw", result)
         binary, _ = self.binary(program, emit="object")
         self.assertTrue(binary.is_file())
+
+    def test_dma_alignment_of_owned_buffers_through_software_helper(self):
+        self.export("""func.func @read(%a: memref<32xi32>) -> i32 attributes {au.generated = true} {
+          %c0 = arith.constant 0 : index
+          %x = memref.load %a[%c0] : memref<32xi32>
+          return %x : i32
+        }""")
+        for existing, expected in ((4, 64), (128, 128)):
+            program = """module {
+              func.func private @read_site_1(memref<32xi32>) -> i32
+              func.func @forward(%a: memref<32xi32>) -> i32 {
+                %r = func.call @read_site_1(%a) : (memref<32xi32>) -> i32
+                return %r : i32
+              }
+              func.func @main() -> i32 {
+                %a = memref.alloca() {alignment = EXISTING : i64} : memref<32xi32>
+                %r = func.call @forward(%a) : (memref<32xi32>) -> i32
+                return %r : i32
+              }
+            }""".replace("EXISTING", str(existing))
+            result = self.lower(program).stdout
+            self.assertIn(f"alignment = {expected} : i64", result)
+            binary, _ = self.binary(program, emit="object")
+            self.assertTrue(binary.is_file())
+            llvm_ir = (Path(str(binary)+".scaleisa")/"program.ll").read_text()
+            self.assertRegex(llvm_ir, rf"alloca .*align {expected}\b")
 
     def test_f32_and_narrow_scalar_transport(self):
         for typ, op in (("f32", "arith.addf"), ("i8", "arith.addi")):

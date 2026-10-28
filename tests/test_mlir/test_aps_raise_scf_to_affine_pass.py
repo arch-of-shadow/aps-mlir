@@ -509,6 +509,34 @@ module {
     assert ": i3) to" in output
 
 
+@pytest.mark.parametrize("width", [8, 32, 64])
+def test_scf_to_tor_legalizes_unsigned_index_casts(tmp_path: Path, width):
+    output, log = run_aps_opt_source(
+        tmp_path,
+        f"""
+module {{
+  func.func @unsigned_index(%rs: i5, %rd: i5) attributes {{funct7 = 0 : i32, opcode = 43 : i32}} {{
+    %input = aps.read_irf %rs : i5 -> i{width}
+    %index = arith.index_castui %input : i{width} to index
+    %result = arith.index_castui %index : index to i64
+    aps.write_irf %rd, %result : i5, i64
+    return
+  }}
+}}
+""",
+        [
+            "--convert-input=clock=4.0 resource=examples/resource_ihp130.json output-path=/tmp",
+            "--scf-to-tor",
+        ],
+    )
+    assert "error:" not in log
+    assert "index_cast" not in output
+    assert "arith.extui" in output
+    assert "arith.extsi" not in output
+    if width == 64:
+        assert "arith.trunci" in output
+
+
 def test_aps_to_cmt2_supports_negative_step_loop(tmp_path: Path):
     output, log = run_aps_opt_source(
         tmp_path,

@@ -43,14 +43,27 @@ struct ConvertPass : impl::ScaleISAConvertBase<ConvertPass> {
       }
       // These are implementation choices from the discovery/evaluation run.
       // Re-plan them only after instruction boundaries have been established.
-      function.walk([](Operation *op) {
+      function.walk([&](Operation *op) {
         for (StringRef name : {"pipeline", "II", "unroll", "ref_starttime",
                                "ref_endtime", "starttime", "endtime", "dump",
                                "schedule", "cycle", "latency_cycles", "clock",
                                "resource", "evaluation_status", "fully_unrolled",
                                "area_square_microns", "datapath_area_square_microns",
                                "control_area_square_microns"})
-          op->removeAttr(name);
+          if (!preserveImplementationPragmas ||
+              (name != "pipeline" && name != "II" && name != "unroll"))
+            op->removeAttr(name);
+        if (preserveImplementationPragmas) {
+          if (auto requested = op->getAttrOfType<IntegerAttr>("pipeline")) {
+            if (requested.getInt() > 0 && !op->hasAttr("II"))
+              op->setAttr("II", requested);
+            // ScaleISA encodes automatic II as zero; APS uses a boolean
+            // pipeline flag and a separate optional initiation interval.
+            op->setAttr("pipeline", IntegerAttr::get(requested.getType(), 1));
+            if (auto ii = op->getAttrOfType<IntegerAttr>("II"); ii && ii.getInt() <= 0)
+              op->removeAttr("II");
+          }
+        }
       });
       OpPassManager pipeline(func::FuncOp::getOperationName());
       pipeline.addPass(createConvertLinalgToAffineLoopsPass());

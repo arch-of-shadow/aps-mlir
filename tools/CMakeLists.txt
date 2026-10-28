@@ -1,3 +1,2 @@
 add_subdirectory(aps-opt)
-add_subdirectory(scaleisa-adapter-opt)
-add_subdirectory(scaleisa-compiler-opt)
+add_subdirectory(aps-scaleisa-opt)

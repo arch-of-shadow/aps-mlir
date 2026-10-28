@@ -99,8 +99,10 @@ int main(int argc, char **argv) {
             nullptr  // cmd_file
   );
 
+  std::vector<ApsRoccExtension *> extensions;
   for (size_t i = 0; i < cfg.nprocs(); ++i) {
     auto *aps = new ApsRoccExtension();
+    extensions.push_back(aps);
     sim.get_core(i)->register_extension(aps);
     if (!vcdPath.empty())
       aps->setVcdPath(vcdPath);
@@ -110,6 +112,11 @@ int main(int argc, char **argv) {
   }
 
   int rc = sim.run();
+  if (const char *path = std::getenv("APS_COSIM_STATS")) {
+    if (extensions.size() != 1)
+      throw std::runtime_error("CI runtime statistics require one simulated core");
+    extensions.front()->writeStatistics(path);
+  }
 
   for (auto &mem : mems)
     delete mem.second;

@@ -90,3 +90,7 @@ thirdparty/firtool*/
 !tools/aps-cosim/example/*.sv
 !hardware/hardfloat/*.sv
 !examples/hardfloat/*.mlir
+
+# Exact measured inputs, compiler artifacts and correctness evidence.
+!reports/aps-scaleisa-16/**/*.mlir
+!reports/aps-scaleisa-16/**/*.log

@@ -13,10 +13,16 @@ static uint32_t random_word(void) {
 static uint32_t input[20] __attribute__((aligned(128)));
 static volatile uint32_t output[4] __attribute__((aligned(128)));
 static uint32_t execute(uint32_t a, uint32_t b) {
+#ifdef STORAGE_VOID
+  asm volatile(".insn r 0x7b, 3, 0x31, x0, %0, %1"
+               : : "r"(a), "r"(b) : "memory");
+  return 0;
+#else
   uint32_t rd;
   asm volatile(".insn r 0x7b, 7, 0x31, %0, %1, %2"
                : "=r"(rd) : "r"(a), "r"(b) : "memory");
   return rd;
+#endif
 }
 #else
 static uint32_t execute(uint32_t a, uint32_t b) {

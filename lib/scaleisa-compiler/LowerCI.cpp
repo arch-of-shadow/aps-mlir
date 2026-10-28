@@ -13,6 +13,7 @@
 #include "mlir/Pass/PassRegistry.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include <set>
 
 namespace mlir::scaleisa_compiler {
@@ -37,6 +38,9 @@ struct LowerCIPass : PassWrapper<LowerCIPass, OperationPass<ModuleOp>> {
       llvm::cl::desc("APS export providing exact CI encodings and operand bindings"),
       llvm::cl::init("")};
   Option<unsigned> maxExtraCSRs{*this, "max-extra-csrs", llvm::cl::init(5)};
+  Option<unsigned> dmaAlignment{*this, "dma-alignment",
+      llvm::cl::desc("Required CPU buffer alignment for APS DMA bursts"),
+      llvm::cl::init(64)};
   StringRef getArgument() const final { return "scaleisa-lower-ci"; }
   StringRef getDescription() const final {
     return "Replace exposed ScaleISA CI calls with RV32 CSR setup and custom instructions";
@@ -176,10 +180,46 @@ struct LowerCIPass : PassWrapper<LowerCIPass, OperationPass<ModuleOp>> {
     return cast<FunctionType>(sequences.find(name)->second.getAs<TypeAttr>("source_type").getValue());
   }
 
+  // APS's default bus interface emits naturally aligned 64-byte bursts.
+  // memref's "aligned pointer" only promises the element alignment unless an
+  // allocation explicitly requests more. Strengthen compiler-owned buffers,
+  // including buffers forwarded through ordinary software helper calls.
+  void alignDMABuffer(Value value, llvm::SmallPtrSetImpl<Operation *> &visited) {
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      auto function = dyn_cast<func::FuncOp>(argument.getOwner()->getParentOp());
+      if (!function || argument.getOwner() != &function.front() ||
+          !visited.insert(function).second)
+        return;
+      getOperation().walk([&](func::CallOp call) {
+        if (call.getCallee() == function.getName())
+          alignDMABuffer(call.getOperand(argument.getArgNumber()), visited);
+      });
+      return;
+    }
+    Operation *definition = value.getDefiningOp();
+    if (!definition || !visited.insert(definition).second)
+      return;
+    if (auto cast = dyn_cast<memref::CastOp>(definition)) {
+      alignDMABuffer(cast.getSource(), visited);
+      return;
+    }
+    if (auto global = dyn_cast<memref::GetGlobalOp>(definition))
+      definition = SymbolTable::lookupNearestSymbolFrom<memref::GlobalOp>(
+          global, global.getNameAttr());
+    if (!definition || !isa<memref::AllocaOp, memref::AllocOp, memref::GlobalOp>(definition))
+      return;
+    auto alignment = definition->getAttrOfType<IntegerAttr>("alignment");
+    if (!alignment || alignment.getInt() < dmaAlignment)
+      definition->setAttr("alignment", IntegerAttr::get(
+          IntegerType::get(&getContext(), 64), dmaAlignment));
+  }
+
   Value pack(OpBuilder &builder, Location loc, Value value) {
     auto i32 = builder.getI32Type();
     Type type = value.getType();
     if (isa<MemRefType>(type)) {
+      llvm::SmallPtrSet<Operation *, 16> visited;
+      alignDMABuffer(value, visited);
       value = builder.create<memref::ExtractAlignedPointerAsIndexOp>(loc, value);
       return builder.create<arith::IndexCastUIOp>(loc, i32, value);
     }
@@ -267,6 +307,10 @@ struct LowerCIPass : PassWrapper<LowerCIPass, OperationPass<ModuleOp>> {
     instructions.clear();
     sequences.clear();
     sites = emitted = 0;
+    if (!dmaAlignment || (dmaAlignment & (dmaAlignment - 1))) {
+      getOperation().emitError("dma-alignment must be a positive power of two");
+      return signalPassFailure();
+    }
     if (hardwareFile.empty() || maxExtraCSRs > 4096) {
       getOperation().emitError("hardware-file is required and max-extra-csrs must fit the CSR address space");
       return signalPassFailure();

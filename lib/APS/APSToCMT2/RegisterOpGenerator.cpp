@@ -87,7 +87,14 @@ LogicalResult RegisterOpGenerator::generateCpuRfWrite(aps::WriteIRF op, mlir::Op
     return failure();
   }
 
-  auto rd = regRdInstance->callValue("read", b)[0];
+  // A response in the command's own rule must use its current destination.
+  // The saved register still holds the preceding command until the next edge.
+  Value rd;
+  if (cachedRoCCCmdBundle &&
+      cachedRoCCCmdBundle.getParentBlock() == b.getInsertionBlock())
+    rd = Bundle(cachedRoCCCmdBundle, &b, loc)["rd"].getValue();
+  else
+    rd = regRdInstance->callValue("read", b)[0];
   llvm::SmallVector<mlir::Value> bundleFields = {rd, *rdvalue};
   auto bundleType = BundleType::get(
       b.getContext(),

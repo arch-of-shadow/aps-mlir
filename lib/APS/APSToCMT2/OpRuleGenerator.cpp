@@ -53,33 +53,55 @@ void APSToCMT2Pass::generateRulesForFunction(
   builder.restoreInsertionPoint(savedIP);
   llvm::dbgs() << "[RuleGen] Created shared reg_rd instance: reg_rd_" << instructionId << "\n";
 
-  // For top-level function processing, we don't have external FIFOs
-  // Token FIFOs and value FIFOs will be created internally by BlockHandler
+  // The function exit token drives a completion indicator for both void and
+  // response-producing instructions. BlockHandler creates intermediate FIFOs.
   Instance *topLevelInputTokenFIFO = nullptr;
-  Instance *topLevelOutputTokenFIFO = nullptr;
-  // Floating instructions use shared cross-block registers and reg_rd. A
+  auto *completionTokenMod = STLLibrary::createFIFO2IModule(1, circuit);
+  auto *completionRegMod = STLLibrary::createRegModule(1, 0, circuit);
+  builder.restoreInsertionPoint(savedIP);
+  std::string completionName = "instruction_completed_" +
+                               std::to_string(instructionId);
+  auto *completed = mainModule->addInstance(
+      completionName + "_state", completionRegMod,
+      {mainClk.getValue(), mainRst.getValue()});
+  Instance *topLevelOutputTokenFIFO = mainModule->addInstance(
+      completionName + "_exit", completionTokenMod,
+      {mainClk.getValue(), mainRst.getValue()});
+  // Toggle only when the final block has finished, including copy-out waits.
+  // Queue admission and an idle DMA engine do not imply instruction completion.
+  auto *completionValue = mainModule->addValue(
+      completionName, {UIntType::get(builder.getContext(), 1)});
+  completionValue->guard([&](OpBuilder &b) {
+    b.create<circt::cmt2::ReturnOp>(b.getUnknownLoc(),
+        UInt::constant(1, 1, b, b.getUnknownLoc()).getValue());
+  });
+  completionValue->body([&](OpBuilder &b) {
+    b.create<circt::cmt2::ReturnOp>(b.getUnknownLoc(),
+                                  completed->callValue("read", b)[0]);
+  });
+  Instance *busy = nullptr;
+  // Stateful instructions use shared cross-block registers and reg_rd. A
   // block-local busy bit cannot protect those across a loop or conditional.
   // Admit one execution context for the whole function, while the RoCC
   // adapter may still queue commands/responses. Loop iterations can pipeline
   // internally; only independent instruction invocations are serialized.
-  bool hasFloat = false;
+  bool needsContext = false;
   funcOp.walk([&](Operation *op) {
     for (Type type : op->getOperandTypes())
-      hasFloat |= isa<FloatType>(type);
+      needsContext |= isa<FloatType>(type) || isa<mlir::MemRefType>(type);
     for (Type type : op->getResultTypes())
-      hasFloat |= isa<FloatType>(type);
+      needsContext |= isa<FloatType>(type) || isa<mlir::MemRefType>(type);
+    needsContext |= op != funcOp.getOperation() && op->getNumRegions() != 0;
   });
-  if (hasFloat) {
-    std::string prefix = "fp_context_" + std::to_string(instructionId);
+  if (needsContext) {
+    std::string prefix = "instruction_context_" + std::to_string(instructionId);
     auto *tokenMod = STLLibrary::createFIFO2IModule(1, circuit);
     auto *busyMod = STLLibrary::createRegModule(1, 0, circuit);
     builder.restoreInsertionPoint(savedIP);
-    auto *busy = mainModule->addInstance(prefix + "_busy", busyMod,
-                                        {mainClk.getValue(), mainRst.getValue()});
+    busy = mainModule->addInstance(prefix + "_busy", busyMod,
+                                  {mainClk.getValue(), mainRst.getValue()});
     topLevelInputTokenFIFO = mainModule->addInstance(
         prefix + "_entry", tokenMod, {mainClk.getValue(), mainRst.getValue()});
-    topLevelOutputTokenFIFO = mainModule->addInstance(
-        prefix + "_exit", tokenMod, {mainClk.getValue(), mainRst.getValue()});
     builder.restoreInsertionPoint(savedIP);
     auto *admit = mainModule->addRule(prefix + "_admit");
     admit->guard([&](OpBuilder &b) {
@@ -94,7 +116,9 @@ void APSToCMT2Pass::generateRulesForFunction(
       topLevelInputTokenFIFO->callMethod("enq", {one}, b);
       b.create<circt::cmt2::ReturnOp>(loc);
     });
-    auto *release = mainModule->addRule(prefix + "_release");
+  }
+  {
+    auto *release = mainModule->addRule(completionName + "_release");
     release->guard([&](OpBuilder &b) {
       auto loc = b.getUnknownLoc();
       b.create<circt::cmt2::ReturnOp>(loc,
@@ -103,7 +127,10 @@ void APSToCMT2Pass::generateRulesForFunction(
     release->body([&](OpBuilder &b) {
       auto loc = b.getUnknownLoc();
       topLevelOutputTokenFIFO->callMethod("deq", {}, b);
-      busy->callMethod("write", {UInt::constant(0, 1, b, loc).getValue()}, b);
+      auto next = ~Signal(completed->callValue("read", b)[0], &b, loc);
+      completed->callMethod("write", {next.getValue()}, b);
+      if (busy)
+        busy->callMethod("write", {UInt::constant(0, 1, b, loc).getValue()}, b);
       b.create<circt::cmt2::ReturnOp>(loc);
     });
     builder.restoreInsertionPoint(savedIP);
