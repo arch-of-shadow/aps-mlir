@@ -1,0 +1,14 @@
+[UART] UART0 is here (stdin/stdout).
+== Loading device model file '/newdisk/aps-mlir/thirdparty/chipyard/generators/testchipip/src/main/resources/dramsim2_ini/DDR3_micron_64M_8B_x4_sg15.ini' == 
+== Loading system model file '/newdisk/aps-mlir/thirdparty/chipyard/generators/testchipip/src/main/resources/dramsim2_ini/system.ini' == 
+===== MemorySystem 0 =====
+CH. 0 TOTAL_STORAGE : 4096MB | 1 Ranks | 16 Devices per rank
+DRAMSim2 Clock Frequency =666666666Hz, CPU Clock Frequency=500000000Hz
+APS_RESULT_CHECK checked/mismatches/first=00000068/00000001/00000064
+*** FAILED *** (tohost = 2)
+[75075000] %Error: TestHarness.sv:99: Assertion failed in TestDriver.testHarness: Assertion failed: *** FAILED *** (exit code =          2)
+
+    at SimTSI.scala:21 assert(!error, "*** FAILED *** (exit code = %%d)\n", exit >> 1.U)
+
+%Error: /newdisk/aps-mlir/build/aps-suite-16/ransac-chipyard/make-soc/gen-collateral/TestHarness.sv:99: Verilog $stop
+Aborting...

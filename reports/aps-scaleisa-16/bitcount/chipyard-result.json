@@ -1,0 +1,34 @@
+{
+  "name": "bitcount",
+  "status": "passed",
+  "samples_per_call": 64,
+  "validated_outputs_per_binary": 128,
+  "cycles": {
+    "baseline": {
+      "cold": 13319,
+      "warm": 11899
+    },
+    "accelerated": {
+      "cold": 2143,
+      "warm": 1167
+    }
+  },
+  "chipyard_speedup": {
+    "cold": 6.215118992067196,
+    "warm": 10.196229648671808
+  },
+  "scaleisa_software_cycles": 9103.0,
+  "scaleisa_selected_cycles": 1423.0,
+  "scaleisa_estimated_speedup": 6.39704848910752,
+  "scheduling_period_ns": 10.0,
+  "max_extra_csrs": 5,
+  "source_report": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/report.json",
+  "binary_sha256": {
+    "baseline": "1b90065655860a105171507f220676c8150c537daea071a0b6215fdf23c31c45",
+    "accelerated": "f495918eec85bd3c55355f50672bc0c803229e3a6d1cba163134edac7c300c20"
+  },
+  "selected_area": 4125.294359999999,
+  "rtl": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/design.sv",
+  "rtl_sha256": "90a980725ba8df3deef7a4ccba4cbed3b6457768254d36d370a9b63211f49e50",
+  "simulator_sha256": "77803e3150e55517284bf32d45623444c84edc41f688b395c8e733d4ee44b834"
+}

@@ -1,0 +1,1 @@
+{"scope":"RTL command admission through completion, including DMA; CPU execution excluded","instructions":[{"opcode":43,"funct7":0,"calls":64,"total_cycles":192,"min_cycles":3,"max_cycles":3,"mean_cycles":3}]}

@@ -1,0 +1,30 @@
+{
+  "origin": "pcl/sample_consensus_ransac",
+  "dimensions": {
+    "POINTS": 32,
+    "HYPOTHESES": 4
+  },
+  "overridden_dimensions": {
+    "POINTS": 32,
+    "HYPOTHESES": 4
+  },
+  "original_cpp_sha256": "41e52199ced3c26d45b40b952bf619863f5a0530e3a264d2609e599c1c175cb1",
+  "original_mlir_sha256": "552a85fac5227883d303584f74a2975f691171fda9481cf6a55dc03cf3d67339",
+  "input_sha256": "6db02877e0f43e344e8dc831f60072913a3cf553f9c22607a6ec3d59a57aa1b0",
+  "observed_allocations": [
+    [
+      "%alloca_1",
+      "memref<32x3xf32>"
+    ],
+    [
+      "%alloca_0",
+      "memref<4xf32>"
+    ],
+    [
+      "%alloca",
+      "memref<4xi32>"
+    ]
+  ],
+  "checked_values": 104,
+  "reference": "Original C++ computation; capture all entry arrays before returning"
+}

@@ -1,0 +1,41 @@
+{
+  "id": "morphological",
+  "status": "passed",
+  "tests": [
+    {
+      "mode": "correct-output",
+      "status": "passed",
+      "returncode": 0,
+      "observations": [
+        {
+          "checked": 576,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        },
+        {
+          "checked": 1152,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        }
+      ],
+      "harness_sha256": "7707935e5794afdd709ee0bb254ea29fb13e45dd36fbfc38fd5f731d1aeba843",
+      "binary_sha256": "44afa9c72a16fc057f27cc871c0f6f98049aca1de8f77e9aae45e2478bdb32ba",
+      "simulator_sha256": "f1217912ac36c79ace4d506ed737fd92c05ebfd61bc2e39621ea167416c46da2"
+    },
+    {
+      "mode": "corrupt-output",
+      "status": "passed",
+      "returncode": 1,
+      "observations": [
+        {
+          "checked": 576,
+          "mismatches": 1,
+          "first_mismatch": 3
+        }
+      ],
+      "harness_sha256": "ea5ae054a86fe8df00334b5bb90f60a9b7189710c151bc18cfbd499cdab9d2b0",
+      "binary_sha256": "8e193625f11cd6a4b2e71e437c7a8ee6bd7fb2ceff25f2dc12658e372fd175e8",
+      "simulator_sha256": "f1217912ac36c79ace4d506ed737fd92c05ebfd61bc2e39621ea167416c46da2"
+    }
+  ]
+}

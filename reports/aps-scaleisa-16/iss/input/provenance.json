@@ -1,0 +1,18 @@
+{
+  "case": "iss_keypoint",
+  "original_dimensions": [
+    40,
+    40
+  ],
+  "dimensions": [
+    16,
+    16
+  ],
+  "transformations": [
+    "Spatial dimensions, loop bounds, boundary clamps and matching symbol names only; 5x5 covariance and 3x3 suppression unchanged"
+  ],
+  "original_source_sha256": "3452cceda3821a6ca642d51b525e1b757c67c83749bdaf5e22411047e5a5233e",
+  "original_mlir_sha256": "f91b1d0abb101c4797b5c8761d5526899aa0251a98759ebc25741de056abc1f8",
+  "input_sha256": "88351ed11ad1e2ea60185aad62bde16a44ecb36d46d673c1bd61acfb5c4bf1fb",
+  "scaled_source_sha256": "4dc8af4bb73bd8c94540eb229220c651f972e927a22dd0b0f7b51e2c3c40881f"
+}

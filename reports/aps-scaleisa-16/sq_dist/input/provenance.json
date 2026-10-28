@@ -1,0 +1,11 @@
+{
+  "scope": "kernel microbenchmark, not the complete source application",
+  "origin": "scaleisa/benchmarks/pcl/kdtree_search/kdtree_search.mlir",
+  "symbol": "_ZL7sq_distPfS_",
+  "source_sha256": "296741cb9ec1d60febbac54a77491282dda054aa9768c53f0a7d8d3669903a0d",
+  "kernel_sha256": "38a6c97d9c51f6c0303c38ad83f68622ebffb3f3316c0d9154084a37e5343ce9",
+  "samples": 64,
+  "generation": "Original kernel computation retained; deterministic caller and independent C++ oracle added",
+  "normalization": "Standard lower-affine pass before SCF-only discovery",
+  "observability": "Public result global exists before discovery and is checked directly by C++ caller"
+}

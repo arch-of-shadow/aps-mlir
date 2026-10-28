@@ -1,0 +1,122 @@
+{
+  "id": "sq_dist",
+  "name": "Squared distance (64 inputs)",
+  "status": "passed",
+  "selected_au_count": 1,
+  "static_ci_sites": 1,
+  "chipyard_cycles": {
+    "baseline": {
+      "cold": 3549,
+      "warm": 2401
+    },
+    "accelerated": {
+      "cold": 1874,
+      "warm": 1397
+    }
+  },
+  "measured_speedup": 1.7186828919112385,
+  "estimated_speedup": 2.2185495806610755,
+  "model_cycles": {
+    "baseline": 4497.0,
+    "accelerated": 2027.0
+  },
+  "area_budget": 10000,
+  "selected_area": 4846.11498,
+  "clock_ns": 10.0,
+  "backend_pipeline_fallback_count": 0,
+  "correctness": "128 independently checked scalar outputs per binary",
+  "source": "build/aps-suite-16/scalars/sq_dist",
+  "chipyard": "build/aps-suite-16/scalars-chipyard/sq_dist/result.json",
+  "files": [
+    {
+      "path": "scaleisa-au.mlir",
+      "source": "build/aps-suite-16/scalars/sq_dist/candidates.mlir",
+      "sha256": "e79c00bbdebe2e0c925a553fc95b8bbe06b505d6547d05946b7ea1c42d7111ed"
+    },
+    {
+      "path": "aps-planned.mlir",
+      "source": "build/aps-suite-16/scalars/sq_dist/planned.mlir",
+      "sha256": "5deb29ac64a438561a89a3b51af5b5ba0941ecdbc3308cd3d7743149c4f95be7"
+    },
+    {
+      "path": "aps-hardware.mlir",
+      "source": "build/aps-suite-16/scalars/sq_dist/hardware.mlir",
+      "sha256": "ff063699f8c7c21b3a6097d86a3a28eb12cc275d9fa36702fa2c112abafbf779"
+    },
+    {
+      "path": "selected-program.mlir",
+      "source": "build/aps-suite-16/scalars/sq_dist/selected.mlir",
+      "sha256": "fdedc505293fe420c98f30860ed6f6e196bdec107345aebd9fc4479b76f16d1e"
+    },
+    {
+      "path": "baseline-program.mlir",
+      "source": "build/aps-suite-16/scalars/sq_dist/baseline.mlir",
+      "sha256": "4eb579416dffb2b70eda3253789b659ef607b793607a32807d87605bcb93b8bf"
+    },
+    {
+      "path": "target-profile.json",
+      "source": "build/aps-suite-16/scalars/sq_dist/target-profile.json",
+      "sha256": "233ee943dda344b6b30f05558caa292d42645cb482cecd9430f323ab4fee7d8a"
+    },
+    {
+      "path": "pipeline-report.json",
+      "source": "build/aps-suite-16/scalars/sq_dist/report.json",
+      "sha256": "2ad5092c5b39dcafcc8e333448206b37708de50945cc76db0d833858899c5cf0"
+    },
+    {
+      "path": "input.mlir",
+      "source": "scaleisa/tmp/scalar-inputs-scalars/sq_dist/input.mlir",
+      "sha256": "3c3130d24391d6919acfab3371faedfb09df130937ce2c01b3a8aa4f6504289f"
+    },
+    {
+      "path": "input/provenance.json",
+      "source": "scaleisa/tmp/scalar-inputs-scalars/sq_dist/provenance.json",
+      "sha256": "82b03b473af29fd3767ff5b5bac9f524edc61774b9805139e6f2747ac23eb256"
+    },
+    {
+      "path": "input/main.cpp",
+      "source": "scaleisa/tmp/scalar-inputs-scalars/sq_dist/main.cpp",
+      "sha256": "bc691f13badd9f2d6dc14217c80143cd51a811d8edf24232bd3cb5ec606dcfda"
+    },
+    {
+      "path": "chipyard-result.json",
+      "source": "build/aps-suite-16/scalars-chipyard/sq_dist/result.json",
+      "sha256": "3d2f3071cfd3f868800dab6f6ec031f586bde184edd4d9122979e789100e3b92"
+    },
+    {
+      "path": "design.scheduled-tor.mlir",
+      "source": "build/aps-suite-16/scalars/sq_dist/design.scheduled-tor.mlir",
+      "sha256": "407c68842c73bcba02aa1645244ddaca0477252583699316a5c1aad8bc0e1109"
+    },
+    {
+      "path": "ci-runtime.json",
+      "source": "build/aps-suite-16/scalars/sq_dist/ci-runtime.json",
+      "sha256": "7b4e706dd5f7d3a222ce65c073a9359d88405e440cecec9f05391876bd37d993"
+    },
+    {
+      "path": "baseline-chipyard.log",
+      "source": "build/aps-suite-16/scalars-chipyard/sq_dist/output/baseline.log",
+      "sha256": "d54e133e983dd33949fb10689f25931ec8ee6161f0db6479dd1a2cf63cefa162"
+    },
+    {
+      "path": "accelerated-chipyard.log",
+      "source": "build/aps-suite-16/scalars-chipyard/sq_dist/output/accelerated.log",
+      "sha256": "fb45dd494a5e783560018556e4ef57ed02e702bc23848a32977d8f2e12d7cb15"
+    },
+    {
+      "path": "cpu-ci.mlir",
+      "source": "build/aps-suite-16/scalars-chipyard/sq_dist/accelerated.riscv.scaleisa/ci.mlir",
+      "sha256": "7f7e616771a5128d2491f3d9b0a6153ae8db70bbf5bfdc5b2d6d4a56fe4b5491"
+    },
+    {
+      "path": "au/au_generated_candidate_0__l0p_u0x2.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-scalars-sq_dist/uarch/affine/au_generated_candidate_0__l0p_u0x2.input.mlir",
+      "sha256": "34390d9437805c1f05f22eb7a589bbfe301e722fa73f46875574409834841554"
+    },
+    {
+      "path": "au/au_generated_candidate_0__l0p_u0x2.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-scalars-sq_dist/uarch/affine/au_generated_candidate_0__l0p_u0x2.evaluated.mlir",
+      "sha256": "1a7505ec23a80d0e72a7194aa128923a43ac96f5dec4ee70bdf1ce7dfcd45fd2"
+    }
+  ]
+}

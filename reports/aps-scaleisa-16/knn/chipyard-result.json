@@ -1,0 +1,59 @@
+{
+  "status": "passed",
+  "configuration": "APSRocketConfig",
+  "processor": "RV32 Rocket, full Chipyard Verilator",
+  "waveform_recording": false,
+  "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+  "measurement": "mcycle from immediately before the benchmark call to output observer entry; fences included; reference generation, validation, HTIF printing and return epilogue excluded",
+  "correctness": "All 172 values and checksum checked on both cold and warm calls of both binaries",
+  "validation_harness": "/newdisk/aps-mlir/build/aps-knn-32/input/main.cpp",
+  "selection_contains_ci": true,
+  "csr_bindings": [
+    {
+      "name": "au_generated_candidate_11__direct_csr0",
+      "id": 2049
+    },
+    {
+      "name": "au_generated_candidate_2__direct_csr0",
+      "id": 2050
+    },
+    {
+      "name": "au_generated_candidate_2__direct_csr1",
+      "id": 2051
+    },
+    {
+      "name": "au_generated_candidate_2__direct_csr2",
+      "id": 2052
+    },
+    {
+      "name": "au_generated_candidate_2__direct_csr3",
+      "id": 2053
+    }
+  ],
+  "max_extra_csrs": 8,
+  "cycles": {
+    "baseline": {
+      "cold": 54532,
+      "warm": 52198
+    },
+    "accelerated": {
+      "cold": 26906,
+      "warm": 26624
+    }
+  },
+  "chipyard_speedup": {
+    "cold": 2.0267598305210734,
+    "warm": 1.9605618990384615
+  },
+  "scaleisa_estimated_speedup": 1.9719726780013365,
+  "source_report": "/newdisk/aps-mlir/build/aps-knn-32/summary.json",
+  "scheduling_period_ns": 8,
+  "binary_sha256": {
+    "baseline": "4f15304cc001807074d3b8b8a26e46305782cab8dfa7289e4e3fc833b4110c55",
+    "accelerated": "ca064c65193c610bad0d01e6e15f9b02fcb6070bdc9900a30e0162e306c4336d"
+  },
+  "chipyard_wrapper_sha256": "97c082c5903d1e9f2ce125054c9a317e129a9403f24a56e1287b98e571dbf7eb",
+  "compiler_ci_lowering_sha256": "e1dce2f82d4a8938c79b14f130368e76d890aed795ab8ed4e15f63d64c7b1b4e",
+  "rtl_sha256": "84458cff615dc1dbbbcc326c62d5300da1889b47efb1d75af713d6695cd5d0b9",
+  "simulator_sha256": "416ae62ffa1088522d4b0a1cc96aef7ae8eff3f9316fa79eade265095acd512d"
+}

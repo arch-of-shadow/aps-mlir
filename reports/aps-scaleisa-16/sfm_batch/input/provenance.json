@@ -1,0 +1,38 @@
+{
+  "origin": "gtsam/sfm_batch",
+  "dimensions": {
+    "CAMERAS": 8,
+    "POINTS": 24,
+    "OBS": 192,
+    "ITERS": 6
+  },
+  "overridden_dimensions": {},
+  "original_cpp_sha256": "572cb14779eb1367fe87f2c620398af523c1a4de3727d243e6a3e0a21cb65b5f",
+  "original_mlir_sha256": "4f94dac7d04635ca21b6c19e69f87dd670bd9cd79dcef9e7afa36bdae53c83f8",
+  "input_sha256": "4f94dac7d04635ca21b6c19e69f87dd670bd9cd79dcef9e7afa36bdae53c83f8",
+  "observed_allocations": [
+    [
+      "%alloca_3",
+      "memref<8x3xf32>"
+    ],
+    [
+      "%alloca_2",
+      "memref<24x3xf32>"
+    ],
+    [
+      "%alloca_1",
+      "memref<192xi32>"
+    ],
+    [
+      "%alloca_0",
+      "memref<192xi32>"
+    ],
+    [
+      "%alloca",
+      "memref<192x2xf32>"
+    ]
+  ],
+  "checked_values": 864,
+  "reference": "Original C++ computation; capture all entry arrays before returning",
+  "timed_scope": "Complete repository snapshot main"
+}

@@ -1,0 +1,480 @@
+{
+  "area_budget": 10000,
+  "backend_pipeline_fallback_count": 0,
+  "backend_pipeline_outcomes": [],
+  "ci_cycle_comparison": [
+    {
+      "calls": 64,
+      "ci_cycle_error": -7.0,
+      "estimated_au_cycles": 3.0,
+      "estimated_ci_cycles": 10.0,
+      "funct7": 0,
+      "function": "au_generated_candidate_9__l0u",
+      "max_cycles": 3,
+      "mean_cycles": 3,
+      "min_cycles": 3,
+      "opcode": 43,
+      "total_cycles": 192
+    }
+  ],
+  "ci_runtime_scope": "RTL command admission through completion, including DMA; CPU execution excluded",
+  "commands": [
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/python",
+        "/newdisk/aps-mlir/hardware/hardfloat/build-hardfloat-ip.py",
+        "--resource-output=/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/aps-contracts.json"
+      ],
+      "cwd": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/resources.log",
+      "returncode": 0,
+      "seconds": 10.797609235,
+      "stage": "resources"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/python",
+        "/newdisk/aps-mlir/scaleisa/scripts/scaleisa.py",
+        "run",
+        "--stage",
+        "multi-level-stage",
+        "--input",
+        "/newdisk/aps-mlir/scaleisa/tmp/scalar-inputs-scalars/bitcount/input.mlir",
+        "--output-dir",
+        "/newdisk/aps-mlir/scaleisa/tmp/aps-scaleisa-scalars-bitcount",
+        "--area-budget",
+        "10000",
+        "--selection-method",
+        "greedy",
+        "--target-profile",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/target-profile.json",
+        "--discovery-stages",
+        "linalg,affine,scf",
+        "--scaleisa-opt",
+        "/newdisk/aps-mlir/build/tools/scaleisa-opt/scaleisa-opt",
+        "--scaleisa-engine-bin",
+        "/newdisk/aps-mlir/scaleisa/tools/scaleisa-engine/target/release/scaleisa-engine"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/discovery.log",
+      "returncode": 0,
+      "seconds": 42.791004539,
+      "stage": "discovery"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/candidates.mlir",
+        "--scaleisa-convert=preserve-implementation-pragmas=true",
+        "--scaleisa-split=max-extra-csrs=5",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/planned.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/adapt.log",
+      "returncode": 0,
+      "seconds": 0.025644644,
+      "stage": "adapt"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/planned.mlir",
+        "--scaleisa-materialize-aps",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/hardware.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/export-hardware.log",
+      "returncode": 0,
+      "seconds": 0.01600131,
+      "stage": "export-hardware"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-opt/aps-e2e",
+        "--clock",
+        "10.000000",
+        "-i",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/hardware.mlir",
+        "--resource",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/resource.json",
+        "--export",
+        "sv",
+        "--dump-scheduled-tor",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/design.scheduled-tor.mlir",
+        "--dump-cmt2",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/design.cmt2.mlir",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/design.sv"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/synthesis.log",
+      "returncode": 0,
+      "seconds": 2.923020523,
+      "stage": "synthesis"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/make",
+        "-C",
+        "/newdisk/aps-mlir/tools/aps-cosim",
+        "spike",
+        "VERILATOR=/newdisk/aps-mlir/.pixi/envs/default/bin/verilator",
+        "RTL=/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/design.sv",
+        "TOP=main",
+        "SPIKE_OBJ_DIR=/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/simulator",
+        "VERILATE_JOBS=4",
+        "BUILD_JOBS=4"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/build-simulator.log",
+      "returncode": 0,
+      "seconds": 8.786288316,
+      "stage": "build-simulator"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/simulator/Vmain",
+        "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/simulation.log",
+      "returncode": 0,
+      "seconds": 0.10046846,
+      "stage": "simulation"
+    }
+  ],
+  "compiled": {
+    "abi": "ilp32f",
+    "ci_instructions": 1,
+    "ci_sites": 1,
+    "commands": [
+      {
+        "argv": [
+          "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-compiler-opt",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/selected.mlir",
+          "--scaleisa-lower-ci=hardware-file=\"/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/hardware.mlir\" max-extra-csrs=5",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/ci.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/lower-ci.log",
+        "returncode": 0,
+        "seconds": 0.033108427,
+        "stage": "lower-ci"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-opt",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/ci.mlir",
+          "--pass-pipeline=builtin.module(lower-affine,convert-scf-to-cf,convert-math-to-llvm,convert-arith-to-llvm{index-bitwidth=32},finalize-memref-to-llvm{index-bitwidth=32},convert-func-to-llvm{index-bitwidth=32 use-bare-ptr-memref-call-conv=true},convert-cf-to-llvm{index-bitwidth=32},reconcile-unrealized-casts)",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/llvm.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/lower-llvm.log",
+        "returncode": 0,
+        "seconds": 0.094484058,
+        "stage": "lower-llvm"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-translate",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/llvm.mlir",
+          "--mlir-to-llvmir",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/program.ll"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/translate.log",
+        "returncode": 0,
+        "seconds": 0.041920295,
+        "stage": "translate"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=asm",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/program.s"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/assembly.log",
+        "returncode": 0,
+        "seconds": 0.068671234,
+        "stage": "assembly"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=obj",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/program.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/object.log",
+        "returncode": 0,
+        "seconds": 0.065029823,
+        "stage": "object"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-c",
+          "/newdisk/aps-mlir/scaleisa/tmp/scalar-inputs-scalars/bitcount/main.cpp",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/runtime0.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/runtime0.log",
+        "returncode": 0,
+        "seconds": 0.053849831,
+        "stage": "runtime0"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-c",
+          "/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/start.S",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/runtime1.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/runtime1.log",
+        "returncode": 0,
+        "seconds": 0.08449424,
+        "stage": "runtime1"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/ld.lld",
+          "-m",
+          "elf32lriscv",
+          "--entry=_start",
+          "--fatal-warnings",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/program.o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/runtime0.o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/runtime1.o",
+          "-T/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/ram.ld",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/link.log",
+        "returncode": 0,
+        "seconds": 0.021689016,
+        "stage": "link"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llvm-objdump",
+          "-d",
+          "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf.scaleisa/disassembly.log",
+        "returncode": 0,
+        "seconds": 0.009860123,
+        "stage": "disassembly"
+      }
+    ],
+    "emit": "elf",
+    "hardware": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/hardware.mlir",
+    "hardware_sha256": "6ce3379111cceec76e9f9e0e5bb1c09cb2375f57a63892ece8f034121be5cf3d",
+    "input": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/selected.mlir",
+    "input_sha256": "0ce7987059d1b98c744768fc39ef5df7cd80b5cfe90c46953600acc441aeda28",
+    "mattr": "+m,+a,+f,+zicsr,+zifencei",
+    "max_extra_csrs": 5,
+    "memref_abi": "bare-pointer",
+    "output": "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf",
+    "output_sha256": "2c6e8e067d1034b5f8f4b2c1ec84322b15d5b0f35e6a9e31e05dcf81eaf8c0c6",
+    "stage": "disassembly",
+    "status": "passed",
+    "target": "riscv32-unknown-elf"
+  },
+  "cosimulation": "passed",
+  "discovery_directory": "/newdisk/aps-mlir/scaleisa/tmp/aps-scaleisa-scalars-bitcount",
+  "discovery_metrics": {
+    "candidate_status_counts": {
+      "matched": 25,
+      "no_usable_implementation": 1,
+      "semantic_lowering_rejected": 1
+    },
+    "explored_impl_count": 30,
+    "generated_rewrite_rule_count": 30,
+    "merged_candidate_count": 27,
+    "pareto_retained_impl_count": 30,
+    "rewrite_applications_inserted": 116,
+    "rewrite_rules_generated_count": 30,
+    "rewrite_rules_matched_count": 30,
+    "selected_impl_count": 1,
+    "selected_instruction_count": 1,
+    "whole_egraph_lowering_complete": true
+  },
+  "discovery_stages": "linalg,affine,scf",
+  "hardware_selected": true,
+  "hashes": {
+    "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/candidates.mlir": "138a1dae66fa8b4446f811492e6b92c0ee6f72f6fe9713e6cbc2a6332d9f9529",
+    "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/design.sv": "90a980725ba8df3deef7a4ccba4cbed3b6457768254d36d370a9b63211f49e50",
+    "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/hardware.mlir": "6ce3379111cceec76e9f9e0e5bb1c09cb2375f57a63892ece8f034121be5cf3d",
+    "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/program.elf": "2c6e8e067d1034b5f8f4b2c1ec84322b15d5b0f35e6a9e31e05dcf81eaf8c0c6",
+    "/newdisk/aps-mlir/build/aps-suite-16/scalars/bitcount/selected.mlir": "0ce7987059d1b98c744768fc39ef5df7cd80b5cfe90c46953600acc441aeda28"
+  },
+  "input": "/newdisk/aps-mlir/scaleisa/tmp/scalar-inputs-scalars/bitcount/input.mlir",
+  "input_sha256": "e7fb39ae135503998f2a0e5ac202f34aef392baf08bf3f141dc8654c3d4abd78",
+  "noalias_proofs": {},
+  "reused_discovery": false,
+  "runtime_csr_arguments": [],
+  "selected_program_sha256": "6254080f6ec2500a41c3c2198f96917ae29f61ec1bb11cb6eb40e58b7297bff6",
+  "selection": {
+    "area_budget_limit": 10000.0,
+    "proven_optimal": false,
+    "selected_area": 4125.294359999999,
+    "selected_expression": "(builtin.module (builtin.block (builtin.seq memref.global memref.global (func.func (builtin.block (builtin.seq arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant memref.get_global memref.get_global (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (memref.load memref.get_global builtin.value arith.constant) memref.alloca (memref.store arith.constant memref.alloca) (memref.store arith.constant memref.alloca) (scaleisa.candidate.c9.l0u (memref.load memref.get_global builtin.value arith.constant)) (memref.store (scaleisa.candidate.c9.l0u (memref.load memref.get_global builtin.value arith.constant)) memref.alloca) (memref.load memref.alloca) (memref.store (memref.load memref.alloca) memref.get_global builtin.value) scf.yield))) (func.return arith.constant)))))))",
+    "selected_impls": [
+      {
+        "area_square_microns": 4125.294359999999,
+        "candidate_id": 9,
+        "candidate_op": "scaleisa.candidate.c9.l0u",
+        "function_name": "au_generated_candidate_9__l0u",
+        "impl_id": "cand9.l0u",
+        "latency_cycles": 10.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 3.0,
+        "semantic_level": "loop-level"
+      }
+    ],
+    "selected_latency": 1423.0,
+    "software_model": {
+      "allocation_policy": "preallocated kernel storage; allocator excluded",
+      "calibration": {
+        "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+        "configuration": "APSRocketConfig",
+        "conversions": {
+          "binary_sha256": "da505d24e2ddbf81ce66977f8a383dbdad78676051e4e410dc49872ee7fec1ee",
+          "pairs_per_measurement": 1024,
+          "policy": "Each dependent pair crosses integer and FP registers. Signed conversion/move and two-conversion chains have equal warm duration. Round their maximum net pair cost / 2 upward to four cycles per conversion or FP register move. Only i32->f32 and f32->i32 signed conversions are calibrated.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_conversion_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "float_to_signed": 7178,
+            "moves": 7178,
+            "pair": 7178,
+            "signed_to_float": 7178
+          }
+        },
+        "dependent_operations_per_measurement": 1024,
+        "fp_control": {
+          "binary_sha256": "fcb7a71db8abe8c728c3a99adb5709e04777ed0f1174e17aa7105558c3f77f7b",
+          "dependent_operations_per_chain": 1024,
+          "policy": "Sign cost is ceil((sign-empty)/1024)=4. Cross-register move/compare and move/move chains use ceil(max(pair-empty)/2048)=4 cycles per operation, conservatively matching the typed conversion/move calibration. Only f32 sign and ordered comparisons are calibrated; control recipes charge composite comparisons separately.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_fp_control_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "move_compare_pair": 7306,
+            "moves_pair": 7180,
+            "sign": 4108
+          }
+        },
+        "policy": "Dependent ALU/MUL/DIV/FP chains measured with mcycle. Branch/return and L1 load costs are conservative serial estimates, not complete processor timing. Unsupported FP/library operations require calibration.",
+        "warm_cycles": {
+          "alu": 1292,
+          "div32": 35845,
+          "divf32": 28657,
+          "empty": 275,
+          "fp32": 4108,
+          "fpmul32": 4108,
+          "fpsub32": 4108,
+          "mul": 6151
+        }
+      },
+      "clock_ns": 2,
+      "cpu": "rocket-rv32imaf",
+      "execution": "serial_dependency_latency_estimate",
+      "instruction_fetch_policy": "resident; no miss penalty",
+      "library_path_policy": "longest acyclic compiled path",
+      "llvm_mca": null,
+      "mlir_mapping": "static instruction recipes, not whole-program compiled timing",
+      "musl_revision": null,
+      "scalar_memory_cycles": 2
+    },
+    "software_only_latency": 9103.0,
+    "solver_status": "greedy: local optimum after 2 improving moves"
+  },
+  "selection_method": "greedy",
+  "selection_report_sha256": "85c6c1fa3a3ce6a78cc5b7d5f88e886be3add5dabd9aab510de331738a346181",
+  "stage": "simulation",
+  "status": "passed",
+  "target_profile_sha256": "233ee943dda344b6b30f05558caa292d42645cb482cecd9430f323ab4fee7d8a"
+}

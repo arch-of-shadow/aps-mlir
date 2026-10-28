@@ -1,0 +1,30 @@
+{
+  "case": "morphological_filter",
+  "size": 12,
+  "transformations": [
+    "Spatial dimensions, matching type/loop bounds, clamps and symbols",
+    "Output observer added after selection; kernels unchanged"
+  ],
+  "original_source_sha256": "2c931bb3adcb3223b8d8058f200383e6d885477cb3ac68c913dab83ead70b5d1",
+  "original_mlir_sha256": "11338fa8dd46ee7864b16bc2640e8d5dab6fcf4e6ac20fba98486fb65951893a",
+  "input_sha256": "3963398b117ddf791b30230e6a40cbef2b02b2e95484ee92eae47105183ed9e6",
+  "scaled_source_sha256": "4051597eb2bd3b4a1d40b22123dfcecc0ad100fd5ad4ada5d2301c69d6711a0e",
+  "observed_allocations": [
+    [
+      "%alloca_2",
+      "memref<12x12xf32>"
+    ],
+    [
+      "%alloca_1",
+      "memref<12x12xf32>"
+    ],
+    [
+      "%alloca_0",
+      "memref<12x12xf32>"
+    ],
+    [
+      "%alloca",
+      "memref<12x12xf32>"
+    ]
+  ]
+}

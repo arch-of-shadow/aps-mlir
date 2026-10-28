@@ -1,0 +1,172 @@
+{
+  "id": "pose2_slam",
+  "name": "Pose2 graph solver (24 poses, 40 edges)",
+  "status": "passed",
+  "selected_au_count": 5,
+  "static_ci_sites": 6,
+  "chipyard_cycles": {
+    "baseline": {
+      "cold": 103227,
+      "warm": 102343
+    },
+    "accelerated": {
+      "cold": 56131,
+      "warm": 55311
+    }
+  },
+  "measured_speedup": 1.8503191046988845,
+  "estimated_speedup": 1.4638902223031467,
+  "model_cycles": {
+    "baseline": 88438.0,
+    "accelerated": 60413.0
+  },
+  "area_budget": 10000,
+  "selected_area": 8537.319,
+  "clock_ns": 8.0,
+  "backend_pipeline_fallback_count": 0,
+  "correctness": "All 392 values and checksum checked on both cold and warm calls of both binaries",
+  "source": "build/aps-suite-16/pose2_slam",
+  "chipyard": "build/aps-suite-16/pose2_slam-chipyard/summary.json",
+  "files": [
+    {
+      "path": "scaleisa-au.mlir",
+      "source": "build/aps-suite-16/pose2_slam/candidates.mlir",
+      "sha256": "bc9a1ac85f9570a9c924025c751076d11fb5c733eb2c98e67f7f4b839f5192d3"
+    },
+    {
+      "path": "aps-planned.mlir",
+      "source": "build/aps-suite-16/pose2_slam/planned.mlir",
+      "sha256": "0ef3653ea0e3c9d006d556ac08b11c57cebc9e5193c2c1308cb884875bd8104b"
+    },
+    {
+      "path": "aps-hardware.mlir",
+      "source": "build/aps-suite-16/pose2_slam/hardware.mlir",
+      "sha256": "a7a6230f507045b83e16a8873086ab8b87a94c300db406791bc45d3945f2b895"
+    },
+    {
+      "path": "selected-program.mlir",
+      "source": "build/aps-suite-16/pose2_slam/selected.mlir",
+      "sha256": "c96c9099953da267ae71c6d728da5468ff3db2cfdbf39274fe031007bc2c620f"
+    },
+    {
+      "path": "baseline-program.mlir",
+      "source": "build/aps-suite-16/pose2_slam/baseline.mlir",
+      "sha256": "19cb233ebd0320c4a88960ac70582a21ec9e735fcb8dc2bc26b54e05cfd2321e"
+    },
+    {
+      "path": "target-profile.json",
+      "source": "build/aps-suite-16/pose2_slam/target-profile.json",
+      "sha256": "d0b6e1505f7d8456a2a647c7c9ab8c700034e178e0d7fa4c1e07fdc784a7be25"
+    },
+    {
+      "path": "pipeline-report.json",
+      "source": "build/aps-suite-16/pose2_slam/report.json",
+      "sha256": "bdd8e6608be0d79ab6cddac8f92195f2b7d0663a236b6273095abfb1d572d713"
+    },
+    {
+      "path": "input.mlir",
+      "source": "build/aps-suite-16/pose2_slam/input/input.mlir",
+      "sha256": "e42bb5e44fb0d12721669ecb78f0748dc3adee99f57e0673c631116dfc428e9b"
+    },
+    {
+      "path": "input/provenance.json",
+      "source": "build/aps-suite-16/pose2_slam/input/provenance.json",
+      "sha256": "58d671ac5f67e0f066508bd9d7bf2451e77e058f597f00f7bb85ca48b203d1fb"
+    },
+    {
+      "path": "input/main.cpp",
+      "source": "build/aps-suite-16/pose2_slam/input/main.cpp",
+      "sha256": "913224d285291fdba0bc632fdb3869ba4a36f68d07661d8b924496e49d0ffd3d"
+    },
+    {
+      "path": "input/reference.cpp",
+      "source": "build/aps-suite-16/pose2_slam/input/reference.cpp",
+      "sha256": "393414202171188663ba4a6f8195b5ccab4d9b3527e360c4789e4eacc429e293"
+    },
+    {
+      "path": "chipyard-result.json",
+      "source": "build/aps-suite-16/pose2_slam-chipyard/summary.json",
+      "sha256": "8059ef7aeae92b58175a66149ddb112243295b01962156f77a9ee7be4f1033e0"
+    },
+    {
+      "path": "validation-harness.cpp",
+      "source": "build/aps-suite-16/pose2_slam/input/main.cpp",
+      "sha256": "913224d285291fdba0bc632fdb3869ba4a36f68d07661d8b924496e49d0ffd3d"
+    },
+    {
+      "path": "design.scheduled-tor.mlir",
+      "source": "build/aps-suite-16/pose2_slam/design.scheduled-tor.mlir",
+      "sha256": "d1c95a7e0f5884dea025ad77bbf00559edfa59b8a454971ad6dbb66cbaa1231e"
+    },
+    {
+      "path": "ci-runtime.json",
+      "source": "build/aps-suite-16/pose2_slam/ci-runtime.json",
+      "sha256": "d05e5450635f9fae2c33b26efd407480aa2dd044eb98cb67174272d5885960ba"
+    },
+    {
+      "path": "baseline-chipyard.log",
+      "source": "build/aps-suite-16/pose2_slam-chipyard/output/baseline.log",
+      "sha256": "39f1b715c88e33f5975eeac7680b66f8766be0b0c9526d7d98570b8283248153"
+    },
+    {
+      "path": "accelerated-chipyard.log",
+      "source": "build/aps-suite-16/pose2_slam-chipyard/output/accelerated.log",
+      "sha256": "9986fc63b56a78a4dc828a613366a165a37cc1c5099ac9db71db9a40deb660af"
+    },
+    {
+      "path": "cpu-ci.mlir",
+      "source": "build/aps-suite-16/pose2_slam-chipyard/accelerated.riscv.scaleisa/ci.mlir",
+      "sha256": "708e1e691f2bdcb7d3951267280505f33df3291c5dfb900dd6a38274f4cf4858"
+    },
+    {
+      "path": "au/au_generated_candidate_21__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_21__direct.input.mlir",
+      "sha256": "f12cc292c71fe3f065376b659c533caa705293adf8f813d22eb1e4e3441702db"
+    },
+    {
+      "path": "au/au_generated_candidate_21__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_21__direct.evaluated.mlir",
+      "sha256": "6d74e0eef963447a4f328ff337ec27d456dbe713bde59a080e547880a59c644d"
+    },
+    {
+      "path": "au/au_generated_candidate_31__l1p.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_31__l1p.input.mlir",
+      "sha256": "134b2e814f985fb7db95627b0fa5399fd19a81aae38120a2c84510277a0d718b"
+    },
+    {
+      "path": "au/au_generated_candidate_31__l1p.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_31__l1p.evaluated.mlir",
+      "sha256": "1226a3ac9232f2eb476f86f1e54591be6b8df804065ff17baab1cd84d0e94af4"
+    },
+    {
+      "path": "au/au_generated_candidate_36__l0u_l1u.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_36__l0u_l1u.input.mlir",
+      "sha256": "a42cb8d294e688ea81ac5b8821b82d8911490fbecf7a7a1dfbf7d0b3cfe2e441"
+    },
+    {
+      "path": "au/au_generated_candidate_36__l0u_l1u.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_36__l0u_l1u.evaluated.mlir",
+      "sha256": "7046fa64e2a6d46e9d407ea7064cdab004ffab0c59f3a9d12a2607135b31e51a"
+    },
+    {
+      "path": "au/au_generated_candidate_38__l0u_l1u.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_38__l0u_l1u.input.mlir",
+      "sha256": "96ba4009072956da3ef9a7903b912edf95f2b8b7a70306d3601d2f5813dd467a"
+    },
+    {
+      "path": "au/au_generated_candidate_38__l0u_l1u.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_38__l0u_l1u.evaluated.mlir",
+      "sha256": "64b8358b254fb2d868df308dccc74ac23b0c1049756c6395ddac209f0a511455"
+    },
+    {
+      "path": "au/au_generated_candidate_5__l0p_l1u.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_5__l0p_l1u.input.mlir",
+      "sha256": "6e788c9d645df71f9f953ed4d8c6289b4fbddc6e5a5a653d9dd9aa3ca9beb5ad"
+    },
+    {
+      "path": "au/au_generated_candidate_5__l0p_l1u.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-pose2_slam/uarch/affine/au_generated_candidate_5__l0p_l1u.evaluated.mlir",
+      "sha256": "03ec1d6260ff262e0004843234ffd94d0121e565755282f280a1220b9a5791d6"
+    }
+  ]
+}

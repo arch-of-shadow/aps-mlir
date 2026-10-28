@@ -1,0 +1,515 @@
+{
+  "area_budget": 10000,
+  "backend_pipeline_fallback_count": 0,
+  "backend_pipeline_outcomes": [],
+  "ci_cycle_comparison": [
+    {
+      "calls": 4,
+      "ci_cycle_error": 1421.0,
+      "estimated_au_cycles": 28129.0,
+      "estimated_ci_cycles": 28373.0,
+      "funct7": 0,
+      "function": "au_generated_candidate_1__direct",
+      "max_cycles": 29805,
+      "mean_cycles": 29794,
+      "min_cycles": 29783,
+      "opcode": 43,
+      "total_cycles": 119176
+    },
+    {
+      "calls": 1,
+      "ci_cycle_error": -80.0,
+      "estimated_au_cycles": 192.0,
+      "estimated_ci_cycles": 431.0,
+      "funct7": 1,
+      "function": "au_generated_candidate_8__l0u",
+      "max_cycles": 351,
+      "mean_cycles": 351,
+      "min_cycles": 351,
+      "opcode": 43,
+      "total_cycles": 351
+    }
+  ],
+  "ci_runtime_scope": "RTL command admission through completion, including DMA; CPU execution excluded",
+  "commands": [
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/python",
+        "/newdisk/aps-mlir/hardware/hardfloat/build-hardfloat-ip.py",
+        "--resource-output=/newdisk/aps-mlir/build/aps-icp-32/aps-contracts.json"
+      ],
+      "cwd": "/newdisk/aps-mlir/build/aps-icp-32",
+      "log": "/newdisk/aps-mlir/build/aps-icp-32/resources.log",
+      "returncode": 0,
+      "seconds": 9.895665099,
+      "stage": "resources"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-icp-32/candidates.mlir",
+        "--scaleisa-convert=preserve-implementation-pragmas=true",
+        "--scaleisa-split=max-extra-csrs=8",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-icp-32/planned.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-icp-32/adapt.log",
+      "returncode": 0,
+      "seconds": 0.091307518,
+      "stage": "adapt"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-icp-32/planned.mlir",
+        "--scaleisa-materialize-aps",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-icp-32/hardware.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-icp-32/export-hardware.log",
+      "returncode": 0,
+      "seconds": 0.061113011,
+      "stage": "export-hardware"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-opt/aps-e2e",
+        "--clock",
+        "8.000000",
+        "-i",
+        "/newdisk/aps-mlir/build/aps-icp-32/hardware.mlir",
+        "--resource",
+        "/newdisk/aps-mlir/build/aps-icp-32/resource.json",
+        "--export",
+        "sv",
+        "--dump-scheduled-tor",
+        "/newdisk/aps-mlir/build/aps-icp-32/design.scheduled-tor.mlir",
+        "--dump-cmt2",
+        "/newdisk/aps-mlir/build/aps-icp-32/design.cmt2.mlir",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-icp-32/design.sv"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-icp-32/synthesis.log",
+      "returncode": 0,
+      "seconds": 88.907311926,
+      "stage": "synthesis"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/make",
+        "-C",
+        "/newdisk/aps-mlir/tools/aps-cosim",
+        "spike",
+        "VERILATOR=/newdisk/aps-mlir/.pixi/envs/default/bin/verilator",
+        "RTL=/newdisk/aps-mlir/build/aps-icp-32/design.sv",
+        "TOP=main",
+        "SPIKE_OBJ_DIR=/newdisk/aps-mlir/build/aps-icp-32/simulator",
+        "VERILATE_JOBS=4",
+        "BUILD_JOBS=4"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-icp-32/build-simulator.log",
+      "returncode": 0,
+      "seconds": 51.399754575,
+      "stage": "build-simulator"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/aps-icp-32/simulator/Vmain",
+        "--add-csr",
+        "au_generated_candidate_1__direct_csr0=2049",
+        "--add-csr",
+        "au_generated_candidate_1__direct_csr1=2050",
+        "--add-csr",
+        "au_generated_candidate_1__direct_csr2=2051",
+        "--add-csr",
+        "au_generated_candidate_1__direct_csr3=2052",
+        "--add-csr",
+        "au_generated_candidate_1__direct_csr4=2053",
+        "--add-csr",
+        "au_generated_candidate_1__direct_csr5=2054",
+        "--add-csr",
+        "au_generated_candidate_1__direct_csr6=2055",
+        "/newdisk/aps-mlir/build/aps-icp-32/program.elf"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-icp-32/simulation.log",
+      "returncode": 0,
+      "seconds": 13.118477056,
+      "stage": "simulation"
+    }
+  ],
+  "compiled": {
+    "abi": "ilp32f",
+    "ci_instructions": 2,
+    "ci_sites": 2,
+    "commands": [
+      {
+        "argv": [
+          "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-compiler-opt",
+          "/newdisk/aps-mlir/build/aps-icp-32/selected.mlir",
+          "--scaleisa-lower-ci=hardware-file=\"/newdisk/aps-mlir/build/aps-icp-32/hardware.mlir\" max-extra-csrs=8",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/ci.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/lower-ci.log",
+        "returncode": 0,
+        "seconds": 0.131107357,
+        "stage": "lower-ci"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-opt",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/ci.mlir",
+          "--pass-pipeline=builtin.module(lower-affine,convert-scf-to-cf,convert-math-to-llvm,convert-arith-to-llvm{index-bitwidth=32},finalize-memref-to-llvm{index-bitwidth=32},convert-func-to-llvm{index-bitwidth=32 use-bare-ptr-memref-call-conv=true},convert-cf-to-llvm{index-bitwidth=32},reconcile-unrealized-casts)",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/llvm.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/lower-llvm.log",
+        "returncode": 0,
+        "seconds": 0.217882526,
+        "stage": "lower-llvm"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-translate",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/llvm.mlir",
+          "--mlir-to-llvmir",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/program.ll"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/translate.log",
+        "returncode": 0,
+        "seconds": 0.08608952,
+        "stage": "translate"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=asm",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/program.s"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/assembly.log",
+        "returncode": 0,
+        "seconds": 0.14267766,
+        "stage": "assembly"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=obj",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/program.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/object.log",
+        "returncode": 0,
+        "seconds": 0.121850046,
+        "stage": "object"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-c",
+          "/newdisk/aps-mlir/build/aps-icp-32/input/main.cpp",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/runtime0.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/runtime0.log",
+        "returncode": 0,
+        "seconds": 0.115347078,
+        "stage": "runtime0"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-c",
+          "/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/start.S",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/runtime1.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/runtime1.log",
+        "returncode": 0,
+        "seconds": 0.084589287,
+        "stage": "runtime1"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/ld.lld",
+          "-m",
+          "elf32lriscv",
+          "--entry=_start",
+          "--fatal-warnings",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/program.o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/runtime0.o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/runtime1.o",
+          "-T/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/ram.ld",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/link.log",
+        "returncode": 0,
+        "seconds": 0.016927216,
+        "stage": "link"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llvm-objdump",
+          "-d",
+          "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-icp-32/program.elf.scaleisa/disassembly.log",
+        "returncode": 0,
+        "seconds": 0.020078894,
+        "stage": "disassembly"
+      }
+    ],
+    "emit": "elf",
+    "hardware": "/newdisk/aps-mlir/build/aps-icp-32/hardware.mlir",
+    "hardware_sha256": "946155888f478c02fca65a6bc4839e022f54aa99f9bd65acf332ac6ee161c970",
+    "input": "/newdisk/aps-mlir/build/aps-icp-32/selected.mlir",
+    "input_sha256": "da2ddde223ee5f5add401e1634e4bf82f6de239471973bf4eb5eda1402f6c76c",
+    "mattr": "+m,+a,+f,+zicsr,+zifencei",
+    "max_extra_csrs": 8,
+    "memref_abi": "bare-pointer",
+    "output": "/newdisk/aps-mlir/build/aps-icp-32/program.elf",
+    "output_sha256": "a535a0ce8aabf39a38d40c74a654c5e9289b57fd91a525f746c9a78bd36595bd",
+    "stage": "disassembly",
+    "status": "passed",
+    "target": "riscv32-unknown-elf"
+  },
+  "cosimulation": "passed",
+  "discovery_directory": "/newdisk/aps-mlir/scaleisa/tmp/aps-scaleisa-build-aps-icp-32",
+  "discovery_metrics": {
+    "candidate_status_counts": {
+      "matched": 70,
+      "no_usable_implementation": 14
+    },
+    "explored_impl_count": 77,
+    "generated_rewrite_rule_count": 77,
+    "merged_candidate_count": 84,
+    "pareto_retained_impl_count": 77,
+    "rewrite_applications_inserted": 13185,
+    "rewrite_rules_generated_count": 77,
+    "rewrite_rules_matched_count": 77,
+    "selected_impl_count": 2,
+    "selected_instruction_count": 2,
+    "whole_egraph_lowering_complete": true
+  },
+  "discovery_stages": "linalg,affine,scf",
+  "hardware_selected": true,
+  "hashes": {
+    "/newdisk/aps-mlir/build/aps-icp-32/candidates.mlir": "b96f7f31b1ce1a1275ee344dee487e5f9d6b5acab5c4ff7aa35ea4035612d3f3",
+    "/newdisk/aps-mlir/build/aps-icp-32/design.sv": "c8e904fb5073fbd99691202fc1acd1daf7e33557c248565667f22a7cecd69060",
+    "/newdisk/aps-mlir/build/aps-icp-32/hardware.mlir": "946155888f478c02fca65a6bc4839e022f54aa99f9bd65acf332ac6ee161c970",
+    "/newdisk/aps-mlir/build/aps-icp-32/program.elf": "a535a0ce8aabf39a38d40c74a654c5e9289b57fd91a525f746c9a78bd36595bd",
+    "/newdisk/aps-mlir/build/aps-icp-32/selected.mlir": "da2ddde223ee5f5add401e1634e4bf82f6de239471973bf4eb5eda1402f6c76c"
+  },
+  "input": "/newdisk/aps-mlir/build/aps-icp-32/input/registration_icp.mlir",
+  "input_sha256": "4ee02366adb4b66e3f1a767928ded600b0e26f8a7f5a1e800dff9c62870bce6a",
+  "noalias_proofs": {
+    "au_generated_candidate_1__direct": {
+      "basis": "distinct entry allocations at every call",
+      "sites": [
+        "au_generated_candidate_1__direct_site_2977"
+      ]
+    },
+    "au_generated_candidate_8__l0u": {
+      "basis": "distinct entry allocations at every call",
+      "sites": [
+        "au_generated_candidate_8__l0u_site_2884"
+      ]
+    }
+  },
+  "reused_discovery": true,
+  "runtime_csr_arguments": [
+    "--add-csr",
+    "au_generated_candidate_1__direct_csr0=2049",
+    "--add-csr",
+    "au_generated_candidate_1__direct_csr1=2050",
+    "--add-csr",
+    "au_generated_candidate_1__direct_csr2=2051",
+    "--add-csr",
+    "au_generated_candidate_1__direct_csr3=2052",
+    "--add-csr",
+    "au_generated_candidate_1__direct_csr4=2053",
+    "--add-csr",
+    "au_generated_candidate_1__direct_csr5=2054",
+    "--add-csr",
+    "au_generated_candidate_1__direct_csr6=2055"
+  ],
+  "selected_program_sha256": "75536c0f5f75935c0c81d24210e54dacb378280e1d674e6fa7888ed2c60af916",
+  "selection": {
+    "area_budget_limit": 10000.0,
+    "proven_optimal": false,
+    "selected_area": 5233.7388599999995,
+    "selected_expression": "(builtin.module (builtin.block (builtin.seq (func.func (builtin.block (builtin.seq arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant memref.alloca memref.alloca memref.alloca memref.alloca (scaleisa.candidate.c8.l0u memref.alloca memref.alloca) memref.alloca (memref.store arith.constant memref.alloca) memref.alloca (memref.store arith.constant memref.alloca) memref.alloca (memref.store arith.constant memref.alloca) (memref.store arith.constant memref.alloca) (memref.store arith.constant memref.alloca) (memref.store arith.constant memref.alloca) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq memref.alloca (memref.store arith.constant memref.alloca) memref.alloca (memref.store arith.constant memref.alloca) memref.alloca (memref.store arith.constant memref.alloca) memref.alloca (memref.store arith.constant memref.alloca) (scaleisa.candidate.c1.direct memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca) (memref.load memref.alloca) (arith.mulf (memref.load memref.alloca) arith.constant) (arith.divf (arith.mulf (memref.load memref.alloca) arith.constant) arith.constant) (memref.load memref.alloca) (arith.addf (memref.load memref.alloca) (arith.divf (arith.mulf (memref.load memref.alloca) arith.constant) arith.constant)) (memref.store (arith.addf (memref.load memref.alloca) (arith.divf (arith.mulf (memref.load memref.alloca) arith.constant) arith.constant)) memref.alloca) (memref.load memref.alloca) (arith.mulf (memref.load memref.alloca) arith.constant) (arith.divf (arith.mulf (memref.load memref.alloca) arith.constant) arith.constant) (memref.load memref.alloca) (arith.addf (memref.load memref.alloca) (arith.divf (arith.mulf (memref.load memref.alloca) arith.constant) arith.constant)) (memref.store (arith.addf (memref.load memref.alloca) (arith.divf (arith.mulf (memref.load memref.alloca) arith.constant) arith.constant)) memref.alloca) (memref.load memref.alloca) (arith.mulf (memref.load memref.alloca) arith.constant) (arith.divf (arith.mulf (memref.load memref.alloca) arith.constant) arith.constant) (memref.load memref.alloca) (arith.addf (memref.load memref.alloca) (arith.divf (arith.mulf (memref.load memref.alloca) arith.constant) arith.constant)) (memref.store (arith.addf (memref.load memref.alloca) (arith.divf (arith.mulf (memref.load memref.alloca) arith.constant) arith.constant)) memref.alloca) (memref.load memref.alloca) (arith.divf (memref.load memref.alloca) arith.constant) (memref.store (arith.divf (memref.load memref.alloca) arith.constant) memref.alloca builtin.value) scf.yield))) (memref.load memref.alloca) (memref.store (memref.load memref.alloca) memref.alloca arith.constant) (memref.load memref.alloca) (memref.store (memref.load memref.alloca) memref.alloca arith.constant) (memref.load memref.alloca) (memref.store (memref.load memref.alloca) memref.alloca arith.constant) memref.alloca (memref.store arith.constant memref.alloca) (memref.store arith.constant memref.alloca) (memref.load memref.alloca arith.constant) (arith.mulf (memref.load memref.alloca arith.constant) arith.constant) (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant)) (memref.store (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant)) memref.alloca) (memref.load memref.alloca arith.constant) (arith.mulf (memref.load memref.alloca arith.constant) arith.constant) (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant)) (arith.addi (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant))) (memref.store (arith.addi (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant))) memref.alloca) (memref.load memref.alloca arith.constant) (arith.mulf (memref.load memref.alloca arith.constant) arith.constant) (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant)) (arith.addi (arith.addi (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant))) (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant))) (memref.store (arith.addi (arith.addi (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant))) (arith.fptosi (arith.mulf (memref.load memref.alloca arith.constant) arith.constant))) memref.alloca) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (memref.load memref.alloca builtin.value) (arith.mulf (memref.load memref.alloca builtin.value) arith.constant) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value) arith.constant)) (memref.load memref.alloca) (arith.addi (memref.load memref.alloca) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value) arith.constant))) (memref.store (arith.addi (memref.load memref.alloca) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value) arith.constant))) memref.alloca) scf.yield))) (memref.load memref.alloca) (arith.sitofp (memref.load memref.alloca)) (arith.cmpi (memref.load memref.alloca) arith.constant) (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) (arith.cmpf (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) arith.constant) (arith.select (arith.cmpf (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) arith.constant) (memref.load memref.alloca) arith.constant) (func.return (arith.select (arith.cmpf (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) arith.constant) (memref.load memref.alloca) arith.constant))))))))",
+    "selected_impls": [
+      {
+        "area_square_microns": 5197.9887,
+        "candidate_id": 1,
+        "candidate_op": "scaleisa.candidate.c1.direct",
+        "function_name": "au_generated_candidate_1__direct",
+        "impl_id": "cand1.direct",
+        "latency_cycles": 28394.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 28129.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 35.75016,
+        "candidate_id": 8,
+        "candidate_op": "scaleisa.candidate.c8.l0u",
+        "function_name": "au_generated_candidate_8__l0u",
+        "impl_id": "cand8.l0u",
+        "latency_cycles": 431.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 192.0,
+        "semantic_level": "loop-level"
+      }
+    ],
+    "selected_latency": 114894.0,
+    "software_model": {
+      "allocation_policy": "preallocated kernel storage; allocator excluded",
+      "calibration": {
+        "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+        "configuration": "APSRocketConfig",
+        "conversions": {
+          "binary_sha256": "da505d24e2ddbf81ce66977f8a383dbdad78676051e4e410dc49872ee7fec1ee",
+          "pairs_per_measurement": 1024,
+          "policy": "Each dependent pair crosses integer and FP registers. Signed conversion/move and two-conversion chains have equal warm duration. Round their maximum net pair cost / 2 upward to four cycles per conversion or FP register move. Only i32->f32 and f32->i32 signed conversions are calibrated.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_conversion_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "float_to_signed": 7178,
+            "moves": 7178,
+            "pair": 7178,
+            "signed_to_float": 7178
+          }
+        },
+        "dependent_operations_per_measurement": 1024,
+        "fp_control": {
+          "binary_sha256": "fcb7a71db8abe8c728c3a99adb5709e04777ed0f1174e17aa7105558c3f77f7b",
+          "dependent_operations_per_chain": 1024,
+          "policy": "Sign cost is ceil((sign-empty)/1024)=4. Cross-register move/compare and move/move chains use ceil(max(pair-empty)/2048)=4 cycles per operation, conservatively matching the typed conversion/move calibration. Only f32 sign and ordered comparisons are calibrated; control recipes charge composite comparisons separately.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_fp_control_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "move_compare_pair": 7306,
+            "moves_pair": 7180,
+            "sign": 4108
+          }
+        },
+        "policy": "Dependent ALU/MUL/DIV/FP chains measured with mcycle. Branch/return and L1 load costs are conservative serial estimates, not complete processor timing. Unsupported FP/library operations require calibration.",
+        "warm_cycles": {
+          "alu": 1292,
+          "div32": 35845,
+          "divf32": 28657,
+          "empty": 275,
+          "fp32": 4108,
+          "fpmul32": 4108,
+          "fpsub32": 4108,
+          "mul": 6151
+        }
+      },
+      "clock_ns": 2,
+      "cpu": "rocket-rv32imaf",
+      "execution": "serial_dependency_latency_estimate",
+      "instruction_fetch_policy": "resident; no miss penalty",
+      "library_path_policy": "longest acyclic compiled path",
+      "llvm_mca": null,
+      "mlir_mapping": "static instruction recipes, not whole-program compiled timing",
+      "musl_revision": null,
+      "scalar_memory_cycles": 2
+    },
+    "software_only_latency": 324481.0,
+    "solver_status": "greedy: local optimum after 4 improving moves"
+  },
+  "selection_method": "greedy",
+  "selection_report_sha256": "ed7aef389b30801b2dd5692bbb4ceddcce63a54870e80306c54d323ce5d748bc",
+  "stage": "simulation",
+  "status": "passed",
+  "target_profile_sha256": "d0b6e1505f7d8456a2a647c7c9ab8c700034e178e0d7fa4c1e07fdc784a7be25"
+}

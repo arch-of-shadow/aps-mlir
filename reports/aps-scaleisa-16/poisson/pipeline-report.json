@@ -1,0 +1,522 @@
+{
+  "area_budget": 10000,
+  "backend_pipeline_fallback_count": 0,
+  "backend_pipeline_outcomes": [],
+  "ci_cycle_comparison": [
+    {
+      "calls": 1,
+      "ci_cycle_error": -29.0,
+      "estimated_au_cycles": 1237.0,
+      "estimated_ci_cycles": 1384.0,
+      "funct7": 0,
+      "function": "au_generated_candidate_11__direct",
+      "max_cycles": 1355,
+      "mean_cycles": 1355,
+      "min_cycles": 1355,
+      "opcode": 43,
+      "total_cycles": 1355
+    },
+    {
+      "calls": 2,
+      "ci_cycle_error": 118.0,
+      "estimated_au_cycles": 128.0,
+      "estimated_ci_cycles": 489.0,
+      "funct7": 1,
+      "function": "au_generated_candidate_27__l0u_l1u_l2u",
+      "max_cycles": 607,
+      "mean_cycles": 607,
+      "min_cycles": 607,
+      "opcode": 43,
+      "total_cycles": 1214
+    },
+    {
+      "calls": 2,
+      "ci_cycle_error": 127.0,
+      "estimated_au_cycles": 3093.0,
+      "estimated_ci_cycles": 3572.0,
+      "funct7": 2,
+      "function": "au_generated_candidate_9__direct",
+      "max_cycles": 4056,
+      "mean_cycles": 3699,
+      "min_cycles": 3342,
+      "opcode": 43,
+      "total_cycles": 7398
+    }
+  ],
+  "ci_runtime_scope": "RTL command admission through completion, including DMA; CPU execution excluded",
+  "commands": [
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/python",
+        "/newdisk/aps-mlir/hardware/hardfloat/build-hardfloat-ip.py",
+        "--resource-output=/newdisk/aps-mlir/build/aps-suite-16/poisson/aps-contracts.json"
+      ],
+      "cwd": "/newdisk/aps-mlir/build/aps-suite-16/poisson",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/resources.log",
+      "returncode": 0,
+      "seconds": 12.375137277,
+      "stage": "resources"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/candidates.mlir",
+        "--scaleisa-convert=preserve-implementation-pragmas=true",
+        "--scaleisa-split=max-extra-csrs=8",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/planned.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/adapt.log",
+      "returncode": 0,
+      "seconds": 0.115076682,
+      "stage": "adapt"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/planned.mlir",
+        "--scaleisa-materialize-aps",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/hardware.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/export-hardware.log",
+      "returncode": 0,
+      "seconds": 0.066054354,
+      "stage": "export-hardware"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-opt/aps-e2e",
+        "--clock",
+        "8.000000",
+        "-i",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/hardware.mlir",
+        "--resource",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/resource.json",
+        "--export",
+        "sv",
+        "--dump-scheduled-tor",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/design.scheduled-tor.mlir",
+        "--dump-cmt2",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/design.cmt2.mlir",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/design.sv"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/synthesis.log",
+      "returncode": 0,
+      "seconds": 184.015235671,
+      "stage": "synthesis"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/make",
+        "-C",
+        "/newdisk/aps-mlir/tools/aps-cosim",
+        "spike",
+        "VERILATOR=/newdisk/aps-mlir/.pixi/envs/default/bin/verilator",
+        "RTL=/newdisk/aps-mlir/build/aps-suite-16/poisson/design.sv",
+        "TOP=main",
+        "SPIKE_OBJ_DIR=/newdisk/aps-mlir/build/aps-suite-16/poisson/simulator",
+        "VERILATE_JOBS=4",
+        "BUILD_JOBS=4"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/build-simulator.log",
+      "returncode": 0,
+      "seconds": 84.799928902,
+      "stage": "build-simulator"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/simulator/Vmain",
+        "--add-csr",
+        "au_generated_candidate_9__direct_csr0=2049",
+        "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/simulation.log",
+      "returncode": 0,
+      "seconds": 2.002831748,
+      "stage": "simulation"
+    }
+  ],
+  "compiled": {
+    "abi": "ilp32f",
+    "ci_instructions": 3,
+    "ci_sites": 3,
+    "commands": [
+      {
+        "argv": [
+          "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-compiler-opt",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/selected.mlir",
+          "--scaleisa-lower-ci=hardware-file=\"/newdisk/aps-mlir/build/aps-suite-16/poisson/hardware.mlir\" max-extra-csrs=8",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/ci.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/lower-ci.log",
+        "returncode": 0,
+        "seconds": 0.126176735,
+        "stage": "lower-ci"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-opt",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/ci.mlir",
+          "--pass-pipeline=builtin.module(lower-affine,convert-scf-to-cf,convert-math-to-llvm,convert-arith-to-llvm{index-bitwidth=32},finalize-memref-to-llvm{index-bitwidth=32},convert-func-to-llvm{index-bitwidth=32 use-bare-ptr-memref-call-conv=true},convert-cf-to-llvm{index-bitwidth=32},reconcile-unrealized-casts)",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/llvm.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/lower-llvm.log",
+        "returncode": 0,
+        "seconds": 0.183107303,
+        "stage": "lower-llvm"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-translate",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/llvm.mlir",
+          "--mlir-to-llvmir",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/program.ll"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/translate.log",
+        "returncode": 0,
+        "seconds": 0.092940295,
+        "stage": "translate"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=asm",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/program.s"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/assembly.log",
+        "returncode": 0,
+        "seconds": 0.140555609,
+        "stage": "assembly"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=obj",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/program.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/object.log",
+        "returncode": 0,
+        "seconds": 0.161396409,
+        "stage": "object"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-c",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/input/main.cpp",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/runtime0.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/runtime0.log",
+        "returncode": 0,
+        "seconds": 0.169614864,
+        "stage": "runtime0"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-c",
+          "/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/start.S",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/runtime1.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/runtime1.log",
+        "returncode": 0,
+        "seconds": 0.086187337,
+        "stage": "runtime1"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/ld.lld",
+          "-m",
+          "elf32lriscv",
+          "--entry=_start",
+          "--fatal-warnings",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/program.o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/runtime0.o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/runtime1.o",
+          "-T/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/ram.ld",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/link.log",
+        "returncode": 0,
+        "seconds": 0.022311535,
+        "stage": "link"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llvm-objdump",
+          "-d",
+          "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf.scaleisa/disassembly.log",
+        "returncode": 0,
+        "seconds": 0.019555009,
+        "stage": "disassembly"
+      }
+    ],
+    "emit": "elf",
+    "hardware": "/newdisk/aps-mlir/build/aps-suite-16/poisson/hardware.mlir",
+    "hardware_sha256": "4bc340dea4d70edb9d3a94d8e3ca82ee72110f7008a76f0f351f8845f8fdb61a",
+    "input": "/newdisk/aps-mlir/build/aps-suite-16/poisson/selected.mlir",
+    "input_sha256": "7fe8726005234a9ff883f29edede64359eed8ac5cf5ea15c595b2dda1590ea99",
+    "mattr": "+m,+a,+f,+zicsr,+zifencei",
+    "max_extra_csrs": 8,
+    "memref_abi": "bare-pointer",
+    "output": "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf",
+    "output_sha256": "c3e759006eb962188c8c2056d2c28f7a8f60c79d28277cfecb704ee82d2619c0",
+    "stage": "disassembly",
+    "status": "passed",
+    "target": "riscv32-unknown-elf"
+  },
+  "cosimulation": "passed",
+  "discovery_directory": "/newdisk/aps-mlir/scaleisa/tmp/aps-scaleisa-aps-suite-16-poisson",
+  "discovery_metrics": {
+    "candidate_status_counts": {
+      "matched": 85,
+      "no_usable_implementation": 13,
+      "semantic_lowering_rejected": 2
+    },
+    "explored_impl_count": 184,
+    "generated_rewrite_rule_count": 184,
+    "merged_candidate_count": 100,
+    "pareto_retained_impl_count": 184,
+    "rewrite_applications_inserted": 16963,
+    "rewrite_rules_generated_count": 184,
+    "rewrite_rules_matched_count": 184,
+    "selected_impl_count": 3,
+    "selected_instruction_count": 3,
+    "whole_egraph_lowering_complete": true
+  },
+  "discovery_stages": "linalg,affine,scf",
+  "hardware_selected": true,
+  "hashes": {
+    "/newdisk/aps-mlir/build/aps-suite-16/poisson/candidates.mlir": "9bc6307bbdebfbd0946dcc8eb92f182568a83f90e9f7d2420d8abe944ef4db0a",
+    "/newdisk/aps-mlir/build/aps-suite-16/poisson/design.sv": "3a38d201963d29cb774aaf5cca0d1882ef7010442f1a7acffa3a933ee0bc6a90",
+    "/newdisk/aps-mlir/build/aps-suite-16/poisson/hardware.mlir": "4bc340dea4d70edb9d3a94d8e3ca82ee72110f7008a76f0f351f8845f8fdb61a",
+    "/newdisk/aps-mlir/build/aps-suite-16/poisson/program.elf": "c3e759006eb962188c8c2056d2c28f7a8f60c79d28277cfecb704ee82d2619c0",
+    "/newdisk/aps-mlir/build/aps-suite-16/poisson/selected.mlir": "7fe8726005234a9ff883f29edede64359eed8ac5cf5ea15c595b2dda1590ea99"
+  },
+  "input": "/newdisk/aps-mlir/build/aps-suite-16/poisson/input/input.mlir",
+  "input_sha256": "9aff28bf8abb228af484d1e951a2faf9ddcdef2a2b26691e20df3631a91bc44b",
+  "noalias_proofs": {
+    "au_generated_candidate_11__direct": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_11__direct_site_2938"
+      ]
+    },
+    "au_generated_candidate_27__l0u_l1u_l2u": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_27__l0u_l1u_l2u_site_2871"
+      ]
+    },
+    "au_generated_candidate_9__direct": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_9__direct_site_2843"
+      ]
+    }
+  },
+  "reused_discovery": true,
+  "runtime_csr_arguments": [
+    "--add-csr",
+    "au_generated_candidate_9__direct_csr0=2049"
+  ],
+  "selected_program_sha256": "cab757450f0622f8b36b8bf0bad5926390517330bfbbc8aabdad34a816d6aafc",
+  "selection": {
+    "area_budget_limit": 10000.0,
+    "proven_optimal": false,
+    "selected_area": 9366.964739999996,
+    "selected_expression": "(builtin.module (builtin.block (builtin.seq (func.func (builtin.block (builtin.seq arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant memref.alloca memref.alloca memref.alloca memref.alloca (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (memref.store arith.constant memref.alloca builtin.value) (memref.store arith.constant memref.alloca builtin.value) (memref.store arith.constant memref.alloca builtin.value) scf.yield))) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (arith.index_cast builtin.value) (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant) (arith.sitofp (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant)) (arith.divf (arith.sitofp (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant)) arith.constant) (memref.store (arith.divf (arith.sitofp (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant)) arith.constant) memref.alloca builtin.value arith.constant) (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant) (arith.sitofp (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant)) (arith.divf (arith.sitofp (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant)) arith.constant) (memref.store (arith.divf (arith.sitofp (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant)) arith.constant) memref.alloca builtin.value arith.constant) (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant) (arith.sitofp (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant)) (arith.divf (arith.sitofp (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant)) arith.constant) (memref.store (arith.divf (arith.sitofp (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) arith.constant) arith.constant)) arith.constant) memref.alloca builtin.value arith.constant) (memref.load memref.alloca builtin.value arith.constant) (arith.subf arith.constant (memref.load memref.alloca builtin.value arith.constant)) (memref.store (arith.subf arith.constant (memref.load memref.alloca builtin.value arith.constant)) memref.alloca builtin.value arith.constant) (memref.load memref.alloca builtin.value arith.constant) (arith.subf arith.constant (memref.load memref.alloca builtin.value arith.constant)) (memref.store (arith.subf arith.constant (memref.load memref.alloca builtin.value arith.constant)) memref.alloca builtin.value arith.constant) (memref.load memref.alloca builtin.value arith.constant) (arith.subf arith.constant (memref.load memref.alloca builtin.value arith.constant)) (memref.store (arith.subf arith.constant (memref.load memref.alloca builtin.value arith.constant)) memref.alloca builtin.value arith.constant) scf.yield))) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant) (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) (arith.muli (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) arith.constant) (arith.addi (arith.muli (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))) (arith.muli (arith.addi (arith.muli (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))) arith.constant) (arith.addi (arith.muli (arith.addi (arith.muli (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))) (arith.index_cast (arith.addi (arith.muli (arith.addi (arith.muli (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)))) (memref.load memref.alloca builtin.value arith.constant) (memref.load memref.alloca builtin.value arith.constant) (arith.addf (memref.load memref.alloca builtin.value arith.constant) (memref.load memref.alloca builtin.value arith.constant)) (memref.load memref.alloca builtin.value arith.constant) (arith.addf (arith.addf (memref.load memref.alloca builtin.value arith.constant) (memref.load memref.alloca builtin.value arith.constant)) (memref.load memref.alloca builtin.value arith.constant)) (memref.load memref.alloca (arith.index_cast (arith.addi (arith.muli (arith.addi (arith.muli (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))))) (arith.addf (memref.load memref.alloca (arith.index_cast (arith.addi (arith.muli (arith.addi (arith.muli (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))))) (arith.addf (arith.addf (memref.load memref.alloca builtin.value arith.constant) (memref.load memref.alloca builtin.value arith.constant)) (memref.load memref.alloca builtin.value arith.constant))) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (arith.addi (arith.muli (arith.addi (arith.muli (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))))) (arith.addf (arith.addf (memref.load memref.alloca builtin.value arith.constant) (memref.load memref.alloca builtin.value arith.constant)) (memref.load memref.alloca builtin.value arith.constant))) memref.alloca (arith.index_cast (arith.addi (arith.muli (arith.addi (arith.muli (arith.select (arith.andi (arith.subi arith.constant (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant))) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant)) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))) arith.constant) (arith.select (arith.andi (arith.xori (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) (arith.select (arith.andi (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant) (arith.cmpi (arith.fptosi (arith.mulf (memref.load memref.alloca builtin.value arith.constant) arith.constant)) arith.constant)) arith.constant arith.constant))))) scf.yield))) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (scaleisa.candidate.c9.direct memref.alloca memref.alloca memref.alloca) (scaleisa.candidate.c27.l0u_l1u_l2u memref.alloca memref.alloca) scf.yield))) memref.alloca (memref.store arith.constant memref.alloca) (memref.store arith.constant memref.alloca) (scaleisa.candidate.c11.direct memref.alloca memref.alloca) (memref.load memref.alloca) (func.return (memref.load memref.alloca))))))))",
+    "selected_impls": [
+      {
+        "area_square_microns": 4090.15656,
+        "candidate_id": 11,
+        "candidate_op": "scaleisa.candidate.c11.direct",
+        "function_name": "au_generated_candidate_11__direct",
+        "impl_id": "cand11.direct",
+        "latency_cycles": 1384.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 1237.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 286.00128,
+        "candidate_id": 27,
+        "candidate_op": "scaleisa.candidate.c27.l0u_l1u_l2u",
+        "function_name": "au_generated_candidate_27__l0u_l1u_l2u",
+        "impl_id": "cand27.l0u_l1u_l2u",
+        "latency_cycles": 489.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 128.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 4990.806899999997,
+        "candidate_id": 9,
+        "candidate_op": "scaleisa.candidate.c9.direct",
+        "function_name": "au_generated_candidate_9__direct",
+        "impl_id": "cand9.direct",
+        "latency_cycles": 3575.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 3093.0,
+        "semantic_level": "loop-level"
+      }
+    ],
+    "selected_latency": 19487.0,
+    "software_model": {
+      "allocation_policy": "preallocated kernel storage; allocator excluded",
+      "calibration": {
+        "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+        "configuration": "APSRocketConfig",
+        "conversions": {
+          "binary_sha256": "da505d24e2ddbf81ce66977f8a383dbdad78676051e4e410dc49872ee7fec1ee",
+          "pairs_per_measurement": 1024,
+          "policy": "Each dependent pair crosses integer and FP registers. Signed conversion/move and two-conversion chains have equal warm duration. Round their maximum net pair cost / 2 upward to four cycles per conversion or FP register move. Only i32->f32 and f32->i32 signed conversions are calibrated.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_conversion_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "float_to_signed": 7178,
+            "moves": 7178,
+            "pair": 7178,
+            "signed_to_float": 7178
+          }
+        },
+        "dependent_operations_per_measurement": 1024,
+        "fp_control": {
+          "binary_sha256": "fcb7a71db8abe8c728c3a99adb5709e04777ed0f1174e17aa7105558c3f77f7b",
+          "dependent_operations_per_chain": 1024,
+          "policy": "Sign cost is ceil((sign-empty)/1024)=4. Cross-register move/compare and move/move chains use ceil(max(pair-empty)/2048)=4 cycles per operation, conservatively matching the typed conversion/move calibration. Only f32 sign and ordered comparisons are calibrated; control recipes charge composite comparisons separately.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_fp_control_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "move_compare_pair": 7306,
+            "moves_pair": 7180,
+            "sign": 4108
+          }
+        },
+        "policy": "Dependent ALU/MUL/DIV/FP chains measured with mcycle. Branch/return and L1 load costs are conservative serial estimates, not complete processor timing. Unsupported FP/library operations require calibration.",
+        "warm_cycles": {
+          "alu": 1292,
+          "div32": 35845,
+          "divf32": 28657,
+          "empty": 275,
+          "fp32": 4108,
+          "fpmul32": 4108,
+          "fpsub32": 4108,
+          "mul": 6151
+        }
+      },
+      "clock_ns": 2,
+      "cpu": "rocket-rv32imaf",
+      "execution": "serial_dependency_latency_estimate",
+      "instruction_fetch_policy": "resident; no miss penalty",
+      "library_path_policy": "longest acyclic compiled path",
+      "llvm_mca": null,
+      "mlir_mapping": "static instruction recipes, not whole-program compiled timing",
+      "musl_revision": null,
+      "scalar_memory_cycles": 2
+    },
+    "software_only_latency": 37457.0,
+    "solver_status": "greedy: local optimum after 3 improving moves"
+  },
+  "selection_method": "greedy",
+  "selection_report_sha256": "fd9b8d7514559017fa780fe8052a20b1955575ebf2c0e12292e617086e96ee4c",
+  "stage": "simulation",
+  "status": "passed",
+  "target_profile_sha256": "d0b6e1505f7d8456a2a647c7c9ab8c700034e178e0d7fa4c1e07fdc784a7be25"
+}

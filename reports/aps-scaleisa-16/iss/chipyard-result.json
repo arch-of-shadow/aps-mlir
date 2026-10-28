@@ -1,0 +1,58 @@
+{
+  "status": "passed",
+  "configuration": "APSRocketConfig",
+  "processor": "RV32 Rocket, full Chipyard Verilator",
+  "waveform_recording": false,
+  "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+  "measurement": "mcycle from immediately before the benchmark call to output observer entry; fences included; reference generation, validation, HTIF printing and return epilogue excluded",
+  "correctness": "All 1280 values and checksum checked on both cold and warm calls of both binaries",
+  "validation_harness": "/newdisk/aps-mlir/build/aps-iss-16-direct/input/main.cpp",
+  "selection_contains_ci": true,
+  "csr_bindings": [
+    {
+      "name": "au_generated_candidate_10__direct_csr0",
+      "id": 2049
+    },
+    {
+      "name": "au_generated_candidate_10__direct_csr1",
+      "id": 2050
+    },
+    {
+      "name": "au_generated_candidate_24__direct_csr0",
+      "id": 2051
+    },
+    {
+      "name": "au_generated_candidate_24__direct_csr1",
+      "id": 2052
+    },
+    {
+      "name": "au_generated_candidate_27__direct_csr0",
+      "id": 2053
+    }
+  ],
+  "cycles": {
+    "baseline": {
+      "cold": 849054,
+      "warm": 840039
+    },
+    "accelerated": {
+      "cold": 227790,
+      "warm": 225267
+    }
+  },
+  "chipyard_speedup": {
+    "cold": 3.72735414197287,
+    "warm": 3.729081489965241
+  },
+  "scaleisa_estimated_speedup": 2.749053486611138,
+  "source_report": "/newdisk/aps-mlir/build/aps-iss-16-direct/summary.json",
+  "scheduling_period_ns": 8.0,
+  "binary_sha256": {
+    "baseline": "0d1faaf80a5b03e3f641bdd701e3edc831dd7092c31401aaacff216a8bd2d7f4",
+    "accelerated": "f8520dd81a0afb7cf8f1e121b45ccce4c6198c3338cada5182c13453cdc0fc4e"
+  },
+  "chipyard_wrapper_sha256": "97c082c5903d1e9f2ce125054c9a317e129a9403f24a56e1287b98e571dbf7eb",
+  "compiler_ci_lowering_sha256": "e1dce2f82d4a8938c79b14f130368e76d890aed795ab8ed4e15f63d64c7b1b4e",
+  "rtl_sha256": "b4a417fc8de9be78177e384d56549c6aecd8a29aebd65d8d937eaff281fb21b9",
+  "simulator_sha256": "6f59342a2e165380690911b6463a8ff213b318cd69d4654c35c5b08e17c6a402"
+}

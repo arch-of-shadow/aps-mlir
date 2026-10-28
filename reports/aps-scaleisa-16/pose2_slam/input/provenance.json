@@ -1,0 +1,37 @@
+{
+  "origin": "gtsam/pose2_slam",
+  "dimensions": {
+    "POSES": 24,
+    "EDGES": 40,
+    "ITERS": 8
+  },
+  "overridden_dimensions": {},
+  "original_cpp_sha256": "b2785000d31d4a5a7585563db7838980fbafd85a1b02c8eae653c5cc12ec392d",
+  "original_mlir_sha256": "0c1eb295c003ca1878e1799e1dbf217aee3cf25d33256bd42ecbec8920415591",
+  "input_sha256": "e42bb5e44fb0d12721669ecb78f0748dc3adee99f57e0673c631116dfc428e9b",
+  "observed_allocations": [
+    [
+      "%alloca_3",
+      "memref<40xi32>"
+    ],
+    [
+      "%alloca_2",
+      "memref<40xi32>"
+    ],
+    [
+      "%alloca_1",
+      "memref<40x3xf32>"
+    ],
+    [
+      "%alloca_0",
+      "memref<40x3xf32>"
+    ],
+    [
+      "%alloca",
+      "memref<24x3xf32>"
+    ]
+  ],
+  "checked_values": 392,
+  "reference": "Original C++ computation; capture all entry arrays before returning",
+  "timed_scope": "Solver and bounded input staging; graph construction outside ROI"
+}

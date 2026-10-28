@@ -1,0 +1,1272 @@
+{
+  "hardware": {
+    "_profile": {
+      "area_basis": "registered ASAP7 primitive proxy, not physical mapped area",
+      "area_units": "um^2",
+      "asap7_revision": "472f7b3f6680ffb1109d6792219e6ea5570c26a0",
+      "characterization_clock_ns": 10,
+      "clock_ns": 8.0,
+      "clock_uncertainty_ps": 0,
+      "estimation": "registered primitive synthesis and pre-layout STA; structural whole-candidate composition",
+      "hardfloat_release": "1",
+      "input_transition_ps": 10,
+      "opensta": "2.0.17",
+      "output_load_ff": 1,
+      "process": "ASAP7 RVT TT",
+      "sources": {
+        "asap7sc7p5t_AO_RVT_TT_nldm_211120.lib": "b1ece108c0a2acd8d01c05cee6daee2834425037b1d9aad625d6f1dd640f1940",
+        "asap7sc7p5t_INVBUF_RVT_TT_nldm_220122.lib": "a4ceb32e418e1aac8667e28fbd8e9e46baf520180be4db075598a4d7c681a56e",
+        "asap7sc7p5t_OA_RVT_TT_nldm_211120.lib": "6529c6c72465cd133dfbfb03952327ab2774bb6aa4be866d78fd7bc6c58c9f6f",
+        "asap7sc7p5t_SEQ_RVT_TT_nldm_220123.lib": "57a0b403485b99ebd676942af4673ac086b86c7c75fbdc3e5c0038501dd22ba3",
+        "asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib": "fa92e6ab1481810602811b1eea54bc016a341f11fb5188d7512c026599adf038",
+        "hardfloat.zip": "6b3757c9fbfa2230c6a2b84605e39372cb589dd7500e979c4f0b8ecc8a03b14b"
+      },
+      "temperature_c": 25,
+      "timing_basis": "ASAP7 registered primitive required periods; APS execution latency/II contracts",
+      "timing_units": "ns",
+      "unsupported_width": -1,
+      "voltage": 0.7,
+      "yosys": "Yosys 0.9 (git sha1 1979e0b)"
+    },
+    "absf": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        10.0602,
+        20.79108,
+        42.25284
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        0.073265625,
+        0.073265625,
+        0.073265625
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "addf": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        91.44576,
+        196.59672,
+        451.5426
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        2.145824219,
+        3.3110126950000005,
+        6.519286865
+      ],
+      "latency": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ]
+    },
+    "addi": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        1.04976,
+        2.28906,
+        5.0301,
+        10.45386,
+        21.69504,
+        44.36694,
+        89.24418
+      ],
+      "constr": 0,
+      "delay": [
+        0.09311328099999991,
+        0.11336523400000079,
+        0.15792480500000056,
+        0.241609375,
+        0.3786083980000003,
+        0.656457031,
+        1.0880029300000005
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "andi": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        0.97686,
+        1.95372,
+        3.90744,
+        7.81488,
+        15.62976,
+        31.25952,
+        62.51904
+      ],
+      "constr": 0,
+      "delay": [
+        0.0779833980000003,
+        0.0779833980000003,
+        0.0779833980000003,
+        0.0779833980000003,
+        0.0779833980000003,
+        0.0779833980000003,
+        0.0779833980000003
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "call": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "constr": 0,
+      "delay": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "cmpf": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        35.53146,
+        73.22076,
+        171.00882
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        0.6528115230000003,
+        0.9739257809999999,
+        1.787324219
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "cmpi": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        3.30966,
+        5.1759,
+        7.2171,
+        10.59966,
+        17.77302,
+        31.94478,
+        60.34662
+      ],
+      "constr": 0,
+      "delay": [
+        0.17752343800000017,
+        0.2673916019999997,
+        0.24172656199999984,
+        0.2838916019999997,
+        0.3008378909999992,
+        0.3555712889999995,
+        0.3915634769999997
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "divf": {
+      "II": 27,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        92.08728,
+        188.31528,
+        413.1243
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        0.9631367190000001,
+        1.4782314449999994,
+        2.7979838870000004
+      ],
+      "latency": [
+        27,
+        27,
+        27,
+        27,
+        11,
+        27,
+        27
+      ]
+    },
+    "divsi": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        1.0206,
+        2.42028,
+        8.12106,
+        25.93782,
+        95.2803,
+        350.05122,
+        1342.05984
+      ],
+      "constr": 0,
+      "delay": [
+        0.0867958980000003,
+        0.1159208980000003,
+        0.46488085900000076,
+        1.3119296880000002,
+        4.264316406,
+        14.721949219,
+        62.844421875
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "divui": {
+      "II": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        6
+      ],
+      "amount": -1,
+      "area": [
+        1.0206,
+        2.08494,
+        6.50268,
+        23.21136,
+        87.34878,
+        338.95584,
+        1317.0114
+      ],
+      "constr": 0,
+      "delay": [
+        0.0867958980000003,
+        0.09168554699999913,
+        0.28930956999999946,
+        1.08953125,
+        3.937205566,
+        14.439446289,
+        59.28514843799999
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        6
+      ]
+    },
+    "extf": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        54.92286
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        0.7412998050000006
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "fptosi": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        34.24842,
+        74.70792,
+        169.84242
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        1.0665810550000006,
+        1.427941406,
+        2.4496103519999997
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "fptoui": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        28.46016,
+        71.1504,
+        174.5226
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        0.7014345699999994,
+        1.4847158199999995,
+        2.7171987300000002
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "memport": {
+      "II": 1,
+      "amount": 1,
+      "area": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "constr": 1,
+      "delay": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "mulf": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        111.88692,
+        409.82922,
+        1584.90432
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        1.7134355469999991,
+        3.2151235349999996,
+        5.699747559
+      ],
+      "latency": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ]
+    },
+    "muli": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        0.97686,
+        2.14326,
+        5.67162,
+        18.63324,
+        67.81158,
+        253.35666,
+        967.25178
+      ],
+      "constr": 0,
+      "delay": [
+        0.0779833980000003,
+        0.11311132800000087,
+        0.21032031199999984,
+        0.40062402300000033,
+        0.6637607420000003,
+        1.1174785159999991,
+        1.667339844
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "negf": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        10.74546,
+        21.47634,
+        42.9381
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        0.08283496100000047,
+        0.08283496100000047,
+        0.08283496100000047
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "nop": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "constr": 0,
+      "delay": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "ori": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        0.97686,
+        1.95372,
+        3.90744,
+        7.81488,
+        15.62976,
+        31.25952,
+        62.51904
+      ],
+      "constr": 0,
+      "delay": [
+        0.07916406199999983,
+        0.07916406199999983,
+        0.07916406199999983,
+        0.07916406199999983,
+        0.07916406199999983,
+        0.07916406199999983,
+        0.07916406199999983
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "remsi": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        1.0206,
+        2.07036,
+        9.08334,
+        27.65826,
+        101.57886,
+        362.4588,
+        1360.7514
+      ],
+      "constr": 0,
+      "delay": [
+        0.08700878899999952,
+        0.0921884769999997,
+        0.47583398400000076,
+        1.3780537110000004,
+        4.552008789,
+        15.557225586000001,
+        65.651363281
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "remui": {
+      "II": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        7
+      ],
+      "amount": -1,
+      "area": [
+        1.0206,
+        2.17242,
+        7.40664,
+        25.01928,
+        92.04354,
+        345.66264,
+        1336.24242
+      ],
+      "constr": 0,
+      "delay": [
+        0.08700878899999952,
+        0.10834570300000086,
+        0.373046875,
+        1.2260517579999997,
+        4.171408691,
+        15.932033691,
+        63.061632812000006
+      ],
+      "latency": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        7
+      ]
+    },
+    "rsqrt": {
+      "II": [
+        1,
+        1,
+        1,
+        1,
+        30,
+        56,
+        114
+      ],
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        164.75400000000002,
+        335.06298000000004,
+        724.20318
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        0.9631367190000001,
+        1.5832158199999995,
+        3.609432129
+      ],
+      "latency": [
+        -1,
+        -1,
+        -1,
+        -1,
+        30,
+        56,
+        114
+      ]
+    },
+    "select": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        1.39968,
+        2.50776,
+        4.72392,
+        9.15624,
+        18.02088,
+        35.75016,
+        71.20872
+      ],
+      "constr": 0,
+      "delay": [
+        0.10041113299999961,
+        0.1089580079999996,
+        0.12221875,
+        0.1418115230000003,
+        0.17724804699999913,
+        0.24985839800000031,
+        0.39145996100000047
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "shli": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        1.0206,
+        2.14326,
+        4.85514,
+        11.02248,
+        24.15906,
+        54.06264,
+        115.48818
+      ],
+      "constr": 0,
+      "delay": [
+        0.08700878899999952,
+        0.11369628899999952,
+        0.1333447269999997,
+        0.23171093800000017,
+        0.39372558600000046,
+        0.8344804690000001,
+        0.8409912110000005
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "shrsi": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        0.67068,
+        2.09952,
+        4.98636,
+        11.06622,
+        25.54416,
+        54.0918,
+        116.45046
+      ],
+      "constr": 0,
+      "delay": [
+        0.073265625,
+        0.10027343800000017,
+        0.1548652340000008,
+        0.33805468800000016,
+        0.3126552730000003,
+        0.5832939449999994,
+        0.7602197269999997
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "shrui": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        1.0206,
+        2.14326,
+        4.7385,
+        10.7163,
+        23.79456,
+        56.43918,
+        118.1709
+      ],
+      "constr": 0,
+      "delay": [
+        0.08700878899999952,
+        0.11369628899999952,
+        0.13717968800000016,
+        0.20436718800000017,
+        0.32044628899999955,
+        0.4966103519999997,
+        0.9294160159999992
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "sitofp": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        27.42498,
+        60.44868,
+        132.76548
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        0.8453916019999997,
+        1.7786318360000004,
+        2.909489746
+      ],
+      "latency": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ]
+    },
+    "sqrt": {
+      "II": 26,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        72.66672,
+        146.7477,
+        311.07888
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        0.8592207030000009,
+        1.5832158199999995,
+        3.609432129
+      ],
+      "latency": [
+        26,
+        26,
+        26,
+        26,
+        10,
+        26,
+        26
+      ]
+    },
+    "subf": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        92.5101,
+        194.19102,
+        450.76986
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        2.1654267579999997,
+        3.546818848,
+        6.287812012000001
+      ],
+      "latency": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ]
+    },
+    "subi": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        1.04976,
+        2.3328,
+        5.103,
+        10.67256,
+        22.17618,
+        44.84808,
+        91.40202
+      ],
+      "constr": 0,
+      "delay": [
+        0.09311328099999991,
+        0.12258593800000017,
+        0.16761816399999951,
+        0.2668916019999997,
+        0.4038330079999996,
+        0.690453125,
+        1.06584375
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "truncf": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        126.94806
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        2.5618149409999997
+      ],
+      "latency": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ]
+    },
+    "uitofp": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        -1,
+        -1,
+        -1,
+        -1,
+        22.64274,
+        51.80274,
+        123.02604
+      ],
+      "constr": 0,
+      "delay": [
+        -1,
+        -1,
+        -1,
+        -1,
+        0.6665341800000005,
+        1.3525683590000008,
+        2.0486943359999996
+      ],
+      "latency": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ]
+    },
+    "xori": {
+      "II": 1,
+      "amount": -1,
+      "area": [
+        1.04976,
+        2.09952,
+        4.19904,
+        8.39808,
+        16.79616,
+        33.59232,
+        67.18464
+      ],
+      "constr": 0,
+      "delay": [
+        0.09311328099999991,
+        0.09311328099999991,
+        0.09311328099999991,
+        0.09311328099999991,
+        0.09311328099999991,
+        0.09311328099999991,
+        0.09311328099999991
+      ],
+      "latency": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "interface": {
+    "command_calibration": {
+      "configuration": "APSRocketConfig",
+      "dependent_operations": 1024,
+      "policy": "ceil((ci_mul-empty)/1024) - raw_au_cycles = 6 command-boundary cycles. Native and CI chains produce identical i32 results; both binary runs exit successfully.",
+      "raw_au_cycles": 1,
+      "source": "tests/aps-scaleisa/fixtures/rocket_ci_mul_calibration.cpp",
+      "warm_cycles": {
+        "ci_mul": 7301,
+        "empty": 274,
+        "native_mul": 6151
+      }
+    },
+    "command_cycles": 6,
+    "context_cycles": 1,
+    "csr_write_cycles": 3,
+    "dma_bytes_per_cycle": 8,
+    "dma_calibration": {
+      "calls_per_warm_measurement": 16,
+      "configuration": "APSRocketConfig",
+      "policy": "Warm read-only complete-buffer transfers; setup10 + ceil(bytes/8), added to the scheduled kernel and command boundary. Cache misses and contention require RTL measurement.",
+      "warm_cycles": {
+        "128_bytes": 560,
+        "32_bytes": 367,
+        "64_bytes": 431
+      }
+    },
+    "dma_setup_cycles": 10,
+    "fp_register_move_cycles": 4,
+    "max_extra_csrs": 5,
+    "pipeline_loop_results": false,
+    "source": "Full Chipyard dependent multiply chains measure seven cycles per CI including processor issue and response stalls, versus the one-cycle Hector datapath estimate. Stateful FP, memory and region instructions add context admission; CSR writes and FP moves are charged separately."
+  },
+  "name": "aps-rocket-rv32",
+  "software": {
+    "calibration": {
+      "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+      "configuration": "APSRocketConfig",
+      "conversions": {
+        "binary_sha256": "da505d24e2ddbf81ce66977f8a383dbdad78676051e4e410dc49872ee7fec1ee",
+        "pairs_per_measurement": 1024,
+        "policy": "Each dependent pair crosses integer and FP registers. Signed conversion/move and two-conversion chains have equal warm duration. Round their maximum net pair cost / 2 upward to four cycles per conversion or FP register move. Only i32->f32 and f32->i32 signed conversions are calibrated.",
+        "source": "tests/aps-scaleisa/fixtures/rocket_conversion_calibration.cpp",
+        "warm_cycles": {
+          "empty": 274,
+          "float_to_signed": 7178,
+          "moves": 7178,
+          "pair": 7178,
+          "signed_to_float": 7178
+        }
+      },
+      "dependent_operations_per_measurement": 1024,
+      "fp_control": {
+        "binary_sha256": "fcb7a71db8abe8c728c3a99adb5709e04777ed0f1174e17aa7105558c3f77f7b",
+        "dependent_operations_per_chain": 1024,
+        "policy": "Sign cost is ceil((sign-empty)/1024)=4. Cross-register move/compare and move/move chains use ceil(max(pair-empty)/2048)=4 cycles per operation, conservatively matching the typed conversion/move calibration. Only f32 sign and ordered comparisons are calibrated; control recipes charge composite comparisons separately.",
+        "source": "tests/aps-scaleisa/fixtures/rocket_fp_control_calibration.cpp",
+        "warm_cycles": {
+          "empty": 274,
+          "move_compare_pair": 7306,
+          "moves_pair": 7180,
+          "sign": 4108
+        }
+      },
+      "policy": "Dependent ALU/MUL/DIV/FP chains measured with mcycle. Branch/return and L1 load costs are conservative serial estimates, not complete processor timing. Unsupported FP/library operations require calibration.",
+      "warm_cycles": {
+        "alu": 1292,
+        "div32": 35845,
+        "divf32": 28657,
+        "empty": 275,
+        "fp32": 4108,
+        "fpmul32": 4108,
+        "fpsub32": 4108,
+        "mul": 6151
+      }
+    },
+    "clock_ns": 2,
+    "conversions": {
+      "arith.fptosi": {
+        "f32->i32": 4
+      },
+      "arith.sitofp": {
+        "i32->f32": 4
+      }
+    },
+    "cpu": "rocket-rv32imaf",
+    "execution": "serial_dependency_latency_estimate",
+    "instructions": {
+      "alu": {
+        "compute_cycles": 1
+      },
+      "branch": {
+        "compute_cycles": 2
+      },
+      "div32": {
+        "compute_cycles": 35
+      },
+      "divf32": {
+        "compute_cycles": 28
+      },
+      "fcmp": {
+        "compute_cycles": 4
+      },
+      "fp32": {
+        "compute_cycles": 4
+      },
+      "fpmul32": {
+        "compute_cycles": 4
+      },
+      "fpsub32": {
+        "compute_cycles": 4
+      },
+      "fsgnj": {
+        "compute_cycles": 4
+      },
+      "mul": {
+        "compute_cycles": 6
+      },
+      "return": {
+        "compute_cycles": 3
+      }
+    },
+    "path_memory_cycles": 2,
+    "supported_operations": [
+      "arith.constant",
+      "arith.addi",
+      "arith.subi",
+      "arith.andi",
+      "arith.ori",
+      "arith.xori",
+      "arith.shli",
+      "arith.shrsi",
+      "arith.shrui",
+      "arith.cmpi",
+      "arith.select",
+      "arith.muli",
+      "arith.divsi",
+      "arith.divui",
+      "arith.remsi",
+      "arith.remui",
+      "arith.extui",
+      "arith.extsi",
+      "arith.trunci",
+      "arith.index_cast",
+      "arith.index_castui",
+      "arith.bitcast",
+      "arith.maxsi",
+      "arith.maxui",
+      "arith.minsi",
+      "arith.minui",
+      "arith.addf",
+      "arith.subf",
+      "arith.mulf",
+      "arith.divf",
+      "arith.sitofp",
+      "arith.fptosi",
+      "arith.negf",
+      "arith.cmpf"
+    ]
+  }
+}

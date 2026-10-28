@@ -1,0 +1,11 @@
+{
+  "scope": "kernel microbenchmark, not the complete source application",
+  "origin": "scaleisa/benchmarks/edgebench/polygeist/orb_descriptor_match/orb_descriptor_match.mlir",
+  "symbol": "bitcount",
+  "source_sha256": "03edad3fbf8aa90a48eb61cddc5c3195ee2d2012921ecfa5d19e820b0db156c8",
+  "kernel_sha256": "e3797d6c227ba409cc448b863d202191489dcd8e18846e8a79c0d2c4e0c695d6",
+  "samples": 64,
+  "generation": "Original kernel computation retained; deterministic caller and independent C++ oracle added",
+  "normalization": "Standard lower-affine pass before SCF-only discovery",
+  "observability": "Public result global exists before discovery and is checked directly by C++ caller"
+}

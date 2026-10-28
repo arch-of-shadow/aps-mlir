@@ -1,0 +1,633 @@
+{
+  "area_budget": 10000,
+  "backend_pipeline_fallback_count": 0,
+  "backend_pipeline_outcomes": [],
+  "ci_cycle_comparison": [
+    {
+      "calls": 7,
+      "ci_cycle_error": -730.2857142857143,
+      "estimated_au_cycles": 1576.0,
+      "estimated_ci_cycles": 1719.0,
+      "funct7": 0,
+      "function": "au_generated_candidate_12__direct",
+      "max_cycles": 991,
+      "mean_cycles": 988.7142857142857,
+      "min_cycles": 987,
+      "opcode": 43,
+      "total_cycles": 6921
+    },
+    {
+      "calls": 1,
+      "ci_cycle_error": -75.0,
+      "estimated_au_cycles": 289.0,
+      "estimated_ci_cycles": 352.0,
+      "funct7": 1,
+      "function": "au_generated_candidate_21__direct",
+      "max_cycles": 277,
+      "mean_cycles": 277,
+      "min_cycles": 277,
+      "opcode": 43,
+      "total_cycles": 277
+    },
+    {
+      "calls": 1,
+      "ci_cycle_error": -16.0,
+      "estimated_au_cycles": 48.0,
+      "estimated_ci_cycles": 123.0,
+      "funct7": 2,
+      "function": "au_generated_candidate_34__l0u",
+      "max_cycles": 107,
+      "mean_cycles": 107,
+      "min_cycles": 107,
+      "opcode": 43,
+      "total_cycles": 107
+    },
+    {
+      "calls": 7,
+      "ci_cycle_error": -658.4285714285714,
+      "estimated_au_cycles": 1401.0,
+      "estimated_ci_cycles": 1528.0,
+      "funct7": 3,
+      "function": "au_generated_candidate_41__direct",
+      "max_cycles": 870,
+      "mean_cycles": 869.5714285714286,
+      "min_cycles": 869,
+      "opcode": 43,
+      "total_cycles": 6087
+    },
+    {
+      "calls": 1,
+      "ci_cycle_error": -87.0,
+      "estimated_au_cycles": 241.0,
+      "estimated_ci_cycles": 300.0,
+      "funct7": 4,
+      "function": "au_generated_candidate_51__direct",
+      "max_cycles": 213,
+      "mean_cycles": 213,
+      "min_cycles": 213,
+      "opcode": 43,
+      "total_cycles": 213
+    },
+    {
+      "calls": 1,
+      "ci_cycle_error": 4.0,
+      "estimated_au_cycles": 20.0,
+      "estimated_ci_cycles": 87.0,
+      "funct7": 5,
+      "function": "au_generated_candidate_56__l0u",
+      "max_cycles": 91,
+      "mean_cycles": 91,
+      "min_cycles": 91,
+      "opcode": 43,
+      "total_cycles": 91
+    }
+  ],
+  "ci_runtime_scope": "RTL command admission through completion, including DMA; CPU execution excluded",
+  "commands": [
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/python",
+        "/newdisk/aps-mlir/hardware/hardfloat/build-hardfloat-ip.py",
+        "--resource-output=/newdisk/aps-mlir/build/aps-suite-16/planar_slam/aps-contracts.json"
+      ],
+      "cwd": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/resources.log",
+      "returncode": 0,
+      "seconds": 10.959772146,
+      "stage": "resources"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/python",
+        "/newdisk/aps-mlir/scaleisa/scripts/scaleisa.py",
+        "run",
+        "--stage",
+        "multi-level-stage",
+        "--input",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/input/input.mlir",
+        "--output-dir",
+        "/newdisk/aps-mlir/scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam",
+        "--area-budget",
+        "10000",
+        "--selection-method",
+        "greedy",
+        "--target-profile",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/target-profile.json",
+        "--discovery-stages",
+        "linalg,affine,scf",
+        "--scaleisa-opt",
+        "/newdisk/aps-mlir/build/tools/scaleisa-opt/scaleisa-opt",
+        "--scaleisa-engine-bin",
+        "/newdisk/aps-mlir/scaleisa/tools/scaleisa-engine/target/release/scaleisa-engine"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/discovery.log",
+      "returncode": 0,
+      "seconds": 281.577593189,
+      "stage": "discovery"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/candidates.mlir",
+        "--scaleisa-convert=preserve-implementation-pragmas=true",
+        "--scaleisa-split=max-extra-csrs=8",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/planned.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/adapt.log",
+      "returncode": 0,
+      "seconds": 0.125311394,
+      "stage": "adapt"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/planned.mlir",
+        "--scaleisa-materialize-aps",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/hardware.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/export-hardware.log",
+      "returncode": 0,
+      "seconds": 0.088217927,
+      "stage": "export-hardware"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-opt/aps-e2e",
+        "--clock",
+        "8.000000",
+        "-i",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/hardware.mlir",
+        "--resource",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/resource.json",
+        "--export",
+        "sv",
+        "--dump-scheduled-tor",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/design.scheduled-tor.mlir",
+        "--dump-cmt2",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/design.cmt2.mlir",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/design.sv"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/synthesis.log",
+      "returncode": 0,
+      "seconds": 162.817449471,
+      "stage": "synthesis"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/make",
+        "-C",
+        "/newdisk/aps-mlir/tools/aps-cosim",
+        "spike",
+        "VERILATOR=/newdisk/aps-mlir/.pixi/envs/default/bin/verilator",
+        "RTL=/newdisk/aps-mlir/build/aps-suite-16/planar_slam/design.sv",
+        "TOP=main",
+        "SPIKE_OBJ_DIR=/newdisk/aps-mlir/build/aps-suite-16/planar_slam/simulator",
+        "VERILATE_JOBS=4",
+        "BUILD_JOBS=4"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/build-simulator.log",
+      "returncode": 0,
+      "seconds": 57.145720474,
+      "stage": "build-simulator"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/simulator/Vmain",
+        "--add-csr",
+        "au_generated_candidate_12__direct_csr0=2049",
+        "--add-csr",
+        "au_generated_candidate_41__direct_csr0=2050",
+        "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/simulation.log",
+      "returncode": 0,
+      "seconds": 1.902695853,
+      "stage": "simulation"
+    }
+  ],
+  "compiled": {
+    "abi": "ilp32f",
+    "ci_instructions": 6,
+    "ci_sites": 6,
+    "commands": [
+      {
+        "argv": [
+          "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-compiler-opt",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/selected.mlir",
+          "--scaleisa-lower-ci=hardware-file=\"/newdisk/aps-mlir/build/aps-suite-16/planar_slam/hardware.mlir\" max-extra-csrs=8",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/ci.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/lower-ci.log",
+        "returncode": 0,
+        "seconds": 0.199538555,
+        "stage": "lower-ci"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-opt",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/ci.mlir",
+          "--pass-pipeline=builtin.module(lower-affine,convert-scf-to-cf,convert-math-to-llvm,convert-arith-to-llvm{index-bitwidth=32},finalize-memref-to-llvm{index-bitwidth=32},convert-func-to-llvm{index-bitwidth=32 use-bare-ptr-memref-call-conv=true},convert-cf-to-llvm{index-bitwidth=32},reconcile-unrealized-casts)",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/llvm.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/lower-llvm.log",
+        "returncode": 0,
+        "seconds": 0.381340919,
+        "stage": "lower-llvm"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-translate",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/llvm.mlir",
+          "--mlir-to-llvmir",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/program.ll"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/translate.log",
+        "returncode": 0,
+        "seconds": 0.161331132,
+        "stage": "translate"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=asm",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/program.s"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/assembly.log",
+        "returncode": 0,
+        "seconds": 0.275861718,
+        "stage": "assembly"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=obj",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/program.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/object.log",
+        "returncode": 0,
+        "seconds": 0.268110775,
+        "stage": "object"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-c",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/input/main.cpp",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/runtime0.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/runtime0.log",
+        "returncode": 0,
+        "seconds": 0.167485258,
+        "stage": "runtime0"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-c",
+          "/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/start.S",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/runtime1.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/runtime1.log",
+        "returncode": 0,
+        "seconds": 0.082160145,
+        "stage": "runtime1"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/ld.lld",
+          "-m",
+          "elf32lriscv",
+          "--entry=_start",
+          "--fatal-warnings",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/program.o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/runtime0.o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/runtime1.o",
+          "-T/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/ram.ld",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/link.log",
+        "returncode": 0,
+        "seconds": 0.019991471,
+        "stage": "link"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llvm-objdump",
+          "-d",
+          "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf.scaleisa/disassembly.log",
+        "returncode": 0,
+        "seconds": 0.025599979,
+        "stage": "disassembly"
+      }
+    ],
+    "emit": "elf",
+    "hardware": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/hardware.mlir",
+    "hardware_sha256": "80ffaf9a98625ba1aa6fcef3dea39f03633c9fad21722ca70e57bf739be28f6a",
+    "input": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/selected.mlir",
+    "input_sha256": "62b6993915aea79c37c5b33782f110a0c797a93fb76f666be2ff4871dfe18dbd",
+    "mattr": "+m,+a,+f,+zicsr,+zifencei",
+    "max_extra_csrs": 8,
+    "memref_abi": "bare-pointer",
+    "output": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf",
+    "output_sha256": "dd16140e13699774c1c0ff1769cf7299388602feccc2a0abb04da09c880d7164",
+    "stage": "disassembly",
+    "status": "passed",
+    "target": "riscv32-unknown-elf"
+  },
+  "cosimulation": "passed",
+  "discovery_directory": "/newdisk/aps-mlir/scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam",
+  "discovery_metrics": {
+    "candidate_status_counts": {
+      "matched": 124,
+      "no_usable_implementation": 32
+    },
+    "explored_impl_count": 190,
+    "generated_rewrite_rule_count": 190,
+    "merged_candidate_count": 156,
+    "pareto_retained_impl_count": 190,
+    "rewrite_applications_inserted": 30811,
+    "rewrite_rules_generated_count": 190,
+    "rewrite_rules_matched_count": 190,
+    "selected_impl_count": 6,
+    "selected_instruction_count": 6,
+    "whole_egraph_lowering_complete": true
+  },
+  "discovery_stages": "linalg,affine,scf",
+  "hardware_selected": true,
+  "hashes": {
+    "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/candidates.mlir": "d265faa56c8c10656cc00535cc4b3c8ac4f758e4ce2e01b1324a81c70f8e6804",
+    "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/design.sv": "766f5c4c596a4b8673875afec7e7be4909c9bb7d5df4524e7578972dba6ac8fd",
+    "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/hardware.mlir": "80ffaf9a98625ba1aa6fcef3dea39f03633c9fad21722ca70e57bf739be28f6a",
+    "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/program.elf": "dd16140e13699774c1c0ff1769cf7299388602feccc2a0abb04da09c880d7164",
+    "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/selected.mlir": "62b6993915aea79c37c5b33782f110a0c797a93fb76f666be2ff4871dfe18dbd"
+  },
+  "input": "/newdisk/aps-mlir/build/aps-suite-16/planar_slam/input/input.mlir",
+  "input_sha256": "305d91634a46c57aad2005bde324128af1c2676ead15c375c04403c38de97ae0",
+  "noalias_proofs": {
+    "au_generated_candidate_12__direct": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_12__direct_site_3763"
+      ]
+    },
+    "au_generated_candidate_21__direct": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_21__direct_site_3810"
+      ]
+    },
+    "au_generated_candidate_41__direct": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_41__direct_site_3782"
+      ]
+    },
+    "au_generated_candidate_51__direct": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_51__direct_site_3826"
+      ]
+    }
+  },
+  "reused_discovery": false,
+  "runtime_csr_arguments": [
+    "--add-csr",
+    "au_generated_candidate_12__direct_csr0=2049",
+    "--add-csr",
+    "au_generated_candidate_41__direct_csr0=2050"
+  ],
+  "selected_program_sha256": "4396a370f6ca6122c726a8ac52713d76eab09c84f2e066f7a30833ca114237a6",
+  "selection": {
+    "area_budget_limit": 10000.0,
+    "proven_optimal": false,
+    "selected_area": 8588.96136,
+    "selected_expression": "(builtin.module (builtin.block (builtin.seq (func.func (builtin.block (builtin.seq arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca (scaleisa.candidate.c34.l0u memref.alloca) (scaleisa.candidate.c56.l0u memref.alloca) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (arith.index_cast builtin.value) (arith.remsi (arith.index_cast builtin.value) arith.constant) (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant) (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (memref.store (arith.remsi (arith.index_cast builtin.value) arith.constant) memref.alloca builtin.value) (memref.store (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant) memref.alloca builtin.value) (arith.mulf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant))) (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)))) (arith.remsi (arith.index_cast builtin.value) arith.constant) (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.addf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)))) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (memref.store (arith.addf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)))) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) memref.alloca builtin.value arith.constant) (arith.mulf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant))) (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)))) (arith.remsi (arith.index_cast builtin.value) arith.constant) (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)))) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (memref.store (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.addi (arith.muli (arith.index_cast builtin.value) arith.constant) (arith.divsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) arith.constant) (memref.load memref.alloca (arith.index_cast (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)))) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) memref.alloca builtin.value arith.constant) scf.yield))) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (arith.index_cast builtin.value) (arith.remsi (arith.index_cast builtin.value) arith.constant) (arith.addi (arith.remsi (arith.index_cast builtin.value) arith.constant) arith.constant) (arith.sitofp (arith.addi (arith.remsi (arith.index_cast builtin.value) arith.constant) arith.constant)) (arith.mulf (arith.sitofp (arith.addi (arith.remsi (arith.index_cast builtin.value) arith.constant) arith.constant)) arith.constant) (memref.load memref.alloca builtin.value arith.constant) (arith.addf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.addi (arith.remsi (arith.index_cast builtin.value) arith.constant) arith.constant)) arith.constant)) (memref.store (arith.addf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.addi (arith.remsi (arith.index_cast builtin.value) arith.constant) arith.constant)) arith.constant)) memref.alloca builtin.value arith.constant) (arith.remsi (arith.index_cast builtin.value) arith.constant) (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (memref.load memref.alloca builtin.value arith.constant) (arith.subf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (memref.store (arith.subf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) memref.alloca builtin.value arith.constant) (arith.remsi (arith.index_cast builtin.value) arith.constant) (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (memref.load memref.alloca builtin.value arith.constant) (arith.addf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (memref.store (arith.addf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) memref.alloca builtin.value arith.constant) scf.yield))) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (arith.index_cast builtin.value) (arith.remsi (arith.index_cast builtin.value) arith.constant) (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (memref.load memref.alloca builtin.value arith.constant) (arith.subf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (memref.store (arith.subf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) memref.alloca builtin.value arith.constant) (arith.remsi (arith.index_cast builtin.value) arith.constant) (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant) (memref.load memref.alloca builtin.value arith.constant) (arith.addf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) (memref.store (arith.addf (memref.load memref.alloca builtin.value arith.constant) (arith.mulf (arith.sitofp (arith.remsi (arith.index_cast builtin.value) arith.constant)) arith.constant)) memref.alloca builtin.value arith.constant) scf.yield))) memref.alloca memref.alloca memref.alloca memref.alloca (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (memref.store arith.constant memref.alloca builtin.value arith.constant) (memref.store arith.constant memref.alloca builtin.value arith.constant) (memref.store arith.constant memref.alloca builtin.value arith.constant) (memref.store arith.constant memref.alloca builtin.value arith.constant) (memref.store arith.constant memref.alloca builtin.value arith.constant) (memref.store arith.constant memref.alloca builtin.value arith.constant) scf.yield))) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (memref.store arith.constant memref.alloca builtin.value arith.constant) (memref.store arith.constant memref.alloca builtin.value arith.constant) (memref.store arith.constant memref.alloca builtin.value arith.constant) (memref.store arith.constant memref.alloca builtin.value arith.constant) scf.yield))) (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (memref.load memref.alloca builtin.value) (memref.load memref.alloca builtin.value) (arith.index_cast (memref.load memref.alloca builtin.value)) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.index_cast (memref.load memref.alloca builtin.value)) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant))) (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant))) (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) (memref.load memref.alloca builtin.value arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) (arith.mulf (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) arith.constant) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))) (arith.addf (arith.mulf (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)))) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (arith.mulf (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (arith.mulf (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.mulf (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))) (arith.subf (arith.mulf (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)))) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (arith.mulf (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (arith.mulf (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))) (arith.subf (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)))) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant))) (arith.addf (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (arith.mulf (arith.addf (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) arith.constant) (arith.addf (arith.mulf (arith.addf (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) arith.constant) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (arith.mulf (arith.addf (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) arith.constant) arith.constant)) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (arith.mulf (arith.addf (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant))) (arith.mulf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) arith.constant) arith.constant)) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))) (arith.subf (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)))) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))) (arith.addf (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)))) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (arith.subf (arith.subf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant)) (arith.mulf (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (arith.subf (arith.addf (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)) (arith.mulf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.subf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant)))) (memref.load memref.alloca builtin.value arith.constant))))) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) (memref.store (arith.addf (memref.load memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) arith.constant) memref.alloca (arith.index_cast (memref.load memref.alloca builtin.value)) arith.constant) scf.yield))) (memref.store arith.constant memref.alloca arith.constant arith.constant) (memref.store arith.constant memref.alloca arith.constant arith.constant) (memref.store arith.constant memref.alloca arith.constant arith.constant) (scaleisa.candidate.c12.direct memref.alloca memref.alloca memref.alloca) (scaleisa.candidate.c41.direct memref.alloca memref.alloca memref.alloca) scf.yield))) memref.alloca (memref.store arith.constant memref.alloca) (memref.store arith.constant memref.alloca) (scaleisa.candidate.c21.direct memref.alloca memref.alloca) (scaleisa.candidate.c51.direct memref.alloca memref.alloca) (memref.load memref.alloca) (arith.sitofp (memref.load memref.alloca)) (arith.cmpi (memref.load memref.alloca) arith.constant) (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) (arith.cmpf (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) arith.constant) (arith.select (arith.cmpf (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) arith.constant) (memref.load memref.alloca) arith.constant) (func.return (arith.select (arith.cmpf (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) arith.constant) (memref.load memref.alloca) arith.constant))))))))",
+    "selected_impls": [
+      {
+        "area_square_microns": 3651.2985600000006,
+        "candidate_id": 12,
+        "candidate_op": "scaleisa.candidate.c12.direct",
+        "function_name": "au_generated_candidate_12__direct",
+        "impl_id": "cand12.direct",
+        "latency_cycles": 1722.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 1576.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 1790.0740800000003,
+        "candidate_id": 21,
+        "candidate_op": "scaleisa.candidate.c21.direct",
+        "function_name": "au_generated_candidate_21__direct",
+        "impl_id": "cand21.direct",
+        "latency_cycles": 352.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 289.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 35.75016,
+        "candidate_id": 34,
+        "candidate_op": "scaleisa.candidate.c34.l0u",
+        "function_name": "au_generated_candidate_34__l0u",
+        "impl_id": "cand34.l0u",
+        "latency_cycles": 123.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 48.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 1788.03288,
+        "candidate_id": 41,
+        "candidate_op": "scaleisa.candidate.c41.direct",
+        "function_name": "au_generated_candidate_41__direct",
+        "impl_id": "cand41.direct",
+        "latency_cycles": 1531.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 1401.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 1252.30536,
+        "candidate_id": 51,
+        "candidate_op": "scaleisa.candidate.c51.direct",
+        "function_name": "au_generated_candidate_51__direct",
+        "impl_id": "cand51.direct",
+        "latency_cycles": 300.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 241.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 71.50032,
+        "candidate_id": 56,
+        "candidate_op": "scaleisa.candidate.c56.l0u",
+        "function_name": "au_generated_candidate_56__l0u",
+        "impl_id": "cand56.l0u",
+        "latency_cycles": 87.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 20.0,
+        "semantic_level": "loop-level"
+      }
+    ],
+    "selected_latency": 141928.0,
+    "software_model": {
+      "allocation_policy": "preallocated kernel storage; allocator excluded",
+      "calibration": {
+        "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+        "configuration": "APSRocketConfig",
+        "conversions": {
+          "binary_sha256": "da505d24e2ddbf81ce66977f8a383dbdad78676051e4e410dc49872ee7fec1ee",
+          "pairs_per_measurement": 1024,
+          "policy": "Each dependent pair crosses integer and FP registers. Signed conversion/move and two-conversion chains have equal warm duration. Round their maximum net pair cost / 2 upward to four cycles per conversion or FP register move. Only i32->f32 and f32->i32 signed conversions are calibrated.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_conversion_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "float_to_signed": 7178,
+            "moves": 7178,
+            "pair": 7178,
+            "signed_to_float": 7178
+          }
+        },
+        "dependent_operations_per_measurement": 1024,
+        "fp_control": {
+          "binary_sha256": "fcb7a71db8abe8c728c3a99adb5709e04777ed0f1174e17aa7105558c3f77f7b",
+          "dependent_operations_per_chain": 1024,
+          "policy": "Sign cost is ceil((sign-empty)/1024)=4. Cross-register move/compare and move/move chains use ceil(max(pair-empty)/2048)=4 cycles per operation, conservatively matching the typed conversion/move calibration. Only f32 sign and ordered comparisons are calibrated; control recipes charge composite comparisons separately.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_fp_control_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "move_compare_pair": 7306,
+            "moves_pair": 7180,
+            "sign": 4108
+          }
+        },
+        "policy": "Dependent ALU/MUL/DIV/FP chains measured with mcycle. Branch/return and L1 load costs are conservative serial estimates, not complete processor timing. Unsupported FP/library operations require calibration.",
+        "warm_cycles": {
+          "alu": 1292,
+          "div32": 35845,
+          "divf32": 28657,
+          "empty": 275,
+          "fp32": 4108,
+          "fpmul32": 4108,
+          "fpsub32": 4108,
+          "mul": 6151
+        }
+      },
+      "clock_ns": 2,
+      "cpu": "rocket-rv32imaf",
+      "execution": "serial_dependency_latency_estimate",
+      "instruction_fetch_policy": "resident; no miss penalty",
+      "library_path_policy": "longest acyclic compiled path",
+      "llvm_mca": null,
+      "mlir_mapping": "static instruction recipes, not whole-program compiled timing",
+      "musl_revision": null,
+      "scalar_memory_cycles": 2
+    },
+    "software_only_latency": 150196.0,
+    "solver_status": "greedy: local optimum after 7 improving moves"
+  },
+  "selection_method": "greedy",
+  "selection_report_sha256": "142368049f3b7323405118a48d7c210a90440e9c9f2a55d0be60c11b7f908d22",
+  "stage": "simulation",
+  "status": "passed",
+  "target_profile_sha256": "d0b6e1505f7d8456a2a647c7c9ab8c700034e178e0d7fa4c1e07fdc784a7be25"
+}

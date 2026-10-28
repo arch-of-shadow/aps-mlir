@@ -1,0 +1,44 @@
+{
+  "name": "sq_dist",
+  "status": "passed",
+  "samples_per_call": 64,
+  "validated_outputs_per_binary": 128,
+  "cycles": {
+    "baseline": {
+      "cold": 3549,
+      "warm": 2401
+    },
+    "accelerated": {
+      "cold": 1874,
+      "warm": 1397
+    }
+  },
+  "chipyard_speedup": {
+    "cold": 1.8938100320170759,
+    "warm": 1.7186828919112385
+  },
+  "scaleisa_software_cycles": 4497.0,
+  "scaleisa_selected_cycles": 2027.0,
+  "scaleisa_estimated_speedup": 2.2185495806610755,
+  "scheduling_period_ns": 10.0,
+  "max_extra_csrs": 5,
+  "csr_bindings": [
+    {
+      "name": "au_generated_candidate_0__l0p_u0x2_csr0",
+      "id": 2049
+    },
+    {
+      "name": "au_generated_candidate_0__l0p_u0x2_csr1",
+      "id": 2050
+    }
+  ],
+  "source_report": "/newdisk/aps-mlir/build/aps-suite-16/scalars/sq_dist/report.json",
+  "binary_sha256": {
+    "baseline": "fd1b792c6ee328f91521ab66406b8ecbd4c7485b5976f14fcfe65c355be39ccc",
+    "accelerated": "7737eae1d33456c08614f6626f3fba711b5ad2ca4f116aa18bce2aa2139ecfee"
+  },
+  "selected_area": 4846.11498,
+  "rtl": "/newdisk/aps-mlir/build/aps-suite-16/scalars/sq_dist/design.sv",
+  "rtl_sha256": "40de0a0638ba3d56e75df24afabb8df35893cb5568992cac02e302ab61f235ef",
+  "simulator_sha256": "93efc0b80cf8228bb8aea3c4e15a0ab2fbc7672a31f8eec72148c27b79e7579c"
+}

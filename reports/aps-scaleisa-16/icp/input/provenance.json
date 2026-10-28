@@ -1,0 +1,33 @@
+{
+  "case": "registration_icp",
+  "dimensions": [
+    32,
+    4
+  ],
+  "transformations": [
+    "Spatial dimensions, matching type/loop bounds, clamps and symbols",
+    "Output observer added after selection; kernels unchanged"
+  ],
+  "original_source_sha256": "7efaf6fb9a326bfa879c8f90ce20f1051f2819644fdf94d6725b06669180e64f",
+  "original_mlir_sha256": "5061aefece4c2dd3fc19ae668d3a58af2f482519482a2a6fcc08978cbd9d87ee",
+  "input_sha256": "4ee02366adb4b66e3f1a767928ded600b0e26f8a7f5a1e800dff9c62870bce6a",
+  "scaled_source_sha256": "4dbfc6f387df0f266896612cd1c398b4f19ede97d6d0c55d098d57fabc74167d",
+  "observed_allocations": [
+    [
+      "%alloca_2",
+      "memref<32x3xf32>"
+    ],
+    [
+      "%alloca_1",
+      "memref<32x3xf32>"
+    ],
+    [
+      "%alloca_0",
+      "memref<3xf32>"
+    ],
+    [
+      "%alloca",
+      "memref<4xf32>"
+    ]
+  ]
+}

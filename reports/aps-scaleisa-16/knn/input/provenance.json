@@ -1,0 +1,34 @@
+{
+  "case": "kdtree_search",
+  "dimensions": [
+    32,
+    4,
+    8
+  ],
+  "transformations": [
+    "Spatial dimensions, matching type/loop bounds, clamps and symbols",
+    "Output observer added after selection; kernels unchanged"
+  ],
+  "original_source_sha256": "6be3e25daa64cde5dc053a81abe9b704eccc1a6bb3025b0b7a210e32d4113199",
+  "original_mlir_sha256": "296741cb9ec1d60febbac54a77491282dda054aa9768c53f0a7d8d3669903a0d",
+  "input_sha256": "f8145e49e7c466373fb7ae2574d29f50bc2ec928e579597f9aa9a9ec7ed3eca8",
+  "scaled_source_sha256": "70f887758528cc1272c9c70d4d97525cf4a2d2751da179613e0bdeb63cd0f346",
+  "observed_allocations": [
+    [
+      "%alloca_4",
+      "memref<32x3xf32>"
+    ],
+    [
+      "%alloca_3",
+      "memref<4x3xf32>"
+    ],
+    [
+      "%alloca_2",
+      "memref<4x8xf32>"
+    ],
+    [
+      "%alloca",
+      "memref<4x8xi32>"
+    ]
+  ]
+}

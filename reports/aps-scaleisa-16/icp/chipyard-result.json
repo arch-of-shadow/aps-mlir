@@ -1,0 +1,67 @@
+{
+  "status": "passed",
+  "configuration": "APSRocketConfig",
+  "processor": "RV32 Rocket, full Chipyard Verilator",
+  "waveform_recording": false,
+  "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+  "measurement": "mcycle from immediately before the benchmark call to output observer entry; fences included; reference generation, validation, HTIF printing and return epilogue excluded",
+  "correctness": "All 199 values and checksum checked on both cold and warm calls of both binaries",
+  "validation_harness": "/newdisk/aps-mlir/build/aps-icp-32/input/main.cpp",
+  "selection_contains_ci": true,
+  "csr_bindings": [
+    {
+      "name": "au_generated_candidate_1__direct_csr0",
+      "id": 2049
+    },
+    {
+      "name": "au_generated_candidate_1__direct_csr1",
+      "id": 2050
+    },
+    {
+      "name": "au_generated_candidate_1__direct_csr2",
+      "id": 2051
+    },
+    {
+      "name": "au_generated_candidate_1__direct_csr3",
+      "id": 2052
+    },
+    {
+      "name": "au_generated_candidate_1__direct_csr4",
+      "id": 2053
+    },
+    {
+      "name": "au_generated_candidate_1__direct_csr5",
+      "id": 2054
+    },
+    {
+      "name": "au_generated_candidate_1__direct_csr6",
+      "id": 2055
+    }
+  ],
+  "max_extra_csrs": 8,
+  "cycles": {
+    "baseline": {
+      "cold": 199227,
+      "warm": 195374
+    },
+    "accelerated": {
+      "cold": 122028,
+      "warm": 120733
+    }
+  },
+  "chipyard_speedup": {
+    "cold": 1.6326334939522076,
+    "warm": 1.6182319664052083
+  },
+  "scaleisa_estimated_speedup": 2.824177067557923,
+  "source_report": "/newdisk/aps-mlir/build/aps-icp-32/summary.json",
+  "scheduling_period_ns": 8,
+  "binary_sha256": {
+    "baseline": "cc4d864809f36a0085859bf2d4a21555d226f503376e91890804167696959aac",
+    "accelerated": "a6ff734f2e636f7cdbb68b47d4fa5bd543a069a241bc90d0d2ac3de21b94b9af"
+  },
+  "chipyard_wrapper_sha256": "97c082c5903d1e9f2ce125054c9a317e129a9403f24a56e1287b98e571dbf7eb",
+  "compiler_ci_lowering_sha256": "e1dce2f82d4a8938c79b14f130368e76d890aed795ab8ed4e15f63d64c7b1b4e",
+  "rtl_sha256": "c8e904fb5073fbd99691202fc1acd1daf7e33557c248565667f22a7cecd69060",
+  "simulator_sha256": "61b3a71caae243e1f055ad35b5acd2874f816dc0641008f30d222f33271c46f3"
+}

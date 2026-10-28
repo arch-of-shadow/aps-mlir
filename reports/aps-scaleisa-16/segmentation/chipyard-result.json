@@ -1,0 +1,51 @@
+{
+  "status": "passed",
+  "configuration": "APSRocketConfig",
+  "processor": "RV32 Rocket, full Chipyard Verilator",
+  "waveform_recording": false,
+  "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+  "measurement": "mcycle from immediately before the benchmark call to output observer entry; fences included; reference generation, validation, HTIF printing and return epilogue excluded",
+  "correctness": "All 192 values and checksum checked on both cold and warm calls of both binaries",
+  "validation_harness": "/newdisk/aps-mlir/build/aps-suite-16/segmentation/input/main.cpp",
+  "selection_contains_ci": true,
+  "csr_bindings": [
+    {
+      "name": "au_generated_candidate_0__direct_csr0",
+      "id": 2049
+    },
+    {
+      "name": "au_generated_candidate_0__direct_csr1",
+      "id": 2050
+    },
+    {
+      "name": "au_generated_candidate_0__direct_csr2",
+      "id": 2051
+    }
+  ],
+  "max_extra_csrs": 8,
+  "cycles": {
+    "baseline": {
+      "cold": 88815,
+      "warm": 85499
+    },
+    "accelerated": {
+      "cold": 46588,
+      "warm": 46326
+    }
+  },
+  "chipyard_speedup": {
+    "cold": 1.9063922040010304,
+    "warm": 1.8455942667184735
+  },
+  "scaleisa_estimated_speedup": 3.643246556340527,
+  "source_report": "/newdisk/aps-mlir/build/aps-suite-16/segmentation/summary.json",
+  "scheduling_period_ns": 8,
+  "binary_sha256": {
+    "baseline": "476c88dffa0b74aa15649ad4177a1c510e9af60f13aa010c296e88e60004477c",
+    "accelerated": "d0b27341a7af11fb11a16155efc664c8dd1263cce6916206ffdbf70a9eee8591"
+  },
+  "chipyard_wrapper_sha256": "97c082c5903d1e9f2ce125054c9a317e129a9403f24a56e1287b98e571dbf7eb",
+  "compiler_ci_lowering_sha256": "e1dce2f82d4a8938c79b14f130368e76d890aed795ab8ed4e15f63d64c7b1b4e",
+  "rtl_sha256": "5e807a0cd58f62867c131bde5d2219cebdd1dcf72d318e3e8849eb750d37761a",
+  "simulator_sha256": "a1961a4bc49c58815b10c19c39f949b6473cef58e2c4660e35bc8a66978801d4"
+}

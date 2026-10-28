@@ -1,0 +1,13 @@
+[UART] UART0 is here (stdin/stdout).
+== Loading device model file '/newdisk/aps-mlir/thirdparty/chipyard/generators/testchipip/src/main/resources/dramsim2_ini/DDR3_micron_64M_8B_x4_sg15.ini' == 
+== Loading system model file '/newdisk/aps-mlir/thirdparty/chipyard/generators/testchipip/src/main/resources/dramsim2_ini/system.ini' == 
+===== MemorySystem 0 =====
+CH. 0 TOTAL_STORAGE : 4096MB | 1 Ranks | 16 Devices per rank
+DRAMSim2 Clock Frequency =666666666Hz, CPU Clock Frequency=500000000Hz
+APS_RESULT_CHECK checked/mismatches/first=00000500/00000000/ffffffff
+APS_RESULT_CHECK checked/mismatches/first=00000a00/00000000/ffffffff
+APS_CYCLES cold=227664 warm=225386
+- /newdisk/aps-mlir/build/aps-iss-16-direct-chipyard/make-soc/gen-collateral/TestDriver.v:158: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.048 2026-04-26
+- Verilator: $finish at 2ms; walltime 248.160 s; speed 6.330 us/s
+- Verilator: cpu 248.155 s on 1 threads; allocated 290 MB

@@ -1,0 +1,37 @@
+{
+  "origin": "gtsam/planar_slam",
+  "dimensions": {
+    "POSES": 16,
+    "LANDMARKS": 20,
+    "OBS": 64,
+    "ITERS": 7
+  },
+  "overridden_dimensions": {},
+  "original_cpp_sha256": "a7bfa1920365dda44b13b951f9bb54173e94a19fdda60cb4b333cf144a4734e1",
+  "original_mlir_sha256": "305d91634a46c57aad2005bde324128af1c2676ead15c375c04403c38de97ae0",
+  "input_sha256": "305d91634a46c57aad2005bde324128af1c2676ead15c375c04403c38de97ae0",
+  "observed_allocations": [
+    [
+      "%alloca_3",
+      "memref<16x3xf32>"
+    ],
+    [
+      "%alloca_2",
+      "memref<20x2xf32>"
+    ],
+    [
+      "%alloca_1",
+      "memref<64xi32>"
+    ],
+    [
+      "%alloca_0",
+      "memref<64xi32>"
+    ],
+    [
+      "%alloca",
+      "memref<64x2xf32>"
+    ]
+  ],
+  "checked_values": 344,
+  "reference": "Original C++ computation; capture all entry arrays before returning"
+}

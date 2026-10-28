@@ -1,0 +1,182 @@
+{
+  "id": "planar_slam",
+  "name": "Planar SLAM (16 poses, 20 landmarks)",
+  "status": "passed",
+  "selected_au_count": 6,
+  "static_ci_sites": 6,
+  "chipyard_cycles": {
+    "baseline": {
+      "cold": 87890,
+      "warm": 86494
+    },
+    "accelerated": {
+      "cold": 75343,
+      "warm": 74392
+    }
+  },
+  "measured_speedup": 1.1626787826648026,
+  "estimated_speedup": 1.0582548898032806,
+  "model_cycles": {
+    "baseline": 150196.0,
+    "accelerated": 141928.0
+  },
+  "area_budget": 10000,
+  "selected_area": 8588.96136,
+  "clock_ns": 8.0,
+  "backend_pipeline_fallback_count": 0,
+  "correctness": "All 344 values and checksum checked on both cold and warm calls of both binaries",
+  "source": "build/aps-suite-16/planar_slam",
+  "chipyard": "build/aps-suite-16/planar_slam-chipyard/summary.json",
+  "files": [
+    {
+      "path": "scaleisa-au.mlir",
+      "source": "build/aps-suite-16/planar_slam/candidates.mlir",
+      "sha256": "d265faa56c8c10656cc00535cc4b3c8ac4f758e4ce2e01b1324a81c70f8e6804"
+    },
+    {
+      "path": "aps-planned.mlir",
+      "source": "build/aps-suite-16/planar_slam/planned.mlir",
+      "sha256": "242e59bee6b8edaa9ce002a0207d0cbc1c2464c767abfb2b873ce85593fe7089"
+    },
+    {
+      "path": "aps-hardware.mlir",
+      "source": "build/aps-suite-16/planar_slam/hardware.mlir",
+      "sha256": "80ffaf9a98625ba1aa6fcef3dea39f03633c9fad21722ca70e57bf739be28f6a"
+    },
+    {
+      "path": "selected-program.mlir",
+      "source": "build/aps-suite-16/planar_slam/selected.mlir",
+      "sha256": "62b6993915aea79c37c5b33782f110a0c797a93fb76f666be2ff4871dfe18dbd"
+    },
+    {
+      "path": "baseline-program.mlir",
+      "source": "build/aps-suite-16/planar_slam/baseline.mlir",
+      "sha256": "61e09d82c53a92b09dc199865bbdddf7a50452321a903deb65edd47fff38310a"
+    },
+    {
+      "path": "target-profile.json",
+      "source": "build/aps-suite-16/planar_slam/target-profile.json",
+      "sha256": "d0b6e1505f7d8456a2a647c7c9ab8c700034e178e0d7fa4c1e07fdc784a7be25"
+    },
+    {
+      "path": "pipeline-report.json",
+      "source": "build/aps-suite-16/planar_slam/report.json",
+      "sha256": "4719f893c850defba462925ea158b7207c53a7f258d7cd34364d1174c844ca75"
+    },
+    {
+      "path": "input.mlir",
+      "source": "build/aps-suite-16/planar_slam/input/input.mlir",
+      "sha256": "305d91634a46c57aad2005bde324128af1c2676ead15c375c04403c38de97ae0"
+    },
+    {
+      "path": "input/provenance.json",
+      "source": "build/aps-suite-16/planar_slam/input/provenance.json",
+      "sha256": "39eb2df29f52ffd1861919fe06cced31a9955e67423eecabf24b13e4334ee001"
+    },
+    {
+      "path": "input/main.cpp",
+      "source": "build/aps-suite-16/planar_slam/input/main.cpp",
+      "sha256": "b4420511e2a97b99c96184f1936b96a37b4ce37a6763b739feb3ef97184e612d"
+    },
+    {
+      "path": "input/reference.cpp",
+      "source": "build/aps-suite-16/planar_slam/input/reference.cpp",
+      "sha256": "09656f116f5638e90a11d64103ce5817e7fbf45cf504b59e8167413a32c6a287"
+    },
+    {
+      "path": "chipyard-result.json",
+      "source": "build/aps-suite-16/planar_slam-chipyard/summary.json",
+      "sha256": "5de3da870df0e983b398cd94dd566b4f3fad565c7e0d38d48ca0b05efacd3054"
+    },
+    {
+      "path": "validation-harness.cpp",
+      "source": "build/aps-suite-16/planar_slam/input/main.cpp",
+      "sha256": "b4420511e2a97b99c96184f1936b96a37b4ce37a6763b739feb3ef97184e612d"
+    },
+    {
+      "path": "design.scheduled-tor.mlir",
+      "source": "build/aps-suite-16/planar_slam/design.scheduled-tor.mlir",
+      "sha256": "0cf238d1553f61c6e623e17c95a103c3fe143b8d2fef3e78de2d1cad987ac8f0"
+    },
+    {
+      "path": "ci-runtime.json",
+      "source": "build/aps-suite-16/planar_slam/ci-runtime.json",
+      "sha256": "722f9a98ebc4620576238262d141a1b0b77306adfcc20e2c632f2c43dc026430"
+    },
+    {
+      "path": "baseline-chipyard.log",
+      "source": "build/aps-suite-16/planar_slam-chipyard/output/baseline.log",
+      "sha256": "8c727781dbc2a85e6f2e4a55765d3259307fcc4c89ba3a45d25b634b8a1d7826"
+    },
+    {
+      "path": "accelerated-chipyard.log",
+      "source": "build/aps-suite-16/planar_slam-chipyard/output/accelerated.log",
+      "sha256": "3be5dd0ef638ccb667588cdec677a2593ba2bd3a309dae8b519fcb10205d4328"
+    },
+    {
+      "path": "cpu-ci.mlir",
+      "source": "build/aps-suite-16/planar_slam-chipyard/accelerated.riscv.scaleisa/ci.mlir",
+      "sha256": "af401ee1c1470ddb8e9148dbc1aa6315876f0f5ae194bdca11a7a6dff308dc69"
+    },
+    {
+      "path": "au/au_generated_candidate_12__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_12__direct.input.mlir",
+      "sha256": "88c6d93c5f739d01ab58934bc2d636bdaedad95fa630973e8b088206c609789f"
+    },
+    {
+      "path": "au/au_generated_candidate_12__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_12__direct.evaluated.mlir",
+      "sha256": "ca0d53957f2125fc5c364021541ab14170ac7abf5b01378ba578439b0fd1a18f"
+    },
+    {
+      "path": "au/au_generated_candidate_21__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_21__direct.input.mlir",
+      "sha256": "36f3c5081dc2414433deed221bab8be3da2cafacec19767d752bf1c61b303cca"
+    },
+    {
+      "path": "au/au_generated_candidate_21__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_21__direct.evaluated.mlir",
+      "sha256": "25d1d716bcaf7911bb7c1386d70d5bbc0599dc314f39f89da4aed07add1b8982"
+    },
+    {
+      "path": "au/au_generated_candidate_34__l0u.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_34__l0u.input.mlir",
+      "sha256": "d43ef52cd0d4b2729fb575368f0d27d2da24c2cf9d5c15ba10665b9802c8d6d2"
+    },
+    {
+      "path": "au/au_generated_candidate_34__l0u.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_34__l0u.evaluated.mlir",
+      "sha256": "098e9443956d72c5402d3e204360e7849fe9f3912147019217a39a1339062f29"
+    },
+    {
+      "path": "au/au_generated_candidate_41__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_41__direct.input.mlir",
+      "sha256": "847295bc1fbd5356dd9c6f38fc0b0cf84c5049d410ec0210b738adf680fe4b50"
+    },
+    {
+      "path": "au/au_generated_candidate_41__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_41__direct.evaluated.mlir",
+      "sha256": "870960020bf0052e9aa0e72a60994f93a79d9cff4552d72d5d241e356e1fb169"
+    },
+    {
+      "path": "au/au_generated_candidate_51__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_51__direct.input.mlir",
+      "sha256": "41c2e76bd1ca1d4a714123c2bf9e29f090220fb39ce699d65484576a7b27e476"
+    },
+    {
+      "path": "au/au_generated_candidate_51__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_51__direct.evaluated.mlir",
+      "sha256": "3ef09d2467e14c00266e087a18112b05f416c0b2a07234fd96057897bca2f31a"
+    },
+    {
+      "path": "au/au_generated_candidate_56__l0u.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_56__l0u.input.mlir",
+      "sha256": "ff93ff3a20b9af6a6d283c56a677d691d61611ff65af025c2e9f80d8190ca0c8"
+    },
+    {
+      "path": "au/au_generated_candidate_56__l0u.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-planar_slam/uarch/affine/au_generated_candidate_56__l0u.evaluated.mlir",
+      "sha256": "283fa406e70eaaeaea8c3875f81b932074899c74897d8504a8e581f3c3efe9e7"
+    }
+  ]
+}

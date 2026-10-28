@@ -1,0 +1,264 @@
+{
+  "status": "passed",
+  "distinct_cases": 16,
+  "compared_words": 59916,
+  "comparison": "Exact integer values and floating-point bit patterns versus independent C++ references",
+  "cases": [
+    {
+      "id": "octree",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 22656,
+          "mismatches": 0
+        },
+        {
+          "checked": 45312,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "c00d3c3c4a32f6c271c851a991c0d6f68a8bcbf3ae1cfc15e37edc01252d44c1",
+      "binary_sha256": "cf19495e748db64254bb59350ed19cfb6ab1ff7fefea5d1f1b934cfa522972ba"
+    },
+    {
+      "id": "iss",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 1280,
+          "mismatches": 0
+        },
+        {
+          "checked": 2560,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "dfe0c67512962e2182af2fd292bc4c7c70655adf0255b9cc5d6b22886c1d4bb7",
+      "binary_sha256": "07a079cea566a0ae9f9cdf9c2c8287e1bcbba97cf76c583bedf606f8980db769"
+    },
+    {
+      "id": "normal",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 1440,
+          "mismatches": 0
+        },
+        {
+          "checked": 2880,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "6df4adceed006b588a681ffca4d8179914337938b601bb90738a4b1fdd7ee5e0",
+      "binary_sha256": "aeab9c8c3011d84b2a996357160d15f15a95c23b419db44f397e01994bfa39b0"
+    },
+    {
+      "id": "morphological",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 576,
+          "mismatches": 0
+        },
+        {
+          "checked": 1152,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "7707935e5794afdd709ee0bb254ea29fb13e45dd36fbfc38fd5f731d1aeba843",
+      "binary_sha256": "44afa9c72a16fc057f27cc871c0f6f98049aca1de8f77e9aae45e2478bdb32ba"
+    },
+    {
+      "id": "knn",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 172,
+          "mismatches": 0
+        },
+        {
+          "checked": 344,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "85b5a9f073972f08125df6b6b4f6b1f7e60209f64108509f1c5806816f6ff8fd",
+      "binary_sha256": "83f37bab31551233b91b3729bf19a58e1b7bab141e8fc4570cd1a9dde7de8b71"
+    },
+    {
+      "id": "icp",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 199,
+          "mismatches": 0
+        },
+        {
+          "checked": 398,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "d062d5057e26bfe673cd16661b84d29c24cdd678185698877f71542738b06583",
+      "binary_sha256": "c25ec3e627fd2ba527824ca76e171955fb18eaa7102b90bda734f126909f3ffa"
+    },
+    {
+      "id": "ransac",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 104,
+          "mismatches": 0
+        },
+        {
+          "checked": 208,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "7c34e3df56e72deb53f5628d4dda762f455511020636e4652e95e3e0f8e84691",
+      "binary_sha256": "bb9c6f6652bf17b5c7905435671734f67b30e13bb485bba13b0f793d80245661"
+    },
+    {
+      "id": "segmentation",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 192,
+          "mismatches": 0
+        },
+        {
+          "checked": 384,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "81fce308bb7792dd12faa3e80e8f2b881a0842889402029bda5a94e098692046",
+      "binary_sha256": "31a078a9c2d7cef5cb056d19610018976b65f0972ade4577978644f2866cacbf"
+    },
+    {
+      "id": "poisson",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 792,
+          "mismatches": 0
+        },
+        {
+          "checked": 1584,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "3a498e5525df48adc899098ae1af27983f7112718c511892125b9943d87b964f",
+      "binary_sha256": "d2461ef908e203d937ef2e09868d01d09e04c834e1ab43c0f1d2b82fff7c5651"
+    },
+    {
+      "id": "sfm_batch",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 864,
+          "mismatches": 0
+        },
+        {
+          "checked": 1728,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "9a0ee1e3b62dc319f2b5cfbcc1623591f61cd16690e5339b334dbac9db7ca89d",
+      "binary_sha256": "160604b40fe2f3e1724cc44bc3083becc555a1550761d89b59e8b277bd5adb07"
+    },
+    {
+      "id": "stereo_vo",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 291,
+          "mismatches": 0
+        },
+        {
+          "checked": 582,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "1fceca2dc1aedf8c3e4ac86137f1a630bf6b5a992f28fe6da7599eb74fb9f266",
+      "binary_sha256": "01be87547d250f81d789e4f534ea701d534f4082903f41e7c78a1a8e17a1a1ca"
+    },
+    {
+      "id": "planar_slam",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 344,
+          "mismatches": 0
+        },
+        {
+          "checked": 688,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "113cf4a319ffa8015acc5e27f0ec625ca9328fb2e30cb4ad57e9e3e1cdb2a473",
+      "binary_sha256": "f7623489110bfe1b912bf652f4fe4c40fe0c3d55fd2104a98290b1848442924c"
+    },
+    {
+      "id": "pose2_slam",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 392,
+          "mismatches": 0
+        },
+        {
+          "checked": 784,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "e48ce1a8afb29e7d2ed02105301e9042ca2127a1f3c61aa853b9729b3a5febef",
+      "binary_sha256": "a8f6a7f7403ba12f7b58daa34700a6cc3af3d5bb5d19d6cd1621d14a7c255be9"
+    },
+    {
+      "id": "pose3_pose_graph",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 528,
+          "mismatches": 0
+        },
+        {
+          "checked": 1056,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "36f552ef114b44d1ac167756d3dbc2aaa347626ca9d5e229511a566e4011241f",
+      "binary_sha256": "7b319fb0e936c19b7fce67d344807c7e4c35751411dc0d98bb7367dcebc58c5e"
+    },
+    {
+      "id": "bitcount",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 64,
+          "mismatches": 0
+        },
+        {
+          "checked": 128,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "0b976ddd64e5909c5a6b3f6ba45d38faee8f5196ada60fd2e5a0184f9dc59633",
+      "binary_sha256": "2953e2820ad0ffb4dc811257d9010ffea0935d195f790787c61fc3e01be73c7d"
+    },
+    {
+      "id": "sq_dist",
+      "status": "passed",
+      "calls": [
+        {
+          "checked": 64,
+          "mismatches": 0
+        },
+        {
+          "checked": 128,
+          "mismatches": 0
+        }
+      ],
+      "harness_sha256": "efd3e237d6b649b55137ae804e2728e5ec6fea3579efdeebff3aa5dbe47785ea",
+      "binary_sha256": "531c0e5cd4f6aca217cd14b5e44ef090eb917fb5f26df6d033f1fc88ac426b7a"
+    }
+  ]
+}

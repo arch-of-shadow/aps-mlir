@@ -1,0 +1,147 @@
+{
+  "id": "morphological",
+  "name": "Morphological filter (12\u00d712)",
+  "status": "passed",
+  "selected_au_count": 3,
+  "static_ci_sites": 5,
+  "chipyard_cycles": {
+    "baseline": {
+      "cold": 531919,
+      "warm": 525669
+    },
+    "accelerated": {
+      "cold": 155444,
+      "warm": 154694
+    }
+  },
+  "measured_speedup": 3.398121452674312,
+  "estimated_speedup": 5.6353662227602905,
+  "model_cycles": {
+    "baseline": 670293.0,
+    "accelerated": 118944.0
+  },
+  "area_budget": 10000,
+  "selected_area": 3107.6686799999998,
+  "clock_ns": 8.0,
+  "backend_pipeline_fallback_count": null,
+  "correctness": "All 576 values and checksum checked on both cold and warm calls of both binaries",
+  "source": "build/aps-morphological-12",
+  "chipyard": "build/aps-morphological-12-chipyard/summary.json",
+  "files": [
+    {
+      "path": "scaleisa-au.mlir",
+      "source": "build/aps-morphological-12/candidates.mlir",
+      "sha256": "5bc76ef7bd37c50088ca3ca6a845645ac36fc3e4c92c2365b86b271ca206153e"
+    },
+    {
+      "path": "aps-planned.mlir",
+      "source": "build/aps-morphological-12/planned.mlir",
+      "sha256": "d872f953cdc8879e33a15b20303d86041a81cb3f46ed76938a806274f7b97a8d"
+    },
+    {
+      "path": "aps-hardware.mlir",
+      "source": "build/aps-morphological-12/hardware.mlir",
+      "sha256": "f6658736f040d8db78a46343df5e6d7b3211220e2e90cd8d80964d33c4f109b6"
+    },
+    {
+      "path": "selected-program.mlir",
+      "source": "build/aps-morphological-12/selected.mlir",
+      "sha256": "20fd465f21b0bdb20fb3fe20bc7138918413989740886b32a2704618ab75292e"
+    },
+    {
+      "path": "baseline-program.mlir",
+      "source": "build/aps-morphological-12/baseline.mlir",
+      "sha256": "4ba571e8d104eb81cbec64d393ed25df25b5821ad30386cb13a8c15260a90eca"
+    },
+    {
+      "path": "target-profile.json",
+      "source": "build/aps-morphological-12/target-profile.json",
+      "sha256": "449afb167d2cf007356acc3385cc5ee81f02e57447e249e8d89d24cdaee165b9"
+    },
+    {
+      "path": "pipeline-report.json",
+      "source": "build/aps-morphological-12/report.json",
+      "sha256": "b97661c2d92567608bf11a3440f62170781b60eac4c589538d114d4c93aea97f"
+    },
+    {
+      "path": "input.mlir",
+      "source": "build/aps-morphological-12/input/morphological_filter.mlir",
+      "sha256": "3963398b117ddf791b30230e6a40cbef2b02b2e95484ee92eae47105183ed9e6"
+    },
+    {
+      "path": "input/provenance.json",
+      "source": "build/aps-morphological-12/input/provenance.json",
+      "sha256": "1126dff0190bc73aae84beb80e1b3bf48e5725224ea3100988e9d6f0f1344360"
+    },
+    {
+      "path": "input/main.cpp",
+      "source": "build/aps-morphological-12/input/main.cpp",
+      "sha256": "1c4a53010bdd054817f1b748acf06b3455aa8989e76df1ea787be733b2e4db77"
+    },
+    {
+      "path": "input/reference.cpp",
+      "source": "build/aps-morphological-12/input/reference.cpp",
+      "sha256": "4051597eb2bd3b4a1d40b22123dfcecc0ad100fd5ad4ada5d2301c69d6711a0e"
+    },
+    {
+      "path": "chipyard-result.json",
+      "source": "build/aps-morphological-12-chipyard/summary.json",
+      "sha256": "45b1b89b5fb559b934e87ac45621aca8b8b8e8b5cf757d5b18b1420c4da756b2"
+    },
+    {
+      "path": "validation-harness.cpp",
+      "source": "build/aps-morphological-12/input/main.cpp",
+      "sha256": "1c4a53010bdd054817f1b748acf06b3455aa8989e76df1ea787be733b2e4db77"
+    },
+    {
+      "path": "ci-runtime.json",
+      "source": "build/aps-morphological-12/ci-runtime.json",
+      "sha256": "c460398997eb5d58bb95c8e217b3cb9760a8c98e616c2a7b08866816adbfd1f5"
+    },
+    {
+      "path": "baseline-chipyard.log",
+      "source": "build/aps-morphological-12-chipyard/output/baseline.log",
+      "sha256": "ba1bbc84f8a6492665ffc685974ff70649b103ded231a275a1d44dc351c19560"
+    },
+    {
+      "path": "accelerated-chipyard.log",
+      "source": "build/aps-morphological-12-chipyard/output/accelerated.log",
+      "sha256": "57163e00220e7a2b0cf8a503f17cc47fa6232bb269aa357b9e6dc1f69de1ea6e"
+    },
+    {
+      "path": "cpu-ci.mlir",
+      "source": "build/aps-morphological-12-chipyard/accelerated.riscv.scaleisa/ci.mlir",
+      "sha256": "775be45442bf48620d9139dbbb0125da63534f21fd2217cd167ad093b5f42357"
+    },
+    {
+      "path": "au/au_generated_candidate_40__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-build-aps-morphological-12/uarch/affine/au_generated_candidate_40__direct.input.mlir",
+      "sha256": "0ec814524a38a1ab614f2f132a2da90542da973ab48dfcbeb177d0eabc54ef15"
+    },
+    {
+      "path": "au/au_generated_candidate_40__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-build-aps-morphological-12/uarch/affine/au_generated_candidate_40__direct.evaluated.mlir",
+      "sha256": "e8935775785dbcb37276db2eae4248a25b7b791b0bd5030cbb572088adeb0a04"
+    },
+    {
+      "path": "au/au_generated_candidate_8__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-build-aps-morphological-12/uarch/affine/au_generated_candidate_8__direct.input.mlir",
+      "sha256": "a0fad3b16d440487a9c8501f87d9b2487235d08ab7c1f86ed972a09785c5998a"
+    },
+    {
+      "path": "au/au_generated_candidate_8__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-build-aps-morphological-12/uarch/affine/au_generated_candidate_8__direct.evaluated.mlir",
+      "sha256": "05510d070df680b562f0461989af6096c1e7964a77d792e3b728c2a7cc51bd7e"
+    },
+    {
+      "path": "au/au_generated_candidate_9__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-build-aps-morphological-12/uarch/affine/au_generated_candidate_9__direct.input.mlir",
+      "sha256": "6661a88cdb7db807066da942a13934d01b3f4bc7fd76cb45bf7905ab122dc73f"
+    },
+    {
+      "path": "au/au_generated_candidate_9__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-build-aps-morphological-12/uarch/affine/au_generated_candidate_9__direct.evaluated.mlir",
+      "sha256": "116e7f7083fbf01e8364b7be6309c572c8ad530bb3ed35cb4bbec12940356c88"
+    }
+  ]
+}

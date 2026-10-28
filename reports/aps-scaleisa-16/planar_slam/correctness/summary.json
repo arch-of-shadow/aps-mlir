@@ -1,0 +1,41 @@
+{
+  "id": "planar_slam",
+  "status": "passed",
+  "tests": [
+    {
+      "mode": "correct-output",
+      "status": "passed",
+      "returncode": 0,
+      "observations": [
+        {
+          "checked": 344,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        },
+        {
+          "checked": 688,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        }
+      ],
+      "harness_sha256": "113cf4a319ffa8015acc5e27f0ec625ca9328fb2e30cb4ad57e9e3e1cdb2a473",
+      "binary_sha256": "f7623489110bfe1b912bf652f4fe4c40fe0c3d55fd2104a98290b1848442924c",
+      "simulator_sha256": "486428937d4d569181bf03de7fdade32f803759e95262c5e33992c56a9368c9c"
+    },
+    {
+      "mode": "corrupt-output",
+      "status": "passed",
+      "returncode": 1,
+      "observations": [
+        {
+          "checked": 344,
+          "mismatches": 1,
+          "first_mismatch": 0
+        }
+      ],
+      "harness_sha256": "ccf3359ae526e4c11cfa638b6b6be5258aa4ea32e71fabdd218a0ea5f25c4a2c",
+      "binary_sha256": "32fd7586fa458163d4d57c8ddd4ec060a50361ef8e8d41a5ec1609948487b264",
+      "simulator_sha256": "486428937d4d569181bf03de7fdade32f803759e95262c5e33992c56a9368c9c"
+    }
+  ]
+}

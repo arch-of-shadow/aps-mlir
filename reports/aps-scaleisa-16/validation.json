@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "distinct_cases": 16,
+  "sha256_checked_files": 406,
+  "resolved_markdown_links": 305,
+  "parsed_mlir_files": 64,
+  "failures": [],
+  "regressions": {
+    "driver": 24,
+    "adapter": 35,
+    "dma_and_bank": 7,
+    "scaleisa_lit": 38,
+    "scaleisa_e2e": 15
+  },
+  "numerical_result_audit": "passed",
+  "correctness_control_cases": 16,
+  "accelerated_element_comparisons": 59916
+}

@@ -1,0 +1,41 @@
+{
+  "id": "pose2_slam",
+  "status": "passed",
+  "tests": [
+    {
+      "mode": "correct-output",
+      "status": "passed",
+      "returncode": 0,
+      "observations": [
+        {
+          "checked": 392,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        },
+        {
+          "checked": 784,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        }
+      ],
+      "harness_sha256": "e48ce1a8afb29e7d2ed02105301e9042ca2127a1f3c61aa853b9729b3a5febef",
+      "binary_sha256": "a8f6a7f7403ba12f7b58daa34700a6cc3af3d5bb5d19d6cd1621d14a7c255be9",
+      "simulator_sha256": "e181c8496bd1edf6eca27b75690fc2a559a0e7e8840cf1d9370574d1f9f99c14"
+    },
+    {
+      "mode": "corrupt-output",
+      "status": "passed",
+      "returncode": 1,
+      "observations": [
+        {
+          "checked": 392,
+          "mismatches": 1,
+          "first_mismatch": 320
+        }
+      ],
+      "harness_sha256": "1189b1163e94e199dee2ad76d542e892cdd2950f9fbd18aaca9263294960c53a",
+      "binary_sha256": "4a772f76f4237990414cd02f027d79e1ffceb45cc504f55b30787e908ff64474",
+      "simulator_sha256": "e181c8496bd1edf6eca27b75690fc2a559a0e7e8840cf1d9370574d1f9f99c14"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+#include <stdint.h>
+static uint32_t expected_0[108];
+static uint32_t expected_1[30];
+static uint32_t expected_2[30];
+static uint32_t expected_3[180];
+static uint32_t expected_4[180];
+extern "C" void *memcpy(void *dest, const void *source, __SIZE_TYPE__ n) {
+  volatile unsigned char *d=(volatile unsigned char *)dest;
+  const volatile unsigned char *s=(const volatile unsigned char *)source;
+  for(__SIZE_TYPE__ i=0;i<n;++i)d[i]=s[i];
+  return dest;
+}
+#include "reference.cpp"
+extern "C" float bench_input_0[108];
+extern "C" int bench_input_1[30];
+extern "C" int bench_input_2[30];
+extern "C" float bench_input_3[180];
+extern "C" float bench_input_4[180];
+static void prepare_inputs() {
+  float pose[POSES][6];
+  int src[EDGES];
+  int dst[EDGES];
+  float meas[EDGES][6];
+  float weight[EDGES][6];
+
+  init_pose3_problem(pose, src, dst, meas, weight);
+  __builtin_memcpy(bench_input_0, pose, sizeof(bench_input_0));
+  __builtin_memcpy(bench_input_1, src, sizeof(bench_input_1));
+  __builtin_memcpy(bench_input_2, dst, sizeof(bench_input_2));
+  __builtin_memcpy(bench_input_3, meas, sizeof(bench_input_3));
+  __builtin_memcpy(bench_input_4, weight, sizeof(bench_input_4));
+}
+
+volatile int test_status, checked_outputs, validation_calls, mismatches;
+volatile int first_mismatch = -1;
+volatile uint32_t first_actual, first_expected;
+extern "C" int pcl_selected_main();
+static void check_words(const void *actual, const uint32_t *expected, int n) {
+  for(int i=0;i<n;++i) {
+    uint32_t value;
+    __builtin_memcpy(&value, (const char *)actual+4*i, 4);
+    if(value!=expected[i]) {
+      if(first_mismatch<0) { first_mismatch=checked_outputs; first_actual=value; first_expected=expected[i]; }
+      ++mismatches;
+    }
+    ++checked_outputs;
+  }
+}
+extern "C" void pcl_validate_outputs(const void *buffer_0, const void *buffer_1, const void *buffer_2, const void *buffer_3, const void *buffer_4) {
+  ++validation_calls;
+  check_words(buffer_0, expected_0, 108);
+  check_words(buffer_1, expected_1, 30);
+  check_words(buffer_2, expected_2, 30);
+  check_words(buffer_3, expected_3, 180);
+  check_words(buffer_4, expected_4, 180);
+}
+extern "C" int main() {
+  int expected=reference_main();
+  prepare_inputs();
+  int actual=pcl_selected_main();
+  if(validation_calls!=1 || checked_outputs!=528) return 3;
+  if(mismatches) return 1;
+  if(actual!=expected) return 2;
+  return 0;
+}

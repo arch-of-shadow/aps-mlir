@@ -1,0 +1,122 @@
+{
+  "id": "bitcount",
+  "name": "Bitcount (64 inputs)",
+  "status": "passed",
+  "selected_au_count": 1,
+  "static_ci_sites": 1,
+  "chipyard_cycles": {
+    "baseline": {
+      "cold": 13319,
+      "warm": 11899
+    },
+    "accelerated": {
+      "cold": 2143,
+      "warm": 1167
+    }
+  },
+  "measured_speedup": 10.196229648671808,
+  "estimated_speedup": 6.39704848910752,
+  "model_cycles": {
+    "baseline": 9103.0,
+    "accelerated": 1423.0
+  },
+  "area_budget": 10000,
+  "selected_area": 4125.294359999999,
+  "clock_ns": 10.0,
+  "backend_pipeline_fallback_count": 0,
+  "correctness": "128 independently checked scalar outputs per binary",
+  "source": "build/aps-suite-16/scalars/bitcount",
+  "chipyard": "build/aps-suite-16/scalars-chipyard/bitcount/result.json",
+  "files": [
+    {
+      "path": "scaleisa-au.mlir",
+      "source": "build/aps-suite-16/scalars/bitcount/candidates.mlir",
+      "sha256": "138a1dae66fa8b4446f811492e6b92c0ee6f72f6fe9713e6cbc2a6332d9f9529"
+    },
+    {
+      "path": "aps-planned.mlir",
+      "source": "build/aps-suite-16/scalars/bitcount/planned.mlir",
+      "sha256": "096a55e785099dd5ecc1f18b90e99c459f4d29a40f825ae6b1e1bb52b993adc7"
+    },
+    {
+      "path": "aps-hardware.mlir",
+      "source": "build/aps-suite-16/scalars/bitcount/hardware.mlir",
+      "sha256": "6ce3379111cceec76e9f9e0e5bb1c09cb2375f57a63892ece8f034121be5cf3d"
+    },
+    {
+      "path": "selected-program.mlir",
+      "source": "build/aps-suite-16/scalars/bitcount/selected.mlir",
+      "sha256": "0ce7987059d1b98c744768fc39ef5df7cd80b5cfe90c46953600acc441aeda28"
+    },
+    {
+      "path": "baseline-program.mlir",
+      "source": "build/aps-suite-16/scalars/bitcount/baseline.mlir",
+      "sha256": "e65a3e7e850d7f28dde1d6fdebe5595e73465ff8e2de8fe1c19d388dc6a3fc0e"
+    },
+    {
+      "path": "target-profile.json",
+      "source": "build/aps-suite-16/scalars/bitcount/target-profile.json",
+      "sha256": "233ee943dda344b6b30f05558caa292d42645cb482cecd9430f323ab4fee7d8a"
+    },
+    {
+      "path": "pipeline-report.json",
+      "source": "build/aps-suite-16/scalars/bitcount/report.json",
+      "sha256": "9d061242c86c2cd8709d65953ec9f7ffc5a07cbcdc2be8369baa881f460c6d69"
+    },
+    {
+      "path": "input.mlir",
+      "source": "scaleisa/tmp/scalar-inputs-scalars/bitcount/input.mlir",
+      "sha256": "e7fb39ae135503998f2a0e5ac202f34aef392baf08bf3f141dc8654c3d4abd78"
+    },
+    {
+      "path": "input/provenance.json",
+      "source": "scaleisa/tmp/scalar-inputs-scalars/bitcount/provenance.json",
+      "sha256": "46e47055fc01f5d0c3fff9357482c12c0c61ebcb574034279ab1bbb0a04eee7a"
+    },
+    {
+      "path": "input/main.cpp",
+      "source": "scaleisa/tmp/scalar-inputs-scalars/bitcount/main.cpp",
+      "sha256": "561a23d5365ab5fcfae3ccd17ddaabf4bd471e6f2f1eab74ddbd8db7d09f7665"
+    },
+    {
+      "path": "chipyard-result.json",
+      "source": "build/aps-suite-16/scalars-chipyard/bitcount/result.json",
+      "sha256": "37995bd6a0798121f4ee81a800001a0830c78328d050b6faa8363aca44bf4674"
+    },
+    {
+      "path": "design.scheduled-tor.mlir",
+      "source": "build/aps-suite-16/scalars/bitcount/design.scheduled-tor.mlir",
+      "sha256": "c311086e8eee747563df261b1f68cc27388ce4c783cc26bcd058a2463f37b2e1"
+    },
+    {
+      "path": "ci-runtime.json",
+      "source": "build/aps-suite-16/scalars/bitcount/ci-runtime.json",
+      "sha256": "4c3fceb8515dcbd359eaed658654c4cec031420f1d2f5052e1903780f37944dc"
+    },
+    {
+      "path": "baseline-chipyard.log",
+      "source": "build/aps-suite-16/scalars-chipyard/bitcount/output/baseline.log",
+      "sha256": "47b285a7c290f2ea61df2306e3d1b92a1b3d2c73369af182c89b2ad33c76a91e"
+    },
+    {
+      "path": "accelerated-chipyard.log",
+      "source": "build/aps-suite-16/scalars-chipyard/bitcount/output/accelerated.log",
+      "sha256": "f13d6d0e8a8b0af8f9a92d1c671194f2e39b2dcf2aaeb82b22df45da4d94ee1f"
+    },
+    {
+      "path": "cpu-ci.mlir",
+      "source": "build/aps-suite-16/scalars-chipyard/bitcount/accelerated.riscv.scaleisa/ci.mlir",
+      "sha256": "c2f4b82eb41569bd86b2331169a84b55de16bb66d6e56098d42564becbc8fde0"
+    },
+    {
+      "path": "au/au_generated_candidate_9__l0u.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-scalars-bitcount/uarch/affine/au_generated_candidate_9__l0u.input.mlir",
+      "sha256": "66092ff1305d2a81d4aed690c1b8169fcbb4e786dd5cd61fe3c728bfc391b210"
+    },
+    {
+      "path": "au/au_generated_candidate_9__l0u.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-scalars-bitcount/uarch/affine/au_generated_candidate_9__l0u.evaluated.mlir",
+      "sha256": "c63cdbd8e42763d517daabba8f1bc490d733e65c28635f261db45baa40c14462"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "origin": "gtsam/stereo_vo",
+  "dimensions": {
+    "LANDMARKS": 32,
+    "ITERS": 10
+  },
+  "overridden_dimensions": {},
+  "original_cpp_sha256": "490dd065d8458d559c32dd910f11b8fb18e01eff496b07484a0e13de5312ff03",
+  "original_mlir_sha256": "2fe4e5713b6bd4b9c5467ed428e9a2626cc2121cf61a47106785cecae98914b2",
+  "input_sha256": "2fe4e5713b6bd4b9c5467ed428e9a2626cc2121cf61a47106785cecae98914b2",
+  "observed_allocations": [
+    [
+      "%alloca_2",
+      "memref<3xf32>"
+    ],
+    [
+      "%alloca_1",
+      "memref<32x3xf32>"
+    ],
+    [
+      "%alloca_0",
+      "memref<32x3xf32>"
+    ],
+    [
+      "%alloca",
+      "memref<32x3xf32>"
+    ]
+  ],
+  "checked_values": 291,
+  "reference": "Original C++ computation; capture all entry arrays before returning"
+}

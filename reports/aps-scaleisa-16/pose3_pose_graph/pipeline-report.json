@@ -1,0 +1,606 @@
+{
+  "area_budget": 10000,
+  "backend_pipeline_fallback_count": 0,
+  "backend_pipeline_outcomes": [
+    {
+      "achieved_ii": 20,
+      "function": "au_generated_candidate_5__l4p",
+      "operation": "tor.for",
+      "realized_mode": "pipeline",
+      "requested_ii": -1
+    }
+  ],
+  "ci_cycle_comparison": [
+    {
+      "calls": 1,
+      "ci_cycle_error": 343.0,
+      "estimated_au_cycles": 1423.0,
+      "estimated_ci_cycles": 1516.0,
+      "funct7": 0,
+      "function": "au_generated_candidate_32__direct",
+      "max_cycles": 1859,
+      "mean_cycles": 1859,
+      "min_cycles": 1859,
+      "opcode": 43,
+      "total_cycles": 1859
+    },
+    {
+      "calls": 2,
+      "ci_cycle_error": 10.0,
+      "estimated_au_cycles": 360.0,
+      "estimated_ci_cycles": 667.0,
+      "funct7": 1,
+      "function": "au_generated_candidate_40__l0u_l1u",
+      "max_cycles": 677,
+      "mean_cycles": 677,
+      "min_cycles": 677,
+      "opcode": 43,
+      "total_cycles": 1354
+    },
+    {
+      "calls": 1,
+      "ci_cycle_error": -6.0,
+      "estimated_au_cycles": 216.0,
+      "estimated_ci_cycles": 415.0,
+      "funct7": 2,
+      "function": "au_generated_candidate_43__l0u_l1u",
+      "max_cycles": 409,
+      "mean_cycles": 409,
+      "min_cycles": 409,
+      "opcode": 43,
+      "total_cycles": 409
+    },
+    {
+      "calls": 1,
+      "ci_cycle_error": 7929.0,
+      "estimated_au_cycles": 67684.0,
+      "estimated_ci_cycles": 68325.0,
+      "funct7": 3,
+      "function": "au_generated_candidate_5__l4p",
+      "max_cycles": 76254,
+      "mean_cycles": 76254,
+      "min_cycles": 76254,
+      "opcode": 43,
+      "total_cycles": 76254
+    }
+  ],
+  "ci_runtime_scope": "RTL command admission through completion, including DMA; CPU execution excluded",
+  "commands": [
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/python",
+        "/newdisk/aps-mlir/hardware/hardfloat/build-hardfloat-ip.py",
+        "--resource-output=/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/aps-contracts.json"
+      ],
+      "cwd": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/resources.log",
+      "returncode": 0,
+      "seconds": 11.308706978,
+      "stage": "resources"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/python",
+        "/newdisk/aps-mlir/scaleisa/scripts/scaleisa.py",
+        "run",
+        "--stage",
+        "multi-level-stage",
+        "--input",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/input/input.mlir",
+        "--output-dir",
+        "/newdisk/aps-mlir/scaleisa/tmp/aps-scaleisa-aps-suite-16-pose3_pose_graph",
+        "--area-budget",
+        "10000",
+        "--selection-method",
+        "greedy",
+        "--target-profile",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/target-profile.json",
+        "--discovery-stages",
+        "linalg,affine,scf",
+        "--scaleisa-opt",
+        "/newdisk/aps-mlir/build/tools/scaleisa-opt/scaleisa-opt",
+        "--scaleisa-engine-bin",
+        "/newdisk/aps-mlir/scaleisa/tools/scaleisa-engine/target/release/scaleisa-engine"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/discovery.log",
+      "returncode": 0,
+      "seconds": 205.503057864,
+      "stage": "discovery"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/candidates.mlir",
+        "--scaleisa-convert=preserve-implementation-pragmas=true",
+        "--scaleisa-split=max-extra-csrs=8",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/planned.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/adapt.log",
+      "returncode": 0,
+      "seconds": 0.08722490200000001,
+      "stage": "adapt"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-adapter-opt",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/planned.mlir",
+        "--scaleisa-materialize-aps",
+        "--mlir-print-op-generic",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/hardware.mlir"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/export-hardware.log",
+      "returncode": 0,
+      "seconds": 0.068248973,
+      "stage": "export-hardware"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/tools/aps-opt/aps-e2e",
+        "--clock",
+        "8.000000",
+        "-i",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/hardware.mlir",
+        "--resource",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/resource.json",
+        "--export",
+        "sv",
+        "--dump-scheduled-tor",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/design.scheduled-tor.mlir",
+        "--dump-cmt2",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/design.cmt2.mlir",
+        "-o",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/design.sv"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/synthesis.log",
+      "returncode": 0,
+      "seconds": 465.181201657,
+      "stage": "synthesis"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/.pixi/envs/default/bin/make",
+        "-C",
+        "/newdisk/aps-mlir/tools/aps-cosim",
+        "spike",
+        "VERILATOR=/newdisk/aps-mlir/.pixi/envs/default/bin/verilator",
+        "RTL=/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/design.sv",
+        "TOP=main",
+        "SPIKE_OBJ_DIR=/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/simulator",
+        "VERILATE_JOBS=4",
+        "BUILD_JOBS=4"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/build-simulator.log",
+      "returncode": 0,
+      "seconds": 293.95094631,
+      "stage": "build-simulator"
+    },
+    {
+      "argv": [
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/simulator/Vmain",
+        "--add-csr",
+        "au_generated_candidate_5__l4p_csr0=2049",
+        "--add-csr",
+        "au_generated_candidate_5__l4p_csr1=2050",
+        "--add-csr",
+        "au_generated_candidate_5__l4p_csr2=2051",
+        "--add-csr",
+        "au_generated_candidate_5__l4p_csr3=2052",
+        "--add-csr",
+        "au_generated_candidate_5__l4p_csr4=2053",
+        "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf"
+      ],
+      "cwd": "/newdisk/aps-mlir",
+      "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/simulation.log",
+      "returncode": 0,
+      "seconds": 64.28122426,
+      "stage": "simulation"
+    }
+  ],
+  "compiled": {
+    "abi": "ilp32f",
+    "ci_instructions": 5,
+    "ci_sites": 5,
+    "commands": [
+      {
+        "argv": [
+          "/newdisk/aps-mlir/build/tools/aps-scaleisa-opt/scaleisa-compiler-opt",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/selected.mlir",
+          "--scaleisa-lower-ci=hardware-file=\"/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/hardware.mlir\" max-extra-csrs=8",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/ci.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/lower-ci.log",
+        "returncode": 0,
+        "seconds": 0.135207079,
+        "stage": "lower-ci"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-opt",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/ci.mlir",
+          "--pass-pipeline=builtin.module(lower-affine,convert-scf-to-cf,convert-math-to-llvm,convert-arith-to-llvm{index-bitwidth=32},finalize-memref-to-llvm{index-bitwidth=32},convert-func-to-llvm{index-bitwidth=32 use-bare-ptr-memref-call-conv=true},convert-cf-to-llvm{index-bitwidth=32},reconcile-unrealized-casts)",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/llvm.mlir"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/lower-llvm.log",
+        "returncode": 0,
+        "seconds": 0.171930399,
+        "stage": "lower-llvm"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/mlir-translate",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/llvm.mlir",
+          "--mlir-to-llvmir",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/program.ll"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/translate.log",
+        "returncode": 0,
+        "seconds": 0.090585979,
+        "stage": "translate"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=asm",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/program.s"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/assembly.log",
+        "returncode": 0,
+        "seconds": 0.102116852,
+        "stage": "assembly"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llc",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/program.ll",
+          "-mtriple=riscv32-unknown-elf",
+          "-mattr=+m,+a,+f,+zicsr,+zifencei",
+          "-target-abi=ilp32f",
+          "-relocation-model=static",
+          "-O=2",
+          "-filetype=obj",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/program.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/object.log",
+        "returncode": 0,
+        "seconds": 0.085947074,
+        "stage": "object"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-c",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/input/main.cpp",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/runtime0.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/runtime0.log",
+        "returncode": 0,
+        "seconds": 0.121639791,
+        "stage": "runtime0"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/clang",
+          "--target=riscv32-unknown-elf",
+          "-mabi=ilp32f",
+          "-msmall-data-limit=0",
+          "-ffreestanding",
+          "-fno-builtin",
+          "-ffp-contract=off",
+          "-O2",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+m",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+a",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+f",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zicsr",
+          "-Xclang",
+          "-target-feature",
+          "-Xclang",
+          "+zifencei",
+          "-c",
+          "/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/start.S",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/runtime1.o"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/runtime1.log",
+        "returncode": 0,
+        "seconds": 0.084300525,
+        "stage": "runtime1"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/.pixi/envs/default/bin/ld.lld",
+          "-m",
+          "elf32lriscv",
+          "--entry=_start",
+          "--fatal-warnings",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/program.o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/runtime0.o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/runtime1.o",
+          "-T/newdisk/aps-mlir/tests/scaleisa-compiler/fixtures/ram.ld",
+          "-o",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/link.log",
+        "returncode": 0,
+        "seconds": 0.022417025,
+        "stage": "link"
+      },
+      {
+        "argv": [
+          "/newdisk/aps-mlir/circt/build/bin/llvm-objdump",
+          "-d",
+          "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/program.elf"
+        ],
+        "cwd": "/newdisk/aps-mlir",
+        "log": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf.scaleisa/disassembly.log",
+        "returncode": 0,
+        "seconds": 0.022583461,
+        "stage": "disassembly"
+      }
+    ],
+    "emit": "elf",
+    "hardware": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/hardware.mlir",
+    "hardware_sha256": "f9d6343f7616e70a74e63a7918559336cf05ca1b71ad9bd99e70c5d150d4e3d7",
+    "input": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/selected.mlir",
+    "input_sha256": "937eadef6cd1803f94f51149421b5b773b86732a74e2d67de7e30db758d3d3ab",
+    "mattr": "+m,+a,+f,+zicsr,+zifencei",
+    "max_extra_csrs": 8,
+    "memref_abi": "bare-pointer",
+    "output": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf",
+    "output_sha256": "7176ca9e4d50aff3831655dc98cc8537d9f033b87050196605161077066fea6f",
+    "stage": "disassembly",
+    "status": "passed",
+    "target": "riscv32-unknown-elf"
+  },
+  "cosimulation": "passed",
+  "discovery_directory": "/newdisk/aps-mlir/scaleisa/tmp/aps-scaleisa-aps-suite-16-pose3_pose_graph",
+  "discovery_metrics": {
+    "candidate_status_counts": {
+      "matched": 83,
+      "no_usable_implementation": 9
+    },
+    "explored_impl_count": 161,
+    "generated_rewrite_rule_count": 161,
+    "merged_candidate_count": 92,
+    "pareto_retained_impl_count": 161,
+    "rewrite_applications_inserted": 13232,
+    "rewrite_rules_generated_count": 161,
+    "rewrite_rules_matched_count": 161,
+    "selected_impl_count": 4,
+    "selected_instruction_count": 4,
+    "whole_egraph_lowering_complete": true
+  },
+  "discovery_stages": "linalg,affine,scf",
+  "hardware_selected": true,
+  "hashes": {
+    "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/candidates.mlir": "7debeb1bbfa3a8ad3b282a22ca6f5071d63262ab6237ff7c04f6608a854aba98",
+    "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/design.sv": "94da090e6186aabb1bb3c36181f7705977a1938dc2153fe1bb50c187d74a0934",
+    "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/hardware.mlir": "f9d6343f7616e70a74e63a7918559336cf05ca1b71ad9bd99e70c5d150d4e3d7",
+    "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/program.elf": "7176ca9e4d50aff3831655dc98cc8537d9f033b87050196605161077066fea6f",
+    "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/selected.mlir": "937eadef6cd1803f94f51149421b5b773b86732a74e2d67de7e30db758d3d3ab"
+  },
+  "input": "/newdisk/aps-mlir/build/aps-suite-16/pose3_pose_graph/input/input.mlir",
+  "input_sha256": "fc71cf30398b7062fc11ed1859318c1cd5e1bce8f6b1ec96376297d988ddd830",
+  "noalias_proofs": {
+    "au_generated_candidate_32__direct": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_32__direct_site_2855"
+      ]
+    },
+    "au_generated_candidate_40__l0u_l1u": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_40__l0u_l1u_site_2738",
+        "au_generated_candidate_40__l0u_l1u_site_2751"
+      ]
+    },
+    "au_generated_candidate_43__l0u_l1u": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_43__l0u_l1u_site_2709"
+      ]
+    },
+    "au_generated_candidate_5__l4p": {
+      "basis": "distinct allocations or defined globals at every call",
+      "sites": [
+        "au_generated_candidate_5__l4p_site_2832"
+      ]
+    }
+  },
+  "reused_discovery": false,
+  "runtime_csr_arguments": [
+    "--add-csr",
+    "au_generated_candidate_5__l4p_csr0=2049",
+    "--add-csr",
+    "au_generated_candidate_5__l4p_csr1=2050",
+    "--add-csr",
+    "au_generated_candidate_5__l4p_csr2=2051",
+    "--add-csr",
+    "au_generated_candidate_5__l4p_csr3=2052",
+    "--add-csr",
+    "au_generated_candidate_5__l4p_csr4=2053"
+  ],
+  "selected_program_sha256": "f2c0eed2ba212befba7389ab450bc52c54c5f387c4bbce57896563130d438a8d",
+  "selection": {
+    "area_budget_limit": 10000.0,
+    "proven_optimal": false,
+    "selected_area": 5988.7058400000005,
+    "selected_expression": "(builtin.module (builtin.block (builtin.seq memref.global memref.global memref.global memref.global memref.global (func.func (builtin.block (builtin.seq arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant arith.constant memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca memref.get_global (scaleisa.candidate.c43.l0u_l1u memref.get_global memref.alloca) memref.get_global (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (memref.load memref.get_global builtin.value) (memref.store (memref.load memref.get_global builtin.value) memref.alloca builtin.value) scf.yield))) memref.get_global (scf.for arith.constant arith.constant arith.constant (builtin.block builtin.value (builtin.seq (memref.load memref.get_global builtin.value) (memref.store (memref.load memref.get_global builtin.value) memref.alloca builtin.value) scf.yield))) memref.get_global (scaleisa.candidate.c40.l0u_l1u memref.get_global memref.alloca) memref.get_global (scaleisa.candidate.c40.l0u_l1u memref.get_global memref.alloca) memref.alloca memref.alloca (scaleisa.candidate.c5.l4p memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca memref.alloca) memref.alloca (memref.store arith.constant memref.alloca) (memref.store arith.constant memref.alloca) (scaleisa.candidate.c32.direct memref.alloca memref.alloca) (memref.load memref.alloca) (arith.sitofp (memref.load memref.alloca)) (arith.cmpi (memref.load memref.alloca) arith.constant) (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) (arith.cmpf (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) arith.constant) (arith.select (arith.cmpf (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) arith.constant) (memref.load memref.alloca) arith.constant) (func.return (arith.select (arith.cmpf (scf.if (arith.cmpi (memref.load memref.alloca) arith.constant) (builtin.block (builtin.seq (arith.negf (arith.sitofp (memref.load memref.alloca))) (scf.yield (arith.negf (arith.sitofp (memref.load memref.alloca)))))) (builtin.else (builtin.block (builtin.seq (scf.yield (arith.sitofp (memref.load memref.alloca))))))) arith.constant) (memref.load memref.alloca) arith.constant))))))))",
+    "selected_impls": [
+      {
+        "area_square_microns": 1557.8875800000003,
+        "candidate_id": 32,
+        "candidate_op": "scaleisa.candidate.c32.direct",
+        "function_name": "au_generated_candidate_32__direct",
+        "impl_id": "cand32.direct",
+        "latency_cycles": 1516.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 1423.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 143.00064,
+        "candidate_id": 40,
+        "candidate_op": "scaleisa.candidate.c40.l0u_l1u",
+        "function_name": "au_generated_candidate_40__l0u_l1u",
+        "impl_id": "cand40.l0u_l1u",
+        "latency_cycles": 667.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 360.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 143.00064,
+        "candidate_id": 43,
+        "candidate_op": "scaleisa.candidate.c43.l0u_l1u",
+        "function_name": "au_generated_candidate_43__l0u_l1u",
+        "impl_id": "cand43.l0u_l1u",
+        "latency_cycles": 415.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 216.0,
+        "semantic_level": "loop-level"
+      },
+      {
+        "area_square_microns": 4144.8169800000005,
+        "candidate_id": 5,
+        "candidate_op": "scaleisa.candidate.c5.l4p",
+        "function_name": "au_generated_candidate_5__l4p",
+        "impl_id": "cand5.l4p",
+        "latency_cycles": 68340.0,
+        "origin_stage": "affine",
+        "raw_latency_cycles": 67684.0,
+        "semantic_level": "loop-level"
+      }
+    ],
+    "selected_latency": 71921.0,
+    "software_model": {
+      "allocation_policy": "preallocated kernel storage; allocator excluded",
+      "calibration": {
+        "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+        "configuration": "APSRocketConfig",
+        "conversions": {
+          "binary_sha256": "da505d24e2ddbf81ce66977f8a383dbdad78676051e4e410dc49872ee7fec1ee",
+          "pairs_per_measurement": 1024,
+          "policy": "Each dependent pair crosses integer and FP registers. Signed conversion/move and two-conversion chains have equal warm duration. Round their maximum net pair cost / 2 upward to four cycles per conversion or FP register move. Only i32->f32 and f32->i32 signed conversions are calibrated.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_conversion_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "float_to_signed": 7178,
+            "moves": 7178,
+            "pair": 7178,
+            "signed_to_float": 7178
+          }
+        },
+        "dependent_operations_per_measurement": 1024,
+        "fp_control": {
+          "binary_sha256": "fcb7a71db8abe8c728c3a99adb5709e04777ed0f1174e17aa7105558c3f77f7b",
+          "dependent_operations_per_chain": 1024,
+          "policy": "Sign cost is ceil((sign-empty)/1024)=4. Cross-register move/compare and move/move chains use ceil(max(pair-empty)/2048)=4 cycles per operation, conservatively matching the typed conversion/move calibration. Only f32 sign and ordered comparisons are calibrated; control recipes charge composite comparisons separately.",
+          "source": "tests/aps-scaleisa/fixtures/rocket_fp_control_calibration.cpp",
+          "warm_cycles": {
+            "empty": 274,
+            "move_compare_pair": 7306,
+            "moves_pair": 7180,
+            "sign": 4108
+          }
+        },
+        "policy": "Dependent ALU/MUL/DIV/FP chains measured with mcycle. Branch/return and L1 load costs are conservative serial estimates, not complete processor timing. Unsupported FP/library operations require calibration.",
+        "warm_cycles": {
+          "alu": 1292,
+          "div32": 35845,
+          "divf32": 28657,
+          "empty": 275,
+          "fp32": 4108,
+          "fpmul32": 4108,
+          "fpsub32": 4108,
+          "mul": 6151
+        }
+      },
+      "clock_ns": 2,
+      "cpu": "rocket-rv32imaf",
+      "execution": "serial_dependency_latency_estimate",
+      "instruction_fetch_policy": "resident; no miss penalty",
+      "library_path_policy": "longest acyclic compiled path",
+      "llvm_mca": null,
+      "mlir_mapping": "static instruction recipes, not whole-program compiled timing",
+      "musl_revision": null,
+      "scalar_memory_cycles": 2
+    },
+    "software_only_latency": 119822.0,
+    "solver_status": "greedy: local optimum after 6 improving moves"
+  },
+  "selection_method": "greedy",
+  "selection_report_sha256": "9790d650a555304f96b8bb32945287f7a650ac23d8ad9afc97c48e6974b9fa30",
+  "stage": "simulation",
+  "status": "passed",
+  "target_profile_sha256": "d0b6e1505f7d8456a2a647c7c9ab8c700034e178e0d7fa4c1e07fdc784a7be25"
+}

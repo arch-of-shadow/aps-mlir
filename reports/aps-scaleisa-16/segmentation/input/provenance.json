@@ -1,0 +1,33 @@
+{
+  "origin": "pcl/segmentation_region_growing",
+  "dimensions": {
+    "HEIGHT": 8,
+    "WIDTH": 8,
+    "ITERS": 2
+  },
+  "overridden_dimensions": {
+    "HEIGHT": 8,
+    "WIDTH": 8,
+    "ITERS": 2
+  },
+  "original_cpp_sha256": "26c6d6d5c919af12c68447bbbb021ed7f283f575cf6f09074ab18adb2f3070dc",
+  "original_mlir_sha256": "176012f191fad5f9f9272ae71e4c34ae0411ef6ee18bacd3256075ddb37d64f3",
+  "input_sha256": "eddccaf497ce86ba026337135573907ab0701d0b67616af0fe147823ec962866",
+  "observed_allocations": [
+    [
+      "%alloca_1",
+      "memref<8x8xf32>"
+    ],
+    [
+      "%alloca_0",
+      "memref<8x8xf32>"
+    ],
+    [
+      "%alloca",
+      "memref<8x8xi32>"
+    ]
+  ],
+  "checked_values": 192,
+  "reference": "Original C++ computation; capture all entry arrays before returning",
+  "timed_scope": "Complete repository snapshot main"
+}

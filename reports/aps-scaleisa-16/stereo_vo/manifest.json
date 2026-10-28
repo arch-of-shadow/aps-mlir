@@ -1,0 +1,142 @@
+{
+  "id": "stereo_vo",
+  "name": "Stereo VO (32 landmarks, 10 iterations)",
+  "status": "passed",
+  "selected_au_count": 2,
+  "static_ci_sites": 2,
+  "chipyard_cycles": {
+    "baseline": {
+      "cold": 183246,
+      "warm": 181601
+    },
+    "accelerated": {
+      "cold": 165343,
+      "warm": 163484
+    }
+  },
+  "measured_speedup": 1.1108181840424751,
+  "estimated_speedup": 1.0335983585534751,
+  "model_cycles": {
+    "baseline": 290160.0,
+    "accelerated": 280728.0
+  },
+  "area_budget": 10000,
+  "selected_area": 4370.442480000001,
+  "clock_ns": 8.0,
+  "backend_pipeline_fallback_count": 0,
+  "correctness": "All 291 values and checksum checked on both cold and warm calls of both binaries",
+  "source": "build/aps-suite-16/stereo_vo",
+  "chipyard": "build/aps-suite-16/stereo_vo-chipyard/summary.json",
+  "files": [
+    {
+      "path": "scaleisa-au.mlir",
+      "source": "build/aps-suite-16/stereo_vo/candidates.mlir",
+      "sha256": "927424bb5b4993e9eb985ccd9f561d70038d009f8fc9beaaed9f0acb99cc274b"
+    },
+    {
+      "path": "aps-planned.mlir",
+      "source": "build/aps-suite-16/stereo_vo/planned.mlir",
+      "sha256": "bed2f75d0b881cd08e4b849b78447b3028525833ec7970e34ece2dc6f50239ba"
+    },
+    {
+      "path": "aps-hardware.mlir",
+      "source": "build/aps-suite-16/stereo_vo/hardware.mlir",
+      "sha256": "8d5d06fb51d4d6383b15cc570e24ac80b620ee472e9cb1058e84be2bdfed7828"
+    },
+    {
+      "path": "selected-program.mlir",
+      "source": "build/aps-suite-16/stereo_vo/selected.mlir",
+      "sha256": "82e6d0ede3d954b19c872ad972cf91efb1b5f89ed045483a70c2fe960e1ba309"
+    },
+    {
+      "path": "baseline-program.mlir",
+      "source": "build/aps-suite-16/stereo_vo/baseline.mlir",
+      "sha256": "9794e741ddec59553d9e12f14eaddf28f7957b32a8aa01502dd542ae74b28288"
+    },
+    {
+      "path": "target-profile.json",
+      "source": "build/aps-suite-16/stereo_vo/target-profile.json",
+      "sha256": "d0b6e1505f7d8456a2a647c7c9ab8c700034e178e0d7fa4c1e07fdc784a7be25"
+    },
+    {
+      "path": "pipeline-report.json",
+      "source": "build/aps-suite-16/stereo_vo/report.json",
+      "sha256": "2101504534376f27bbe4759c83b445c9331f0a5b82eebe63f96c6f6689c53964"
+    },
+    {
+      "path": "input.mlir",
+      "source": "build/aps-suite-16/stereo_vo/input/input.mlir",
+      "sha256": "2fe4e5713b6bd4b9c5467ed428e9a2626cc2121cf61a47106785cecae98914b2"
+    },
+    {
+      "path": "input/provenance.json",
+      "source": "build/aps-suite-16/stereo_vo/input/provenance.json",
+      "sha256": "0226616325f3cecd699a979dccd4660a60e2ad3e86e6ca33af9c892153403566"
+    },
+    {
+      "path": "input/main.cpp",
+      "source": "build/aps-suite-16/stereo_vo/input/main.cpp",
+      "sha256": "a380b8bcb31323cf22b77fd4c25d5cdd490681936d70056aac2330b324baf451"
+    },
+    {
+      "path": "input/reference.cpp",
+      "source": "build/aps-suite-16/stereo_vo/input/reference.cpp",
+      "sha256": "f83e33a0bbec0b288c30279c5e9327b44cf5916ebf331e0810a935d03a9ef589"
+    },
+    {
+      "path": "chipyard-result.json",
+      "source": "build/aps-suite-16/stereo_vo-chipyard/summary.json",
+      "sha256": "ba3b766ef0990f90706c6e2f500d9a694e744bc99eb96e4b5d99b516e02d0493"
+    },
+    {
+      "path": "validation-harness.cpp",
+      "source": "build/aps-suite-16/stereo_vo/input/main.cpp",
+      "sha256": "a380b8bcb31323cf22b77fd4c25d5cdd490681936d70056aac2330b324baf451"
+    },
+    {
+      "path": "design.scheduled-tor.mlir",
+      "source": "build/aps-suite-16/stereo_vo/design.scheduled-tor.mlir",
+      "sha256": "efd1763c6a30375c76da47b0a045f62c737e473bfa37f0f45ea307d1d4ea9a11"
+    },
+    {
+      "path": "ci-runtime.json",
+      "source": "build/aps-suite-16/stereo_vo/ci-runtime.json",
+      "sha256": "12bc6664fe53970ccb6379bb114e9cf0b9f9ad3f09c8fbef6aed27522585778b"
+    },
+    {
+      "path": "baseline-chipyard.log",
+      "source": "build/aps-suite-16/stereo_vo-chipyard/output/baseline.log",
+      "sha256": "1a6bf72c1b8f1b9e85e349138c67722132382eba98956afeda42ed1961605e8a"
+    },
+    {
+      "path": "accelerated-chipyard.log",
+      "source": "build/aps-suite-16/stereo_vo-chipyard/output/accelerated.log",
+      "sha256": "b50ae9ae2f6eca0d718e525548a04957a9e16c796f76ba750ace126e8c107aad"
+    },
+    {
+      "path": "cpu-ci.mlir",
+      "source": "build/aps-suite-16/stereo_vo-chipyard/accelerated.riscv.scaleisa/ci.mlir",
+      "sha256": "9e89eb22c986987f1620a14026abf6334ef0b8ba57b4ec552115f79c068b89c3"
+    },
+    {
+      "path": "au/au_generated_candidate_17__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-stereo_vo/uarch/affine/au_generated_candidate_17__direct.input.mlir",
+      "sha256": "2d4a466054725ff5f17b59c559a181c3e20fe254dea1172480c2f31b82df78da"
+    },
+    {
+      "path": "au/au_generated_candidate_17__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-stereo_vo/uarch/affine/au_generated_candidate_17__direct.evaluated.mlir",
+      "sha256": "f9d7be4be4a8606a4444816823cc50d9b665635f0d38542b8d89cf79579e4156"
+    },
+    {
+      "path": "au/au_generated_candidate_26__direct.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-stereo_vo/uarch/affine/au_generated_candidate_26__direct.input.mlir",
+      "sha256": "a923018acdeeb9cbc388047d087e96db0efe6bdd8cd642a59ac565842fe7e906"
+    },
+    {
+      "path": "au/au_generated_candidate_26__direct.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-aps-suite-16-stereo_vo/uarch/affine/au_generated_candidate_26__direct.evaluated.mlir",
+      "sha256": "b027da2ed1b7d091e11675d246e0e6ec34bd6fe368e29ff33dece8d14b0be686"
+    }
+  ]
+}

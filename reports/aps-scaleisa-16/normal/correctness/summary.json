@@ -1,0 +1,41 @@
+{
+  "id": "normal",
+  "status": "passed",
+  "tests": [
+    {
+      "mode": "correct-output",
+      "status": "passed",
+      "returncode": 0,
+      "observations": [
+        {
+          "checked": 1440,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        },
+        {
+          "checked": 2880,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        }
+      ],
+      "harness_sha256": "6df4adceed006b588a681ffca4d8179914337938b601bb90738a4b1fdd7ee5e0",
+      "binary_sha256": "aeab9c8c3011d84b2a996357160d15f15a95c23b419db44f397e01994bfa39b0",
+      "simulator_sha256": "8de528b0c794a324faea9f548408297f46d20fc3e743dd665ad6385fe3f53ba1"
+    },
+    {
+      "mode": "corrupt-output",
+      "status": "passed",
+      "returncode": 1,
+      "observations": [
+        {
+          "checked": 1440,
+          "mismatches": 1,
+          "first_mismatch": 9
+        }
+      ],
+      "harness_sha256": "bcb8df63654a040b5ceb873a9d85446ca6e3749b23c8fe9ebc9b41312775caa6",
+      "binary_sha256": "bd0aa028dfaef7c5c65cc2f4aa136fb9fffbc915b56166000d2974c60953bee3",
+      "simulator_sha256": "8de528b0c794a324faea9f548408297f46d20fc3e743dd665ad6385fe3f53ba1"
+    }
+  ]
+}

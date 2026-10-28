@@ -1,0 +1,41 @@
+{
+  "id": "stereo_vo",
+  "status": "passed",
+  "tests": [
+    {
+      "mode": "correct-output",
+      "status": "passed",
+      "returncode": 0,
+      "observations": [
+        {
+          "checked": 291,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        },
+        {
+          "checked": 582,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        }
+      ],
+      "harness_sha256": "1fceca2dc1aedf8c3e4ac86137f1a630bf6b5a992f28fe6da7599eb74fb9f266",
+      "binary_sha256": "01be87547d250f81d789e4f534ea701d534f4082903f41e7c78a1a8e17a1a1ca",
+      "simulator_sha256": "82cce687925d9e4d4e4656d25eedf547dc36661827ae96a6550940ca27c4a3eb"
+    },
+    {
+      "mode": "corrupt-output",
+      "status": "passed",
+      "returncode": 1,
+      "observations": [
+        {
+          "checked": 291,
+          "mismatches": 1,
+          "first_mismatch": 0
+        }
+      ],
+      "harness_sha256": "ec32d2bece1f182d5cd360e09460dbd88419fb283038e10907ffb23890480aa6",
+      "binary_sha256": "d228ec3408ca29e7342617e5a7fd98441063139af55845a3944a0f22111226af",
+      "simulator_sha256": "82cce687925d9e4d4e4656d25eedf547dc36661827ae96a6550940ca27c4a3eb"
+    }
+  ]
+}

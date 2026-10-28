@@ -1,0 +1,41 @@
+{
+  "id": "poisson",
+  "status": "passed",
+  "tests": [
+    {
+      "mode": "correct-output",
+      "status": "passed",
+      "returncode": 0,
+      "observations": [
+        {
+          "checked": 792,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        },
+        {
+          "checked": 1584,
+          "mismatches": 0,
+          "first_mismatch": 4294967295
+        }
+      ],
+      "harness_sha256": "3a498e5525df48adc899098ae1af27983f7112718c511892125b9943d87b964f",
+      "binary_sha256": "d2461ef908e203d937ef2e09868d01d09e04c834e1ab43c0f1d2b82fff7c5651",
+      "simulator_sha256": "487a657a496631555e82fd6993c7fe0bbf99a014519f0ffdcec4f263d3d06c28"
+    },
+    {
+      "mode": "corrupt-output",
+      "status": "passed",
+      "returncode": 1,
+      "observations": [
+        {
+          "checked": 792,
+          "mismatches": 1,
+          "first_mismatch": 576
+        }
+      ],
+      "harness_sha256": "3d850f6ec863606544c29dfa99b661c6ba12f890bd7236d644739281a126f393",
+      "binary_sha256": "fe0f6d35a3e1246fb1e11902aa7ebcfc876951ea4a76b26ecc45edbcdf974f2a",
+      "simulator_sha256": "487a657a496631555e82fd6993c7fe0bbf99a014519f0ffdcec4f263d3d06c28"
+    }
+  ]
+}

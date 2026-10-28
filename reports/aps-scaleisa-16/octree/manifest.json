@@ -1,0 +1,107 @@
+{
+  "id": "octree",
+  "name": "Octree (2,048 points, 128 queries)",
+  "status": "passed",
+  "selected_au_count": 1,
+  "static_ci_sites": 1,
+  "chipyard_cycles": {
+    "baseline": {
+      "cold": 1872789,
+      "warm": 1855586
+    },
+    "accelerated": {
+      "cold": 1649725,
+      "warm": 1624970
+    }
+  },
+  "measured_speedup": 1.1419201585260035,
+  "estimated_speedup": 1.1030511619027066,
+  "model_cycles": {
+    "baseline": 2126162.0,
+    "accelerated": 1927528.0
+  },
+  "area_budget": 5000,
+  "selected_area": 1245.9339,
+  "clock_ns": 8.0,
+  "backend_pipeline_fallback_count": null,
+  "correctness": "All 22656 values and checksum checked on both cold and warm calls of both binaries",
+  "source": "build/aps-octree-optimized",
+  "chipyard": "build/aps-octree-optimized-chipyard/summary.json",
+  "files": [
+    {
+      "path": "scaleisa-au.mlir",
+      "source": "build/aps-octree-optimized/candidates.mlir",
+      "sha256": "41b6740939c4e4140ad26a7e28f100082c60badfb2481e28d38b6a948ba32118"
+    },
+    {
+      "path": "aps-planned.mlir",
+      "source": "build/aps-octree-optimized/planned.mlir",
+      "sha256": "7a7e971779c619ccafa207d45a5f630b05016026f2fae118a4b849f94cabf0ee"
+    },
+    {
+      "path": "aps-hardware.mlir",
+      "source": "build/aps-octree-optimized/hardware.mlir",
+      "sha256": "0cf5a598dcf599796b82291812bff270af99dede475664c2818c30dc4b6658fc"
+    },
+    {
+      "path": "selected-program.mlir",
+      "source": "build/aps-octree-optimized/selected.mlir",
+      "sha256": "e65db88a5a379913862efd4aba02de28e5104f947b69899e88cecb1feaf6c34b"
+    },
+    {
+      "path": "baseline-program.mlir",
+      "source": "build/aps-octree-optimized/baseline.mlir",
+      "sha256": "fb433c637141e35635cd778b8b11431c02cd00c8e254d0c4d5fe55f3036f4d40"
+    },
+    {
+      "path": "target-profile.json",
+      "source": "build/aps-octree-optimized/target-profile.json",
+      "sha256": "e85a4dab6fc8d3c1f6b2f8ef4090ef0e873b8eaf3f7a6d6e446491f79102f234"
+    },
+    {
+      "path": "pipeline-report.json",
+      "source": "build/aps-octree-optimized/report.json",
+      "sha256": "2157339d4c1cfed6b13792952562797d05086a364ce198b8b2263e10dfd25b22"
+    },
+    {
+      "path": "input.mlir",
+      "source": "scaleisa/benchmarks/pcl/octree_search/octree_search.mlir",
+      "sha256": "2fc454290b0853518af28b05ff219f80eb3e159485ed18ea61ae93c0eb28ef80"
+    },
+    {
+      "path": "chipyard-result.json",
+      "source": "build/aps-octree-optimized-chipyard/summary.json",
+      "sha256": "e2e1c95fc75eed32d87b511ab2922509990ae9d33a4da94d0f40f4a8292de2c0"
+    },
+    {
+      "path": "ci-runtime.json",
+      "source": "build/aps-octree-optimized/ci-runtime.json",
+      "sha256": "a21a5a94480ad21a0659087a5bc2f43b1c4073890fe3053b153d3efa5ee8c3eb"
+    },
+    {
+      "path": "baseline-chipyard.log",
+      "source": "build/aps-octree-optimized-chipyard/output/baseline.log",
+      "sha256": "62d2262587d67486c48ef29b3b98e0b167c44a5ec8639897816018849061e8f2"
+    },
+    {
+      "path": "accelerated-chipyard.log",
+      "source": "build/aps-octree-optimized-chipyard/output/accelerated.log",
+      "sha256": "803e32c5eb33197a85c5dbf607077966a4b2da336599c89950509767c759be98"
+    },
+    {
+      "path": "cpu-ci.mlir",
+      "source": "build/aps-octree-optimized-chipyard/accelerated.riscv.scaleisa/ci.mlir",
+      "sha256": "c9c435f614d808e7ad331559f88aff22560db95480ebe22c20e5e4aa1a0695a6"
+    },
+    {
+      "path": "au/au_generated_candidate_53__l1p_u1x8.input.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-build-aps-octree-optimized/uarch/affine/au_generated_candidate_53__l1p_u1x8.input.mlir",
+      "sha256": "1c32b8f600e5a5241a024ea9a3e9af314500aaf817d73ebc18127e0fbfcd8577"
+    },
+    {
+      "path": "au/au_generated_candidate_53__l1p_u1x8.evaluated.mlir",
+      "source": "scaleisa/tmp/aps-scaleisa-build-aps-octree-optimized/uarch/affine/au_generated_candidate_53__l1p_u1x8.evaluated.mlir",
+      "sha256": "9cd180f99f440a76d2208e625bf756b3ca17af830278856b21e148b9a884b9c7"
+    }
+  ]
+}

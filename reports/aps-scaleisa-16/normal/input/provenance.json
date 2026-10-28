@@ -1,0 +1,30 @@
+{
+  "case": "normal_estimation",
+  "size": 12,
+  "transformations": [
+    "Spatial dimensions, matching type/loop bounds, clamps and symbols",
+    "Output observer added after selection; kernels unchanged"
+  ],
+  "original_source_sha256": "8beb29879d72500f094b7b539d373b325e3a69a91f813a1b1e3e9599606a34ff",
+  "original_mlir_sha256": "dbe81af0e8485f9d4bf9bb59a09efd5ad99d39bd0c5c60d7dc869bd3a85a3776",
+  "input_sha256": "9e43b077eff914c6818477a257c6a5abd4dc861de192b94a212836551fdb69b0",
+  "scaled_source_sha256": "33a872ad0e4eec7e357aca1c5982edcfdd589e8bd1f9b947e1c70c43ad2e82a2",
+  "observed_allocations": [
+    [
+      "%alloca_6",
+      "memref<12x12x3xf32>"
+    ],
+    [
+      "%alloca_5",
+      "memref<12x12x3xf32>"
+    ],
+    [
+      "%alloca_4",
+      "memref<12x12x3xf32>"
+    ],
+    [
+      "%alloca",
+      "memref<12x12xf32>"
+    ]
+  ]
+}

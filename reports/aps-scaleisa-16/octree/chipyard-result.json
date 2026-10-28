@@ -1,0 +1,34 @@
+{
+  "status": "passed",
+  "configuration": "APSRocketConfig",
+  "processor": "RV32 Rocket, full Chipyard Verilator",
+  "waveform_recording": false,
+  "chipyard_commit": "7fc52519e52c3fc10acb8d30d2a61d6c38ee9bb0",
+  "measurement": "mcycle from immediately before the benchmark call to output observer entry; fences included; reference generation, validation, HTIF printing and return epilogue excluded",
+  "correctness": "All 22656 values and checksum checked on both cold and warm calls of both binaries",
+  "cycles": {
+    "baseline": {
+      "cold": 1872789,
+      "warm": 1855586
+    },
+    "accelerated": {
+      "cold": 1649725,
+      "warm": 1624970
+    }
+  },
+  "chipyard_speedup": {
+    "cold": 1.1352128385033868,
+    "warm": 1.1419201585260035
+  },
+  "scaleisa_estimated_speedup": 1.1030511619027066,
+  "source_report": "/newdisk/aps-mlir/build/aps-octree-optimized/summary.json",
+  "scheduling_period_ns": 8.0,
+  "binary_sha256": {
+    "baseline": "a6a599d5646cbab239c51240b46de499b1448d0b6d816e19a20f3a0d5c0cccdc",
+    "accelerated": "d7d2be7dc637037fd222f1863a0d1ae5c15f428d74a9076fb0f1ee5fab48f237"
+  },
+  "chipyard_wrapper_sha256": "97c082c5903d1e9f2ce125054c9a317e129a9403f24a56e1287b98e571dbf7eb",
+  "compiler_ci_lowering_sha256": "2a416d07328b49611b2bf64082a4b81417ec4a0e89d7680eee9d8c77b18940fe",
+  "rtl_sha256": "71900ace613f33d3d843de1be60592c95126fe1af8ccdc8c813f582caeed7a56",
+  "simulator_sha256": "583d4e0dd35fb529c4aac2fad6c240092e4592049ba9d757fb30e0c216280501"
+}

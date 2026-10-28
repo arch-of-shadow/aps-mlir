@@ -1,0 +1,6 @@
+[UART] UART0 is here (stdin/stdout).
+APS_CYCLES cold=18233 warm=17632
+- /newdisk/aps-mlir/build/aps-suite-16/poisson-chipyard/make-soc/gen-collateral/TestDriver.v:158: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.048 2026-04-26
+- Verilator: $finish at 249us; walltime 38.745 s; speed 6.427 us/s
+- Verilator: cpu 38.741 s on 1 threads; allocated 290 MB
