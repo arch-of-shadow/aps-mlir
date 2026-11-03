@@ -4,26 +4,25 @@ set -e
 
 # This script sets up the environment for the LLVM/MLIR/CIRCT project and its dependencies.
 
-# check if circt is already installed
-# ${which circt-opt} should be ${PWD}/install/bin/circt-opt
-# ${circt-opt --version} should contain ${CIRCT_COMMIT}
-# if so, return success
-if [ -f "${PWD}/install/bin/circt-opt" ] && [[ "$(circt-opt --version)" == *"${CIRCT_COMMIT}"* ]]; then
-    echo "circt is already installed"
-    exit 0
-fi
-
-# - CIRCT_COMMIT: The commit to checkout
-CIRCT_COMMIT=$1
-if [ -z "$CIRCT_COMMIT" ]; then
-    echo "Error: CIRCT_COMMIT is not set"
-    exit 1
-fi
+# - CIRCT_COMMIT: The branch, tag, or commit to checkout (defaults to cmt2).
+CIRCT_COMMIT=${1:-${CIRCT_COMMIT:-cmt2}}
 
 # Submodule update
 # be careful, don't update chipyard's submodule, it's fragile
 # and must be updated with it's own script!!!
-git submodule update --init --recursive circt/
+git submodule update --init circt/
+git -C circt checkout "$CIRCT_COMMIT"
+git -C circt submodule update --init --recursive
+
+# Rebuild when the selected CIRCT revision changes, including branch updates.
+CIRCT_REVISION=$(git -C circt rev-parse HEAD)
+SETUP_SUCCESS="circt $CIRCT_COMMIT $CIRCT_REVISION setup success"
+if [ -x "${PWD}/circt/build/bin/circt-opt" ] && \
+    [ -f __setup.success ] && \
+    [ "$(cat __setup.success)" = "$SETUP_SUCCESS" ]; then
+    echo "circt $CIRCT_COMMIT is already built at $CIRCT_REVISION"
+    exit 0
+fi
 
 # cd into the CIRCT repository, pushd is better for this
 pushd circt
@@ -85,4 +84,4 @@ popd
 popd
 
 # Echo success
-echo "circt $CIRCT_COMMIT setup success" > __setup.success
+echo "$SETUP_SUCCESS" > __setup.success

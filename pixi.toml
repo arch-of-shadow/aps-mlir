@@ -6,7 +6,7 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [activation.env]
-CIRCT_COMMIT = "cmt2-edsl"
+CIRCT_COMMIT = "cmt2"
 PYTHONPATH = "${PIXI_PROJECT_ROOT}:${PIXI_PROJECT_ROOT}/megg:${PIXI_PROJECT_ROOT}/build/python_packages/circt_core:${PYTHONPATH}"
 PATH = "${PIXI_PROJECT_ROOT}/circt/build/bin:${PATH}:${PIXI_PROJECT_ROOT}/thirdparty/polygeist"
 MEGGINCLUDE = "${PIXI_PROJECT_ROOT}/megg/megg_include" # put extra include files for megg here
@@ -21,7 +21,7 @@ APS_VLSI = "${APS_CHIPYARD}/nextvlsi"
 
 [tasks]
 # Build CIRCT and APS toolchain
-setup = { cmd = "test -f __setup.success || (chmod +x scripts/setup.sh && scripts/setup.sh \"$CIRCT_COMMIT\")" }
+setup = { cmd = "bash scripts/setup.sh \"$CIRCT_COMMIT\"" }
 build = { cmd = "bash scripts/build.sh", depends-on = ["setup"]}
 clean = { cmd = "rm -rf build"}
 
