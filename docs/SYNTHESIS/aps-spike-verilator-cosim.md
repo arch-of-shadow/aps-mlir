@@ -16,7 +16,7 @@ configuration.
 After generating matching RTL and an RV32 ELF:
 
 ```sh
-pixi run aps-cosim-run build/program.elf build/design.sv
+pixi run cosim-run build/program.elf build/design.sv
 ```
 
 The task uses top module `main`, builds the model, and runs `run-spike`.

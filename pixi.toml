@@ -1,9 +1,9 @@
 [workspace]
-authors = ["uv-xiao <shallwexiao@gmail.com>"]
+authors = ["Yuyang Zou <yyzou25@stu.pku.edu.cn>"]
 channels = ["conda-forge", "weijiepeng"]
-name = "aps-mlir"
+name = "APS-MLIR"
 platforms = ["linux-64"]
-version = "0.1.0"
+version = "1.1.0"
 
 [activation.env]
 CIRCT_COMMIT = "cmt2"
@@ -71,17 +71,11 @@ cmd = "riscv32-unknown-elf-gcc -std=gnu99 -O3 -Wall -Wextra -fno-common -fno-bui
 [tasks.build-hardfloat-ip]
 cmd = "mkdir -p build/hardfloat && cd build/hardfloat && bash ../../hardware/hardfloat/build-hardfloat-ip.sh --resource-output=resource.json"
 
-[tasks.hardfloat-acceptance]
-cmd = "bash examples/hardfloat/hardfloat-acceptance.sh"
-
-[tasks.bf16-gemm-rocket]
-cmd = "bash examples/hardfloat/bf16_gemm/bf16-gemm-rocket.sh"
-
 # APS Spike + Verilator co-sim
-[tasks.aps-cosim-clean]
+[tasks.cosim-clean]
 cmd = "make -C $PIXI_PROJECT_ROOT/tools/aps-cosim clean"
 
-[tasks.aps-cosim-run]
+[tasks.cosim-run]
 args = [{ arg = "elf" }, { arg = "rtl" }, { arg = "extra_args", default = "" }]
 cmd = "make -j -C tools/aps-cosim run-spike RTL={{ rtl }} ELF={{ elf }} EXTRA_ARGS='{{ extra_args }}' TOP=main"
 depends-on = ["setup-verilator"]
