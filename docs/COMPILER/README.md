@@ -1,132 +1,73 @@
-# APS Compiler
+# Compiler workflows
 
-The APS compiler enables automatic utilization of custom instructions (ISAXs) in application code using **E-graph** based equality saturation combined with **MLIR** infrastructure.
+APS has two software entry points. Choose one based on where instruction
+semantics come from; both must agree with the generated hardware encoding and ABI.
 
-## The Pattern Matching Challenge
+| Input and purpose | Entry point |
+|---|---|
+| Discover and select instructions from application MLIR, then generate hardware and software | [aps-scaleisa-opt](aps-scaleisa-opt.md) |
+| Match a supplied CADL instruction description against C code | `tools/aps-megg compile` |
 
-Traditional pattern matching is **syntactic** - it matches exact code patterns:
+## ScaleISA workflow
 
-```c
-// Pattern: MAC instruction
-acc += a[i] * b[i];
+The C++ driver orchestrates discovery/selection, adapts the selected implementation
+library, synthesizes RTL, and compiles exposed custom-instruction (CI) sites.
+It can link a supplied runtime and execute the matching RTL in co-simulation.
 
-// Semantically equivalent but won't match:
-acc = acc + a[i] * b[i];
-acc = a[i] * b[i] + acc;
-acc += a[i<<2+j] * b[j];
+```sh
+pixi run cmake --build build --target aps-scaleisa-opt -j 3
+pixi run cargo build --release --manifest-path scaleisa/tools/scaleisa-engine/Cargo.toml
+pixi run build/tools/aps-scaleisa-opt/aps-scaleisa-opt \
+  scaleisa/benchmarks/pcl/octree_search/octree_search.mlir \
+  --area-budget 500 --output-dir build/scaleisa-octree
 ```
 
-**Problems**: Control flow variations, expression variations, too many manual variants.
+The Rust **release** engine is required by this driver; `pixi run build` builds
+the debug engine. This example starts a full discovery run and may take time.
+A valid zero-CI selection produces software without accelerator RTL.
 
-## Our Solution: E-graph + MLIR
+- [Driver](aps-scaleisa-opt.md): invocation, stages, reuse, and artifacts.
+- [Adapter](scaleisa-adapter.md): selected kernels to APS hardware contracts.
+- [Software compiler](scaleisa-compiler.md): selected call sites to RV32 binaries.
+- [Benchmarks](aps-scaleisa-opt.md#benchmark-reproduction-and-evidence): reproduction and measurement scope.
 
-The APS compiler combines:
-- **E-graphs**: Compactly represent all equivalent expressions
-- **MLIR passes**: Handle control flow transformations
-- **Skeleton-components matching**: Decompose patterns for flexible matching
+Algorithm and cost-model documentation belongs to
+[ScaleISA](../../scaleisa/docs/README.md).
 
-## Compiler Pipeline
+## CADL/Megg workflow
 
-1. **Parse** application C code and ISAX CADL descriptions
-2. **Convert** both to MLIR
-3. **Build E-graph** from application MLIR
-4. **Apply internal rewrites** (algebraic laws)
-5. **Apply external rewrites** (MLIR passes guided by ISAX patterns)
-6. **Match** ISAX components in expanded E-graph
-7. **Extract** optimal instruction sequence
-8. **Generate** RISC-V binary with custom instructions
-
-## Quick Start
-
-```bash
-# Compile application with ISAX matching
-pixi run compile tutorial/cadl/vgemv3d.cadl csrc/test_gemv.c outputs/test.riscv
-
-# View matched instructions
-cat outputs/compile_logs/test.asm | grep insn
+```sh
+mkdir -p build/megg-example
+pixi run compile tutorial/cadl/v3ddist_vv.cadl tutorial/csrc/test_v3ddist_vv.c build/megg-example/v3ddist_vv.riscv
 ```
 
-**Output**:
-```asm
-101ac:   62b5752b    .insn    4, 0x62b5752b   # Custom instruction!
+The example uses the same CADL/C pair as `tutorial/a2-ex1compile.sh`. It requires the
+Polygeist `cgeist` frontend, APS Python bindings, Megg's compiled `mlir_utils`
+extension, and the RISC-V toolchain supplied/configured during setup.
+
+[tools/aps-megg](../../tools/aps-megg) converts CADL to a C pattern, converts it
+through `cgeist`, extracts instruction encodings and CSR inputs, and invokes
+[E2ECompiler](../../megg/megg/e2e_compiler.py). Megg matches application computation
+using e-graph rewrites and emits custom instructions through its LLVM backend.
+`--verbose` exposes diagnostics; `--handson` enables tutorial snapshots.
+Artifacts are collected in `compile_logs/` beside the executable, including
+pattern C/MLIR, encoding JSON, and available assembly/statistics/snapshots.
+
+CSR argument placement must preserve source operand positions. Use
+[CSR transport tests](../../tests/test_megg_csr.py) and
+[robustness tests](../../tests/test_megg_csr_robustness.py) when changing matching
+or emission. Compile the CADL to hardware separately through the
+[synthesis flow](../SYNTHESIS/README.md).
+
+Megg internals are documented in [matching and e-graph compilation](pattern-matching.md),
+including rewrites, skeleton matching, extraction, and code generation.
+
+## Checks
+
+```sh
+pixi run cmake --build build --target check-aps-scaleisa check-scaleisa-adapter check-scaleisa-compiler
+pixi run python -m pytest tests/test_megg_csr.py tests/test_megg_cleanup.py -q
 ```
 
-## Key Concepts
-
-### E-graphs
-
-An **E-graph** compactly represents equivalent expressions. After rewrite `m * 2 = m << 1`, both representations coexist in the same e-class.
-
-**Key Operations**:
-- **Rewrite**: Add equivalent e-node to e-class
-- **Union**: Merge two e-classes (discovered equivalence)
-- **Extract**: Select best representative from e-class
-
-### Semantic Translation
-
-CADL ISAXs are translated to high-level MLIR patterns for matching (hardware-specific details stripped, only computation pattern remains).
-
-### Hybrid Rewriting
-
-**Internal Rewrites** (algebraic):
-- `a + b -> b + a` (commutativity)
-- `(a + b) * c -> a*c + b*c` (distributivity)
-- `a * 1 -> a` (identity)
-
-**External Rewrites** (MLIR passes):
-- Loop unroll, fusion, reordering
-- Guided by ISAX pattern structure
-
-### Skeleton-Components Matching
-
-ISAXs are decomposed into:
-- **Skeleton**: Control flow structure (loops, branches)
-- **Components**: Pure computation patterns
-
-Matching process:
-1. Match skeleton structure (loop bounds, nesting)
-2. For each component, search e-graph for matches
-3. Validate dependencies and ordering
-4. Insert custom instruction e-node
-
-## Extraction
-
-Select optimal program from e-graph using cost model:
-
-| Operation | Cost |
-|-----------|------|
-| Literal | 1 |
-| Add/Sub | 2 |
-| Mul | 4 |
-| Load/Store | 5 |
-| Custom Instr | 15 (configurable) |
-
-## Output Generation
-
-Matched instructions become inline assembly:
-
-```mlir
-// After matching
-%result = llvm.inline_asm has_side_effects
-    ".insn r 0x2B, 0x7, 0x31, $0, $1, $2",
-    "=r,r,r,~{memory}" %arg0, %arg1 : (i32, i32) -> i32
-```
-
-## File Locations
-
-| Component | Location |
-|-----------|----------|
-| Compiler CLI | `megg-opt.py` |
-| Core compiler | `python/megg/compiler.py` |
-| E-graph layer | `python/megg/egraph/` |
-| Rewrite rules | `python/megg/rewrites/` |
-| LLVM backend | `python/megg/backend/` |
-
-## Further Reading
-
-- [egraph-architecture.md](egraph-architecture.md) - E-graph concepts and MLIR integration
-- [pattern-matching.md](pattern-matching.md) - Detailed matching algorithm
-
-- [APS ScaleISA driver](aps-scaleisa-opt.md): discovery through RTL, software compilation, and cosimulation.
-- [Benchmark comparison](scaleisa-benchmark-report.md): measured Rocket speedups,
-  ScaleISA estimates, and the corresponding AU and APS MLIR files.
+The CMake targets run driver/pass regressions. Full application correctness and
+Rocket cycle measurement are separate benchmark campaigns.

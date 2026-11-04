@@ -1,120 +1,77 @@
-# APS-Itfc: Interface Abstraction
+# Memory interfaces and DMA
 
-APS-Itfc is a **transactional abstraction** that models how ISAXs interact with RISC-V processors. It provides a unified interface that can be mapped to different processor platforms (Rocket/RoCC, CV-X-IF, etc.).
+APS separates functional memory behavior from platform-bound transactions and
+scheduled issue/completion operations. Operation definitions are in
+[APSOps.td](../../include/APS/APSOps.td).
 
-## Motivation
+| Level | Operations and responsibility |
+|---|---|
+| Functional | `aps.load`, `aps.store`, `aps.copy`: describe CPU-memory behavior |
+| Architectural | `aps.load_by`, `aps.store_by`, `aps.copy_by`: select an `aps.memitfc` and legal transaction shape |
+| Temporal | Issue/wait pairs: preserve timing dependencies and wait for completion |
+| Hardware | CMT2 scalar-memory/DMA methods, scratchpad banks, and adapters |
 
-Different RISC-V platforms provide different ISAX interfaces:
+`aps.read_smem` and `aps.write_smem` access accelerator scratchpads; scalar globals
+and CSR-backed globals have separate register/interface paths.
 
-| Platform | Interface | Characteristics |
-|----------|-----------|-----------------
-| Rocket/BOOM | RoCC | R-type instruction + L1D$ access |
-| CVA6 | CV-X-IF | Flexible instruction extension interface |
-| CV32E | CV-X-IF | Minimal extension interface |
+## Platform model
 
-**Problem**: ISAX designs are tightly coupled to platform interfaces.
+[examples/interface.json](../../examples/interface.json) is a complete native
+configuration. Each interface supplies:
 
-**Solution**: APS-Itfc provides an abstraction layer that defines a common transaction model and maps to platform-specific interfaces via adaptors.
+| Field | Meaning |
+|---|---|
+| `width` | Bytes per beat |
+| `min_beats`, `min_write_beats`, `max_beats` | Legal transaction beat bounds |
+| `inflight` | Outstanding transaction capacity |
+| `read_latency`, `write_completion` | Read/write completion timing model |
+| `cache_line`, `cache_hint` | Cache-line bytes and `warm`/`cold` assumption |
 
-## Transaction Types
+Native `cpuitfc` uses one 4-byte beat and at most two outstanding transactions.
+Native `busitfc` uses 8-byte beats, at most 16 beats per transaction, at least two
+write beats, and two inflight channels. Beat bounds must be powers of two and the
+cache-line size must be divisible by width. The exporter requires a bus interface.
+Its `maxBurstBytes = width * max_beats`; its `nXacts = inflight`.
 
-### Issue Req
-**Direction**: RISC-V Core -> ISAX. Start new ISAX execution with instruction opcode, funct7/funct3 fields, and register specifiers.
+[APSFunctionalToArch.cpp](../../lib/APS/APSFunctionalToArch.cpp) validates and
+selects modeled interfaces, jointly accounting for shared activation/transfer/cache
+costs within a region. It decomposes constant-size copies into legal transactions.
+Dynamic lengths require normalization first. If IR provides no interfaces, the
+pass materializes backward-compatible defaults; explicit JSON is preferable for
+reproducible integration.
 
-### GPR Req
-**Direction**: RISC-V Core -> ISAX. Receive source operand values from register file.
+[APSMemorySchedule.cpp](../../lib/APS/APSMemorySchedule.cpp) schedules
+architectural transactions with timing windows and emits `after` dependencies.
+Read ordering prefers warm hierarchy levels; writes prefer cold levels.
+[LowerAPSMemToReqCollect.cpp](../../lib/APS/LowerAPSMemToReqCollect.cpp) splits
+operations after TOR scheduling. Keep dependency and decomposition-group semantics
+intact when extending these passes.
 
-```cadl
-let a: u32 = _irf[rs1];    // GPR Req for rs1
-let b: u32 = _irf[rs2];    // GPR Req for rs2
-```
+## Hardware and memory visibility
 
-### RdMem/WrMem Req/Resp
-**Direction**: ISAX <-> Memory System. Single-element memory read/write.
+[MemoryGenerator.cpp](../../lib/APS/APSToCMT2/MemoryGenerator.cpp) constructs the
+banked scratchpad pool from the memory map. Partitioning supplies the banks needed
+for 64-bit burst access. Generated interfaces expose split burst reads and writes;
+scalar HellaCache and DMA traffic use separate adapters.
 
-```cadl
-let data: u32 = _mem[addr];    // RdMem Req/Resp
-_mem[addr] = data;             // WrMem Req/Resp
-```
+The native two-channel DMA and trigger wrapper are in
+[generators/aps resources](../../thirdparty/chipyard/generators/aps/src/main/resources/vsrc/),
+with TileLink integration in
+[TlDmaMultichannel.scala](../../thirdparty/chipyard/generators/aps/src/main/scala/TlDmaMultichannel.scala).
+The generated operation's issue/wait protocol defines when data is usable and
+when writeback is complete. DMA idle by itself is insufficient for instruction
+completion.
 
-### RdBlkMem/WrBlkMem Req/Resp
-**Direction**: ISAX <-> DMA Engine. Burst memory read/write (multiple elements).
+Software must supply buffers aligned for the selected transaction size and obey
+the platform's memory-visibility contract. The ScaleISA compiler aligns owned
+buffered storage and emits ordering fences for memory CIs; external callers remain
+responsible for their buffer allocation and interface alignment.
 
-```cadl
-matrix[0 +: ] = _burst_read[addr +: 16];      // 16-element burst read
-_burst_write[addr +: 16] = result[0 +: ];     // 16-element burst write
-```
+## Tests
 
-### Result Resp
-**Direction**: ISAX -> RISC-V Core. Return computation result to register file.
-
-```cadl
-_irf[rd] = result;    // Result Resp
-```
-
-## Platform Mappings
-
-### RoCC (Rocket Custom Coprocessor)
-
-| APS-Itfc | RoCC Interface |
-|----------|---------------|
-| Issue Req | rocc.cmd (instruction dispatch) |
-| GPR Req | rocc.cmd.rs1, rocc.cmd.rs2 |
-| RdMem Req/Resp | rocc.mem.req/resp |
-| RdBlkMem/WrBlkMem | TileLink (via DMA engine) |
-| Result Resp | rocc.resp |
-
-## Memory Access Modes
-
-### Single-Element Access (via L1D$)
-**Latency**: Cache hit ~2 cycles, miss varies.
-
-### Burst Access (via DMA)
-**Latency**: ~15 cycles initial, then 1 word/cycle.
-
-## APS Dialect Operations
-
-| APS Dialect Op | APS-Itfc Transaction |
-|----------------|---------------------|
-| `aps.read_irf` | GPR Req |
-| `aps.write_irf` | Result Resp |
-| `aps.read_smem/write_smem` | Scratchpad access |
-| `aps.copy` | DMA transfer |
-| `aps.load/store` | Scalar CPU memory access |
-
-## Timing Characteristics (RoCC on Rocket)
-
-| Transaction | Typical Latency |
-|-------------|-----------------|
-| Issue Req | 1 cycle |
-| GPR Req | 0 cycles (included in Issue) |
-| RdMem/WrMem | 2+ cycles (L1D$ dependent) |
-| RdBlkMem Req | ~15 cycles initial |
-| RdBlkMem Resp | 1 word/cycle after initial |
-| Result Resp | 1 cycle |
-
-## Protocol Constraints
-
-**Ordering**:
-1. Issue before GPR
-2. GPR before Memory (for operands used in memory access)
-3. Memory ordering within same address (writes before reads for WAR hazard)
-4. Result last (after all computation completes)
-
-**Concurrency**:
-- Multiple outstanding memory requests allowed (with reorder buffer)
-- Single Issue Req at a time per ISAX instance
-- Burst operations are atomic
-
-**Flow Control**: Back-pressure via ready/valid handshaking.
-
-## Extending to New Platforms
-
-1. **Define Platform Mapping**: Map each APS-Itfc transaction to platform signals
-2. **Implement Adaptor**: Create adaptor module translating between APS-Itfc and platform
-3. **Register with CMT2**: Add platform adaptor to CMT2 module library
-
-## Further Reading
-
-- [dma-engine.md](dma-engine.md) - DMA engine details
-- [deployment.md](deployment.md) - Platform deployment
+[Functional binding](../../tests/test_mlir/test_functional_to_arch.py),
+[memory model analysis](../../tests/test_mlir/test_memory_analysis.py),
+[memory ordering](../../tests/test_mlir/test_memory_ordering.py), and
+[configuration](../../tests/test_mlir/test_interface_config.py) cover binding,
+models, decomposition, and capacity limits. Actual scalar/DMA completion is checked
+in [storage co-simulation](../../tests/test_mlir/test_storage_cosim.py).

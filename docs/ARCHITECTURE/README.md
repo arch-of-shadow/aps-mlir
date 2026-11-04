@@ -1,147 +1,73 @@
-# Processor Integration & Architecture
+# Processor integration
 
-The APS architecture component handles integration of synthesized ISAXs into RISC-V processors, including APS-Itfc abstraction, DMA engine, memory system, and deployment flows.
+The native configuration exporter supports **RoCC, RV32, one core**. Start with
+[examples/interface.json](../../examples/interface.json), then generate the RTL
+and Chipyard YAML from the same inputs. This keeps interface capacities and CSR
+bindings consistent with synthesis.
 
-## Key Components
+## Generate a matched package
 
-### 1. APS-Itfc (Interface Abstraction)
-
-A unified interface abstracting how ISAXs interact with different RISC-V platforms.
-
-**Supported Transactions**:
-
-| Transaction | Direction | Description |
-|-------------|-----------|-------------|
-| Issue Req | Core -> ISAX | Start new ISAX execution |
-| GPR Req | Core -> ISAX | Receive source operands |
-| Rd/WrMem Req/Resp | ISAX <-> Memory | Single memory access |
-| RdBlkMem/WrBlkMem | ISAX <-> DMA | Block memory transfer |
-| Result Resp | ISAX -> Core | Return result to register file |
-
-See [aps-itfc.md](aps-itfc.md) for details.
-
-### 2. DMA Engine
-
-Accelerates batch data transfers between CPU memory and ISAX scratchpad:
-- **Burst transfers**: Up to cache-line sized blocks per transaction
-- **Dual channel**: Overlapped request/response for higher bandwidth
-- **Layout transformation**: Direct tiling during transfer
-
-See [dma-engine.md](dma-engine.md) for details.
-
-### 3. Memory Pool
-
-Partitioned scratchpad memory for ISAX computation:
-- **Bank partitioning**: Cyclic or block partitioning
-- **Multi-port access**: Parallel reads/writes to different banks
-- **Address mapping**: DMA-compatible address space
-
-### 4. RoCC Adaptor
-
-Maps APS-Itfc to Rocket Custom Coprocessor (RoCC) interface.
-
-### 5. CSR Integration
-
-Connects Rocket RoCC custom CSRs to APS generated tops as flattened configuration/status ports.
-
-See [aps-csr.md](aps-csr.md) for details.
-
-### 6. Port Naming and Call Convention
-
-Defines generated top port names, YAML-driven CSR pin naming, and RoCC/CSR call boundaries.
-
-See [aps-port-convention.md](aps-port-convention.md) for details.
-
-## Quick Start
-
-### Configure Integration
-
-Edit `aps_config.yaml`:
-
-```yaml
-backend: rocc
-arch: rv32
-vsrc:
-  - wrapper_dma_trig.sv
-  - tl_dma_2ch_v2.sv
-  - v3ddist_vv.sv
-maxBurstBytes: 128
-nXacts: 2
+```sh
+mkdir -p build/integration
+pixi run mlir tutorial/cadl/hello.cadl build/integration/hello.mlir
+pixi run build/tools/aps-opt/aps-e2e \
+  -i build/integration/hello.mlir --export sv -o build/integration/hello.sv \
+  --interface-config examples/interface.json \
+  --chipyard-config build/integration/hello.chipyard.yaml
 ```
 
-### Run RTL Simulation
+The JSON is authoritative for interface model fields. Existing IR declarations
+must agree; unknown keys, conflicting models, and invalid CSR overrides fail.
+The sidecar is emitted after successful lowering/export. Its `vsrc` uses the
+absolute generated RTL path, so regenerate the package when moving a checkout.
 
-```bash
-cd $APS_CHIPYARD/sims/verilator
-make CONFIG=APSRocketConfig -j4
-make run-binary-debug BINARY=outputs/test.riscv LOADMEM=1
+[InterfaceConfig.h](../../tools/aps-opt/InterfaceConfig.h) validates version 1,
+native interface names, beat constraints, platform fields, and CSRs. It derives
+`maxBurstBytes` and `nXacts` for the wrapper. Platform configuration requires
+SV export to a named file.
+
+## Rocket simulation
+
+Initialize the repository's Chipyard toolchain:
+
+```sh
+pixi run setup-chipyard
 ```
 
-### FPGA Deployment
+After compiling a matching RISC-V executable, pass the generated YAML explicitly:
 
-```bash
-cd $APS_CHIPYARD/nextvlsi
-make vivado CONFIG=APSRocketConfig
-make bitstream
+```sh
+pixi shell
+cd thirdparty/chipyard/sims/verilator
+make CONFIG=APSRocketConfig APS_CONFIG="$APS/build/integration/hello.chipyard.yaml" \
+  run-binary-debug BINARY="$APS/build/program.riscv" LOADMEM=1
 ```
 
-See [deployment.md](deployment.md) for full deployment guide.
+`build/program.riscv` must be a linked program for that instruction/platform.
+[Compiler workflows](../COMPILER/README.md) describe binary generation.
+Use an absolute binary path because simulation changes working directory.
+Chipyard uses the configured legacy firtool for processor elaboration, while
+APS uses its CIRCT fork for accelerator generation; the Pixi setup keeps these
+paths distinct.
 
-## Supported Platforms
+[generators/aps](../../thirdparty/chipyard/generators/aps/) contains the Scala
+configuration, blackbox interface, RoCC wrapper, and DMA implementation. The
+[port contract](aps-port-convention.md) explains CSR lanes and completion for
+instructions without register results. [Memory interfaces](aps-itfc.md) explains
+the CPU/DMA timing model and ordering.
 
-| Platform | Interface | Status |
-|----------|-----------|--------|
-| Rocket | RoCC | Supported |
-| BOOM | RoCC | Supported |
-| CVA6 | CV-X-IF | In Progress |
-| CV32E | CV-X-IF | In Progress |
+## Verification and deployment scope
 
-| FPGA Board | Device | Status |
-|------------|--------|--------|
-| ZC706 | XC7Z045 | Supported |
-| VCU118 | XCVU9P | In Progress |
+Use [Spike + Verilator](../SYNTHESIS/aps-spike-verilator-cosim.md) for accelerator
+functional checks. Use full Rocket RTL with a defined timed region for processor
+cycle measurements. [Benchmark reproduction](../COMPILER/aps-scaleisa-opt.md#benchmark-reproduction-and-evidence)
+links current runners and artifact checks.
 
-## Design Flow
+FPGA and ASIC flows require board/process-specific configuration under
+[Chipyard nextvlsi](../../thirdparty/chipyard/nextvlsi/) and, for FPGA host access,
+[aps-prog](../../aps-prog/README.md). Follow those component instructions for the
+actual target. This guide does not assign blanket support status to boards or
+CPU/interface combinations that the native exporter does not validate.
 
-### ASIC Flow
-
-```bash
-# 1. Synthesize ISAX to RTL
-pixi run mlir tutorial/cadl/v3ddist_vv.cadl outputs/v3ddist_vv.mlir
-pixi run opt outputs/v3ddist_vv.mlir outputs/v3ddist_vv_cmt.mlir
-pixi run sv outputs/v3ddist_vv_cmt.mlir outputs/v3ddist_vv.sv
-
-# 2. Logic synthesis with Yosys
-cd $APS_CHIPYARD/nextvlsi
-make yosys CONFIG=APSRocketConfig
-
-# 3. Place and route with OpenROAD
-make pnr CONFIG=APSRocketConfig
-```
-
-### FPGA Flow
-
-```bash
-cd $APS_CHIPYARD
-make verilog CONFIG=APSRocketConfig
-vivado -mode batch -source scripts/run_vivado.tcl
-./aps_prog +uio=/dev/uio0 test.riscv
-```
-
-## Performance Example: 3D Point Cloud
-
-Compute squared Euclidean distances between 16 point pairs:
-
-| Implementation | Cycles |
-|---------------|--------|
-| Software (no ISAX) | 688 |
-| Hardware (with ISAX) | 166 |
-| **Speedup** | **4.14x** |
-
-## Further Reading
-
-- [aps-itfc.md](aps-itfc.md) - Detailed interface specification
-- [dma-engine.md](dma-engine.md) - DMA engine and memory system
-- [aps-csr.md](aps-csr.md) - RoCC custom CSR integration
-- [aps-port-convention.md](aps-port-convention.md) - Generated top port naming and call convention
-- [deployment.md](deployment.md) - FPGA deployment guide
+Configuration regression coverage is in
+[test_interface_config.py](../../tests/test_mlir/test_interface_config.py).

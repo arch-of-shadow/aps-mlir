@@ -1,221 +1,103 @@
-# CADL Language Reference
+# CADL language and frontend
 
-CADL (Computer Architecture Description Language) is a high-level DSL for describing custom RISC-V instruction extensions (ISAXs).
+CADL describes instruction behavior. The authoritative syntax is
+[grammar.lark](../../cadl_frontend/grammar.lark); accepted syntax still needs a
+supported MLIR emitter and backend operation to reach hardware.
 
-## Basic Structure
+## Instruction shape
 
 ```cadl
-// Global scratchpad memory
-static array: [u32; 16];
-
-// Instruction definition
 #[opcode(7'b0101011)]
 #[funct7(7'b0000000)]
-rtype instruction_name(rs1: u5, rs2: u5, rd: u5) {
-  // Instruction body
-}
-```
-
-## Type System
-
-| Type | Description |
-|------|-------------|
-| `u8`, `u16`, `u32`, `u64` | Unsigned integers |
-| `i8`, `i16`, `i32`, `i64` | Signed integers |
-| `u1` - `u256` | Arbitrary width unsigned |
-
-### Width-Aware Literals
-
-```cadl
-5'b10101    // 5-bit binary
-8'hFF       // 8-bit hexadecimal
-32'd1000    // 32-bit decimal
-```
-
-## Variables
-
-```cadl
-let x: u32 = 42;                  // Local variable
-static buffer: [u32; 64];         // Scratchpad memory
-static acc: i32;                  // Scalar static
-```
-
-## Processor Interface (APS-Itfc)
-
-```cadl
-// Register file access
-let a: u32 = _irf[rs1];           // Read GPR
-_irf[rd] = result;                // Write GPR
-
-// Single memory access
-let data: u32 = _mem[addr];       // Read CPU memory
-_mem[addr] = data;                // Write CPU memory
-
-// Burst DMA access
-matrix[0 +: ] = _burst_read[addr +: 16];      // Burst read
-_burst_write[addr +: 16] = matrix[0 +: ];     // Burst write
-```
-
-## Control Flow
-
-### Do-While Loops
-
-```cadl
-with i: u32 = (init, next) do {
-  // Loop body
-  let next: u32 = i + 1;
-} while (condition);
-```
-
-### Multiple Loop-Carried Variables
-
-```cadl
-with i: u32 = (0, i_), acc: i32 = (0, acc_) do {
-  acc_ = acc + array[i];
-  let i_: u32 = i + 1;
-} while (i_ < 16);
-```
-
-## Instruction Definitions
-
-```cadl
-#[opcode(7'b0101011)]     // Custom-1 opcode
-#[funct7(7'b0000000)]
-rtype add_custom(rs1: u5, rs2: u5, rd: u5) {
+rtype hello(rs1: u5, rs2: u5, rd: u5) {
   let a: u32 = _irf[rs1];
   let b: u32 = _irf[rs2];
   _irf[rd] = a + b;
 }
 ```
 
-### RISC-V Custom Opcodes
+Register selectors are five-bit values; `_irf[rs1]` obtains the operand data
+supplied by the CPU. The encoding attributes identify the custom instruction.
+Use the checked-in [hello](../../tutorial/cadl/hello.cadl) as a minimal input.
 
-| Opcode | Binary | Description |
-|--------|--------|-------------|
-| custom-0 | `0001011` | User extension 0 |
-| custom-1 | `0101011` | User extension 1 |
-| custom-2 | `1011011` | User extension 2 |
-| custom-3 | `1111011` | User extension 3 |
-
-## Optimization Directives
-
-### Loop Unrolling
-
-```cadl
-[[unroll(4)]]
-with i: u32 = (0, i + 1) do { ... } while (i + 1 < 16);
+```sh
+pixi run tools/aps-frontend mlir tutorial/cadl/hello.cadl -o build/hello.mlir
+pixi run tools/aps-frontend encoding tutorial/cadl/hello.cadl
+pixi run tools/aps-frontend cadl2c tutorial/cadl/hello.cadl -o build/hello.c
 ```
 
-### Array Partitioning
+Create `build/` first. The MLIR command verifies its result before writing it.
+C output supports software matching and reference workflows; it has its own
+supported subset, particularly for floating point.
 
-```cadl
-#[partition_dim_array([0])]
-#[partition_factor_array([4])]
-#[partition_cyclic_array([1])]     // 1=cyclic, 0=block
-static array: [i32; 16];
-```
+## Values and storage
 
-### DMA Stride
+| Construct | Meaning |
+|---|---|
+| `uN`, `iN` | Unsigned/signed fixed-width integer semantics |
+| `bf16`, `f32` | Supported hardware floating formats |
+| `[i32; 16]` | Array type; further semicolon dimensions express higher ranks |
+| `let x: u32 = expr;` | Local value binding |
+| `x = expr;` | Update an existing local binding or scalar global |
+| `static buf: [i32; 16];` | Persistent storage emitted as a module-level global |
+| `_mem[addr]` | CPU-memory access; `addr` is a byte address |
+| `buf[index]` | Element access to local/global array storage |
 
-```cadl
-[[stride_x(2)]]
-[[stride_y(2)]]
-mat[sa +: ] = _burst_read[da +: 8];
-```
+Integer literals include `42`, `0x2a`, `8'h2a`, and explicit suffixes such as
+`42_u8`. Decimal floating literals default to f32; suffixes select the semantic
+format. Parser recognition of f64 does not establish FP64 hardware support.
+`bitcast<T>(value)` preserves bits and requires equal widths. Numeric conversions
+and bitcasts have different semantics.
 
-## Example: Vector Distance
+Array partition metadata is attached to the declaration:
 
 ```cadl
 #[partition_dim_array([0])]
 #[partition_factor_array([4])]
 #[partition_cyclic_array([1])]
-static points1_x: [u32; 16];
-static points2_x: [u32; 16];
-static dist_out: [u32; 16];
-
-#[opcode(7'b0001011)]
-#[funct7(7'b0101000)]
-rtype v3ddist_vv(rs1: u5, rs2: u5, rd: u5) {
-  let addr1: u32 = _irf[rs1];
-  let out_addr: u32 = _irf[rs2];
-
-  points1_x[0 +: ] = _burst_read[addr1 +: 16];
-  points2_x[0 +: ] = _burst_read[addr1 + 64 +: 16];
-
-  [[unroll(4)]]
-  with i: u32 = (0, i + 1) do {
-    let dx: u32 = points1_x[i] - points2_x[i];
-    dist_out[i] = dx * dx;
-  } while (i + 1 < 16);
-
-  _burst_write[out_addr +: 16] = dist_out[0 +: ];
-  _irf[rd] = 0;
-}
+static buf: [i32; 16];
 ```
 
-## Frontend Usage
+For complete CPU-memory slice/copy examples use
+[tutorial/cadl/](../../tutorial/cadl/) and
+[MemoryEmitter](../../cadl_frontend/to_mlir/memory.py). Synthesis binds functional
+memory operations using the [interface model](../ARCHITECTURE/aps-itfc.md).
 
-```bash
-pixi run mlir examples/features/csr_partition_loop.cadl out.mlir  # Convert to MLIR
+## Control flow
+
+Statement `if` emits `scf.if`. Assignments to outer local values are merged
+through results; a missing `else` retains the incoming value. Branch-local
+bindings do not escape their scope, and a branch-local `let` cannot shadow a
+variable being merged. Expression `if condition { a } else { b }` produces a value.
+
+Counted loops use the CADL `with` form:
+
+```cadl
+[[unroll(4)]]
+with i: u32 = (0, i + 1) do {
+  buf[i] = i;
+} while (i + 1 < 16);
 ```
 
-## CSR Parameters in MEGG
+The frontend recognizes suitable counted patterns as `scf.for`; other supported
+patterns use `scf.while`. Directives apply to the subsequent loop. Check generated
+IR when changing bounds, steps, or carried values. Pipeline requests remain
+subject to scheduler and CMT2 legality checks; see [HLS](hls-passes.md).
 
-Declare an instruction's configuration input as a CSR and read it with
-`_csr[name]`:
+The grammar includes constructs such as guarded statements and `spawn` that the
+current statement dispatcher does not lower. Treat an explicit unsupported
+statement diagnostic as a frontend boundary. Do not infer support from the grammar
+alone. Floating intrinsics and restrictions are in the
+[BF16/FP32 guide](hardfloat-bf16-fp32-acceptance.md).
 
-```rust
-#[csr_address(0x801)]
-register gain_cfg: u32;
-```
+## Implementation and tests
 
-During semantic alignment, MEGG converts each CSR read into a value parameter
-after the two `rs1`/`rs2` parameters in the generated C pattern. Repeated reads
-of the same CSR share one parameter. Application C uses ordinary values and
-computations; it does not need to write the CSR explicitly.
-
-The instruction encoding JSON carries `csr_inputs` entries with the CSR name,
-address, and original pattern argument index. Matching records the values bound
-to those parameters, including constants and computed expressions. When a
-selected custom instruction is lowered, MEGG emits `csrrw x0, address, value`
-for each bound CSR, followed by the R-type instruction. These operations share
-one side-effecting inline assembly block with a memory clobber. Only the first
-two pattern parameters supply `rs1` and `rs2`; CSR parameters supply the setup
-writes. Unused source registers and void destinations use `x0`.
-The RoCC `xd` flag (bit 2 of `funct3`) is derived from the emitted result:
-value-producing calls set it, while void calls clear it even if encoding
-metadata specifies `funct3 = 0x7`. The `xs1`/`xs2` bits are preserved.
-
-An instruction's input expressions must be available before the region it
-replaces. A CSR input such as `gain + i`, where `i` belongs to the replaced
-loop, prevents that offload and keeps the software loop. An outer-loop value
-can configure an instruction replacing only an inner loop. The matcher checks
-the expressions selected by the extraction cost model; memory reads and other
-effects are conservatively rejected as inputs that would need hoisting.
-
-Integer matching also recovers subtraction patterns after constant folding,
-using negation modulo the operand width. Reconstruction exceptions fail the
-compilation with a function-specific diagnostic instead of silently omitting
-the function from the output module.
-
-The current target is RV32: CSR parameters must have scalar integer types of
-at most 32 bits and literal writable 12-bit addresses. CSR writes inside CADL
-matching patterns are unsupported. Each selected instruction invocation sets
-its CSR inputs; writes are not cached or hoisted across invocations.
-
-For a memory loop with two CSR parameters:
-
-```bash
-pixi run compile examples/megg_example/csr_scale/csr_scale.cadl \
-  examples/megg_example/csr_scale/test_csr_scale.c /tmp/csr_scale.elf
-```
-
-Executing that binary requires hardware implementing the declared CSRs and
-custom instruction.
-
-## Best Practices
-
-1. Use explicit bit widths for all operations
-2. Match partition factor with unroll factor
-3. Use burst transfers for large data movements
-4. Minimize loop-carried dependencies
+[converter.py](../../cadl_frontend/to_mlir/converter.py) coordinates conversion;
+[state.py](../../cadl_frontend/to_mlir/state.py) owns symbols;
+[expr.py](../../cadl_frontend/to_mlir/expr.py),
+[stmt.py](../../cadl_frontend/to_mlir/stmt.py),
+[loop.py](../../cadl_frontend/to_mlir/loop.py), and
+[memory.py](../../cadl_frontend/to_mlir/memory.py) own emission.
+Use [parser tests](../../tests/test_parser/),
+[conditional tests](../../tests/test_select_expr.py), and
+[floating frontend tests](../../tests/hardfloat/test_frontend.py) for executable examples.

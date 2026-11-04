@@ -1,126 +1,92 @@
-# HLS Optimization Passes
+# HLS transformations and scheduling
 
-MLIR transformation passes for the APS synthesis flow.
+The [production pipeline](../../tools/aps-opt/main.cc) fixes transformation order.
+Pass declarations are in [APS Passes.td](../../include/APS/Passes.td) and
+[TOR Passes.td](../../include/TOR/Passes.td). Run individual passes with
+`build/tools/aps-opt/aps-opt`; inspect `--help` for their current options.
 
-## Pass Pipeline
+## Loops and affine memory
 
-| Pass | Purpose |
-|------|---------|
-| `aps-memory-map` | Assign addresses to scratchpad memories |
-| `normalize-scf-for-indices` | Normalize SCF loop bounds to index type |
-| `raise-scf-to-affine` | Convert SCF loops to Affine dialect |
-| `hls-unroll` | Apply loop unrolling directives |
-| `new-array-partition` | Partition arrays for parallel access |
-| `raise-memref-to-affine` | Raise affine memref accesses to affine.load/store |
+`aps-raise-scf-to-affine` speculatively normalizes eligible loops locally. Loops
+that cannot be raised retain their integer induction-variable types. Converted
+loops carry `aps.original_iv_type`, allowing affine lowering to restore the
+original width. This preserves narrow counters without globally converting all
+loops to index type.
 
-## Memory Map Pass
+Affine memory inference recognizes supported index expressions. Unrolling and
+array partitioning operate before affine loops return to SCF/TOR. Partition
+metadata describes dimensions, factors, and cyclic/block mode. Dynamic bank
+selection still needs legal per-bank accesses and scheduling dependencies.
+`auto-burst-partition` adds cyclic partitioning for `aps.copy` globals without
+explicit partition metadata, using a factor of `64 / element_bitwidth`.
 
-**Location**: `lib/APS/APSMemoryMap.cpp`
+Implementation: [APSRaiseSCFToAffine.cpp](../../lib/APS/APSRaiseSCFToAffine.cpp),
+[RaiseMemRefToAffine.cpp](../../lib/APS/RaiseMemRefToAffine.cpp),
+[LowerAffineFor.cpp](../../lib/TOR/LowerAffineFor.cpp),
+[NewArrayPartition.cpp](../../lib/TOR/NewArrayPartition.cpp), and
+[SCFToTOR.cpp](../../lib/TOR/SCFToTOR.cpp).
+Regression: [affine wrapper tests](../../tests/test_mlir/test_aps_raise_scf_to_affine_pass.py)
+and [burst partition tests](../../tests/test_mlir/test_auto_burst_partition.py).
 
-Creates a memory map tracking: memory name, bank assignments, base address, size, and partition info.
+## Memory binding and scheduling
 
-**Input**:
-```mlir
-memref.global @matrix : memref<16xi32> {
-  partition_dim = 0, partition_factor = 4, partition_cyclic = true
-}
-memref.global @vec : memref<4xi32>
-```
+Functional `aps.load`, `aps.store`, and `aps.copy` express behavior. The
+`aps-functional-to-arch` pass validates interface models, selects interfaces using
+shared startup/transfer/cache costs, and decomposes constant-size copies into
+legal transactions. Unknown transfer lengths must be legalized before binding.
 
-**Output**:
-```mlir
-aps.memorymap {
-  aps.mem_entry "matrix" : banks([@matrix_0, @matrix_1, @matrix_2, @matrix_3]),
-      base(0), size(64), count(4), cyclic(1)
-  aps.mem_entry "vec" : banks([@vec]), base(64), size(16), count(1), cyclic(0)
-  aps.mem_finish
-}
-```
+`aps-schedule-memory` orders architectural transactions and emits `after`
+dependencies. TOR scheduling consumes those dependencies along with dataflow,
+resource constraints, and operation timing. Read/write ordering must survive
+request/collect splitting; read [memory interfaces](../ARCHITECTURE/aps-itfc.md)
+for the platform model.
 
-## Raise to Affine Pass
+The scheduler uses a control/dataflow graph and system-of-difference-constraints
+solver. Resources supply latency, initiation interval, availability, and delay
+information. `--clock` constrains scheduling; it does not measure physical timing.
+Scheduled operations carry `ref_starttime` and `ref_endtime`; loops also carry
+pipeline/II information. A requested pipeline may be realized sequentially when
+its structure requires fallback. Inspect `aps.pipeline_requested`,
+`aps.pipeline_achieved_ii`, and `aps.pipeline_fallback` on scheduled IR where emitted.
+The ScaleISA driver collects these outcomes in its report.
 
-**Location**: `lib/TOR/RaiseToAffinePass.cpp`
+Implementation: [APSFunctionalToArch.cpp](../../lib/APS/APSFunctionalToArch.cpp),
+[APSMemorySchedule.cpp](../../lib/APS/APSMemorySchedule.cpp),
+[TORSchedulePass.cpp](../../lib/TOR/TORSchedulePass.cpp),
+[CDFG.cpp](../../lib/Schedule/CDFG.cpp), and
+[SDCSchedule.cpp](../../lib/Schedule/SDCSchedule.cpp).
+Tests: [functional binding](../../tests/test_mlir/test_functional_to_arch.py),
+[memory ordering](../../tests/test_mlir/test_memory_ordering.py), and
+[TOR scheduling](../../tests/test_mlir/test_tor_schedule_pass.py).
 
-Converts SCF loops to Affine dialect for analysis (loop bounds, dependence analysis, polyhedral optimization).
+## Scratchpad elision
 
-**Input (SCF)**:
-```mlir
-scf.for %i = %c0 to %c4 step %c1 {
-  %idx = arith.muli %i, %c4 : index
-  %addr = arith.addi %idx, %j : index
-  %v = memref.load %matrix[%addr] : memref<16xi32>
-}
-```
+The driver automatically trials direct CPU reads for eligible staged read-only
+buffers. Legality checks include access coverage, contiguous access patterns,
+known loop bounds, pipeline shape, cache hints, and absence of conflicting writes.
+A candidate's eligibility alone is insufficient: a real rescheduling comparison
+must prove non-increasing invocation latency and every loop II. Unsupported cost
+comparisons and failed/regressing trials retain staging.
 
-**Output (Affine)**:
-```mlir
-affine.for %i = 0 to 4 {
-  %v = affine.load %matrix[%i * 4 + %j] : memref<16xi32>
-}
-```
+Inspect [ScratchpadElision.cpp](../../lib/APS/ScratchpadElision.cpp), the trial
+logic in [main.cc](../../tools/aps-opt/main.cc), and
+[regressions](../../tests/test_mlir/test_scratchpad_elision.py).
+Debug builds expose `--debug-only=scratchpad-elision`; there is no separate public
+elision-enable or report option.
 
-**Requirements**: Constant bounds, constant step, affine index expressions.
+## Storage planning before CMT2
 
-## HLS Unroll Pass
+`aps-optimize-storage` runs after temporal splitting and canonicalization:
 
-**Location**: `lib/TOR/HlsUnrollPass.cpp`
+- Rematerialize widening at later uses to transport narrower values.
+- Compact eligible integer-square storage with exact reconstruction.
+- Omit an unused scalar memory adapter while retaining external ports.
+- Compact native register-operand command payloads when proven legal.
+- Omit response-data storage only when every result is a literal 32-bit zero.
+- Plan token payload elision while retaining queue occupancy/readiness behavior.
 
-Applies loop unrolling based on `[[unroll(N)]]` directives.
-
-**Full Unroll**: When unroll factor equals trip count.
-
-**Partial Unroll**: When unroll factor < trip count, creates outer loop with replicated body.
-
-**Benefits**: Exposes parallelism, reduces loop overhead, enables operation chaining.
-
-## Array Partition Pass
-
-**Location**: `lib/TOR/ArrayPartitionPass.cpp`
-
-Distributes array elements across multiple memory banks for parallel access.
-
-**Cyclic Partitioning**: `bank = element_index % num_banks`
-- Good for stride-1 access patterns
-
-**Block Partitioning**: `bank = element_index / (array_size / num_banks)`
-- Good for tiled access patterns
-
-**Example** (cyclic, factor=4, 16 elements):
-- `matrix_0`: Elements 0, 4, 8, 12
-- `matrix_1`: Elements 1, 5, 9, 13
-- `matrix_2`: Elements 2, 6, 10, 14
-- `matrix_3`: Elements 3, 7, 11, 15
-
-## Pass Options
-
-```bash
-# HLS Unroll
---unroll-full-threshold=16   # Max trip count for full unroll
-
-# Array Partition
---partition-threshold=8      # Min array size for partitioning
---partition-max-factor=16    # Max partition factor
-```
-
-## Debugging
-
-```bash
-# View intermediate IR after each pass
-pixi run mlir-opt input.mlir --aps-memory-map -o step1.mlir
-pixi run mlir-opt step1.mlir --raise-scf-to-affine -o step2.mlir
-pixi run mlir-opt step2.mlir --hls-unroll -o step3.mlir
-pixi run mlir-opt step3.mlir --new-array-partition -o step4.mlir
-```
-
-## Common Issues
-
-**Non-Affine Index**: Loop index contains non-affine expressions. Solution: Use only constants and loop IVs.
-
-**Partition Factor Mismatch**: Unroll factor doesn't match partition factor. Solution: Match them for optimal parallelism.
-
-**Memory Bank Conflict**: Multiple accesses to same bank in one cycle. Solution: Adjust partition factor or access pattern.
-
-## Further Reading
-
-- [scheduling.md](scheduling.md) - SDC scheduling algorithm
-- [cadl-language.md](cadl-language.md) - CADL directive syntax
+These transformations preserve firing cycles and effect ordering. Do not run CSE
+again after rematerialization. Use [OptimizeStorage.cpp](../../lib/APS/OptimizeStorage.cpp)
+and [storage tests](../../tests/test_mlir/test_storage_optimization.py) for the
+exact pattern restrictions. Scalar store completion and whole-instruction context
+protection are described in [CMT2 lowering](aps-to-cmt2-transfer-model.md).

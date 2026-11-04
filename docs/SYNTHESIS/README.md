@@ -1,110 +1,68 @@
-# Hardware Synthesis
+# Hardware synthesis
 
-The APS synthesis flow transforms high-level ISAX descriptions in CADL to synthesizable RTL (SystemVerilog).
+The CADL frontend emits functional MLIR. `aps-e2e` owns normalization, memory
+binding, TOR scheduling, CMT2 generation, and FIRRTL/SystemVerilog export.
+`aps-opt` exposes individual passes for development.
 
-## Pipeline Overview
+## Build
 
-**CADL** → **Pre-Opt MLIR** → **HLS Passes** → **SDC Scheduling** → **CMT2** → **SystemVerilog**
+Use Linux with Pixi installed. From the repository root:
 
-The pipeline converts untimed software-like descriptions to timed hardware representations through optimization passes and scheduling.
-
-## Quick Start
-
-```bash
-pixi run mlir tutorial/cadl/vgemv3d.cadl outputs/vgemv3d.mlir
-pixi run opt outputs/vgemv3d.mlir outputs/vgemv3d_cmt.mlir
-pixi run sv outputs/vgemv3d_cmt.mlir outputs/vgemv3d.sv
+```sh
+pixi run build
 ```
 
-## Pipeline Stages
+The task runs [setup](../../scripts/setup.sh), configures and builds APS through
+[scripts/build.sh](../../scripts/build.sh), and builds the ScaleISA Rust engine
+in debug mode. Setup builds the repository's CIRCT fork and Python bindings;
+expect an initial toolchain build to take substantially longer than incremental builds.
+The [Pixi manifest](../../pixi.toml) defines dependencies and activation paths.
+Full Rocket simulation additionally needs `pixi run setup-chipyard`; it is not
+required for the small RTL export below.
 
-### 1. CADL Parsing
+After setup, rebuild specific C++ tools with:
 
-The CADL frontend parses hardware descriptions and generates MLIR using the APS dialect.
-
-**Input:**
-```cadl
-#[opcode(7'b0101011)]
-#[funct7(7'b0000000)]
-rtype hello(rs1: u5, rs2: u5, rd: u5) {
-  let a: u32 = _irf[rs1];
-  let b: u32 = _irf[rs2];
-  _irf[rd] = a + b;
-}
+```sh
+pixi run cmake --build build --target aps-opt aps-e2e -j 3
 ```
 
-**Output (MLIR):**
-```mlir
-func.func @hello(%rs1: i5, %rs2: i5, %rd: i5)
-    attributes {opcode = 43 : i32, funct7 = 0 : i32} {
-  %0 = aps.read_irf %rs1 : i5 -> i32
-  %1 = aps.read_irf %rs2 : i5 -> i32
-  %2 = arith.addi %0, %1 : i32
-  aps.write_irf %rd, %2 : i5, i32
-  return
-}
+## First instruction
+
+```sh
+mkdir -p build/docs-smoke
+pixi run mlir tutorial/cadl/hello.cadl build/docs-smoke/hello.aps.mlir
+pixi run build/tools/aps-opt/aps-e2e \
+  -i build/docs-smoke/hello.aps.mlir \
+  --export sv -o build/docs-smoke/hello.sv \
+  --dump-scheduled-tor build/docs-smoke/hello.tor.mlir \
+  --dump-cmt2 build/docs-smoke/hello.cmt2.mlir
 ```
 
-### 2. HLS Optimization Passes
+The outputs are frontend MLIR, scheduled TOR, CMT2, and a SystemVerilog design
+with a `main` accelerator module. Hardware generation does not compile a CPU
+program; use the [compiler workflows](../COMPILER/README.md) for that step.
 
-| Pass | Purpose |
-|------|---------|
-| `aps-memory-map` | Assign addresses to scratchpad memories |
-| `normalize-scf-for-indices` | Normalize SCF loop bounds to index type |
-| `raise-scf-to-affine` | Convert SCF loops to Affine dialect |
-| `hls-unroll` | Apply loop unrolling directives |
-| `new-array-partition` | Partition arrays for parallel access |
+`pixi run syn INPUT OUTPUT` is the platform-oriented shortcut: it selects a 4 ns
+scheduling period, applies `examples/interface.json`, exports SV, and writes
+Chipyard configuration. For isolated experiments, invoke `aps-e2e` directly;
+its default period is 6 ns and its default export is CMT2.
 
-### 3. SDC Scheduling
+## Choose the next guide
 
-Uses System of Difference Constraints (SDC) to assign cycle times while respecting data dependencies, resource constraints, and timing.
+- [CADL](cadl-language.md): syntax, control flow, and frontend limits.
+- [Pipeline](aps-e2e-flow.md): stages, output selection, and diagnostics.
+- [HLS](hls-passes.md): affine conversion, partitioning, scheduling, and storage.
+- [CMT2 lowering](aps-to-cmt2-transfer-model.md): tokens, values, and loop execution.
+- [Floating point](hardfloat-bf16-fp32-acceptance.md): resource generation and acceptance.
+- [Co-simulation](aps-spike-verilator-cosim.md): execute software with generated RTL.
 
-### 4. CMT2 Elaboration & RTL Generation
+## Development checks
 
-Lowers scheduled MLIR to CMT2 dialect, then to FIRRTL and SystemVerilog via CIRCT.
-
-## APS Dialect Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `aps.read_irf` | Read from register file (GPR Req) |
-| `aps.write_irf` | Write to register file (Result Resp) |
-| `aps.read_smem/memstore` | Scratchpad memory access |
-| `aps.copy` | Bulk DMA transfer |
-
-## Optimization Directives
-
-### Loop Unrolling
-```cadl
-[[unroll(4)]]
-with i: u32 = (0, i + 1) do { ... } while (i + 1 < 16);
+```sh
+pixi run python -m pytest tests/test_parser tests/test_mlir/test_mlir_conversion.py -q
 ```
 
-### Array Partitioning
-```cadl
-#[partition_dim_array([0])]
-#[partition_factor_array([4])]
-#[partition_cyclic_array([1])]
-static matrix: [i32; 16];
-```
-
-## File Locations
-
-| Component | Location |
-|-----------|----------|
-| CADL Frontend | `cadl_frontend/` |
-| APS Dialect | `lib/APS/`, `include/APS/` |
-| TOR Dialect | `lib/TOR/`, `include/TOR/` |
-| Scheduling | `lib/Schedule/`, `include/Schedule/` |
-
-## Further Reading
-
-- [cadl-language.md](cadl-language.md) - CADL language reference
-- [aps-e2e-flow.md](aps-e2e-flow.md) - Current `aps-e2e` synthesis flow and refactor contract
-- [aquas-ir-op-mapping.md](aquas-ir-op-mapping.md) - Current APS operation to three-level Aquas-IR operation mapping plan
-- [aps-to-cmt2-fifo-flow.md](aps-to-cmt2-fifo-flow.md) - Current implementation: code-level explanation of block, slot, and loop FIFO transfer in `aps-to-cmt2`
-- [aps-to-cmt2-scope-fifo-model.md](aps-to-cmt2-scope-fifo-model.md) - Target design note for non-pipeline block-owned boundaries and pipeline scope-owned FIFOs
-- [aps-to-cmt2-transfer-model.md](aps-to-cmt2-transfer-model.md) - Clean split between non-pipeline block-owned entry/exit and pipeline scope-owned FIFO bundles
-- [cadl-frontend-refactor.md](cadl-frontend-refactor.md) - CADL MLIR converter structure analysis and refactor checklist
-- [hls-passes.md](hls-passes.md) - HLS optimization passes
-- [scheduling.md](scheduling.md) - SDC scheduling algorithm
+Tests for specific transformations are linked from the HLS and CMT2 guides.
+Frontend entry points are [tools/aps-frontend](../../tools/aps-frontend) and
+[cadl_frontend/to_mlir/](../../cadl_frontend/to_mlir/). Build targets are defined in
+[tools/aps-opt/CMakeLists.txt](../../tools/aps-opt/CMakeLists.txt).
