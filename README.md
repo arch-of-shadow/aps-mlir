@@ -11,7 +11,7 @@ APS (Agile Processor Specialization) is an open-source framework for hardware-so
 
 ## APS's Ecosystem
 
-![APS Ecosystem Overview](assets/images/overview.png)
+![APS Ecosystem Overview](assets/images/overview.jpg)
 
 APS aims to build a comprehensive ecosystem based on the MLIR infrastructure, covering the entire hardware-software co-design flow. Our ultimate vision is to only take applications in the target domain as the inputs, and automatically generate the complete solution artifacts comprising optimized ISAXs, architecture designs, hardware implementation, and software stacks without any manual intervention.
 
