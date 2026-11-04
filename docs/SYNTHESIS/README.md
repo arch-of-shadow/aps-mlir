@@ -14,7 +14,7 @@ pixi run build
 
 The task runs [setup](../../scripts/setup.sh), configures and builds APS through
 [scripts/build.sh](../../scripts/build.sh), and builds the ScaleISA Rust engine
-in debug mode. Setup builds the repository's CIRCT fork and Python bindings;
+in release mode. Setup builds the repository's CIRCT fork and Python bindings;
 expect an initial toolchain build to take substantially longer than incremental builds.
 The [Pixi manifest](../../pixi.toml) defines dependencies and activation paths.
 Full Rocket simulation additionally needs `pixi run setup-chipyard`; it is not

@@ -41,8 +41,6 @@ RUN pixi run --frozen setup-chipyard
 
 # Project tasks own setup and submodule initialization.
 RUN pixi run --frozen build
-RUN pixi run --frozen cargo build --release \
-    --manifest-path scaleisa/tools/scaleisa-engine/Cargo.toml
 
 RUN pixi run --frozen build-hardfloat-ip
 

@@ -15,15 +15,14 @@ library, synthesizes RTL, and compiles exposed custom-instruction (CI) sites.
 It can link a supplied runtime and execute the matching RTL in co-simulation.
 
 ```sh
-pixi run cmake --build build --target aps-scaleisa-opt -j 3
-pixi run cargo build --release --manifest-path scaleisa/tools/scaleisa-engine/Cargo.toml
+pixi run build
 pixi run build/tools/aps-scaleisa-opt/aps-scaleisa-opt \
   scaleisa/benchmarks/pcl/octree_search/octree_search.mlir \
   --area-budget 500 --output-dir build/scaleisa-octree
 ```
 
-The Rust **release** engine is required by this driver; `pixi run build` builds
-the debug engine. This example starts a full discovery run and may take time.
+The driver uses the Rust release engine produced by `pixi run build`.
+This example starts a full discovery run and may take time.
 A valid zero-CI selection produces software without accelerator RTL.
 
 - [Driver](aps-scaleisa-opt.md): invocation, stages, reuse, and artifacts.
