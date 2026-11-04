@@ -100,10 +100,10 @@ Rewrite counters and snapshot names describe compiler activity; they are not
 proof of correct instruction execution.
 
 ```sh
-pixi run python -m pytest tests/test_megg_csr.py \
-  tests/test_megg_csr_robustness.py tests/test_megg_cleanup.py -q
+pixi run python -m pytest tests/megg/test_csr.py \
+  tests/megg/test_csr_robustness.py tests/megg/test_cleanup.py -q
 ```
 
 These regressions cover matching/reconstruction, CSR operand transport, module
 preservation, and failure propagation. The
-[tutorial compiler](../../tutorial/compiler/) provides the interactive workflow.
+[tutorial compiler](../../examples/aspdac26-tutorial/compiler) provides the interactive workflow.

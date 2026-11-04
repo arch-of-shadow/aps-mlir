@@ -1,0 +1,13 @@
+{
+  "name": "Top-8 KNN: 32 points, 4 queries",
+  "max_extra_csrs": 8,
+  "checked_values": 172,
+  "observe": {
+    "allocations": [
+      3,
+      2,
+      1,
+      0
+    ]
+  }
+}

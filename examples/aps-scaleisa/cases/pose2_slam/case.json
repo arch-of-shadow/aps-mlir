@@ -1,0 +1,14 @@
+{
+  "name": "Pose2 solver: 24 poses, 40 edges",
+  "max_extra_csrs": 8,
+  "checked_values": 392,
+  "observe": {
+    "allocations": [
+      4,
+      3,
+      2,
+      1,
+      0
+    ]
+  }
+}

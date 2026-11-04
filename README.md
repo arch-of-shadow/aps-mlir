@@ -52,7 +52,7 @@ Generates the complete hardware architecture for RISC-V integration:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/arch-of-shadow/aps-mlir.git
+git clone https://github.com/pku-liang/aps-mlir.git
 cd aps-mlir
 # 2. Build APS toolchain
 pixi run build
@@ -65,7 +65,7 @@ engine at `scaleisa/tools/scaleisa-engine/target/debug/scaleisa-engine`.
 
 ### Quick Start
 
-The `tutorial/` directory contains example CADL files and scripts. Here's a simple example (`tutorial/cadl/hello.cadl`):
+The `examples/aspdac26-tutorial/` directory contains example CADL files and scripts. Here's a simple example (`examples/aspdac26-tutorial/cadl/hello.cadl`):
 
 ```cadl
 #[opcode(7'b0101011)]
@@ -78,7 +78,7 @@ rtype hello(rs1: u5, rs2: u5, rd: u5) {
 }
 ```
 
-See the `tutorial/` directory for more examples including matrix operations (`vgemv3d.cadl`) and distance calculations (`v3ddist_vv.cadl`).
+See the `examples/aspdac26-tutorial/` directory for more examples including matrix operations (`vgemv3d.cadl`) and distance calculations (`v3ddist_vv.cadl`).
 
 #### CADL Editor Support
 
@@ -89,10 +89,10 @@ instructions. Both recognize `.cadl` files and follow the current frontend gramm
 #### Full ASIP Pipeline
 ```bash
 # Synthesize CADL to hardware
-./tutorial/a1-ex1synth.sh
+./examples/aspdac26-tutorial/a1-ex1synth.sh
 # Compile test program with custom instruction
-./tutorial/a2-ex1compile.sh
+./examples/aspdac26-tutorial/a2-ex1compile.sh
 # Full SoC simulation and synthesis
-./tutorial/a6-ex1sim.sh
-./tutorial/a7-ex1yosys.sh
+./examples/aspdac26-tutorial/a6-ex1sim.sh
+./examples/aspdac26-tutorial/a7-ex1yosys.sh
 ```

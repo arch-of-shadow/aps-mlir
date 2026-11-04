@@ -2,10 +2,10 @@ set(APS_HARDFLOAT_CONFIG "${PROJECT_BINARY_DIR}/include/APS/HardFloatConfig.h")
 add_custom_command(
   OUTPUT "${APS_HARDFLOAT_CONFIG}"
   COMMAND "${Python3_EXECUTABLE}"
-          "${PROJECT_SOURCE_DIR}/hardware/hardfloat/build-hardfloat-ip.py"
+          "${PROJECT_SOURCE_DIR}/thirdparty/HardFloat/build-hardfloat-ip.py"
           "--cpp-output=${APS_HARDFLOAT_CONFIG}"
-  DEPENDS "${PROJECT_SOURCE_DIR}/hardware/hardfloat/ip_catalog.yaml"
-          "${PROJECT_SOURCE_DIR}/hardware/hardfloat/build-hardfloat-ip.py"
+  DEPENDS "${PROJECT_SOURCE_DIR}/thirdparty/HardFloat/ip_catalog.yaml"
+          "${PROJECT_SOURCE_DIR}/thirdparty/HardFloat/build-hardfloat-ip.py"
   VERBATIM
 )
 add_custom_target(APSFloatIPConfig DEPENDS "${APS_HARDFLOAT_CONFIG}")

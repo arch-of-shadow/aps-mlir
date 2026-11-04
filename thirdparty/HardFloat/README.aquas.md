@@ -7,7 +7,7 @@ Unmodified `source/` and `COPYING.txt` from the official Release 1 archive:
 - Upstream documentation: https://www.jhauser.us/arithmetic/HardFloat-1/doc/HardFloat-Verilog.html
 - License: BSD-style, see `COPYING.txt` and source headers.
 
-AQUAS selects the **RISCV** specialization: canonical quiet NaNs, RNE,
+APS selects the **RISCV** specialization: canonical quiet NaNs, RNE,
 tininess detected after rounding, and gradual underflow. Other specialization
 files are retained as upstream shipped them, but are not compiled.
 
@@ -17,3 +17,12 @@ Chipyard. ISAX IP generation does not require Chipyard or Scala/SBT.
 Reproduce the vendor import by verifying the archive hash, then copying only
 `HardFloat-1/source/` and `HardFloat-1/COPYING.txt`. `SOURCE.sha256` records every
 vendored file relative to this directory; verify with `sha256sum -c SOURCE.sha256`.
+
+APS-owned wrappers, `ip_catalog.yaml`, packaging scripts, and `synthesis/` live
+alongside the vendored sources in this directory. `source/`, `COPYING.txt`, and
+`SOURCE.sha256` retain the upstream source and integrity contract. Generated
+artifacts go under `build/hardfloat/`.
+
+`pixi run python thirdparty/HardFloat/install.py` installs the package and its
+module definitions under `circt/build/share/circt/ModuleLibrary/`. APS prefers
+that manifest; CIRCT source files do not call APS packaging scripts.

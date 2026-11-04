@@ -1,0 +1,11 @@
+{
+  "name": "Octree: 2048 points, 128 queries",
+  "checked_values": 22656,
+  "observe": {
+    "types": [
+      "memref<2048x3xf32>",
+      "memref<4x4096xi32>",
+      "memref<128xi32>"
+    ]
+  }
+}

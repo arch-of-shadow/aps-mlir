@@ -82,6 +82,6 @@ pixi run build/tools/aps-opt/aps-opt --help
 ```
 
 Relevant integration coverage includes
-[interface configuration](../../tests/test_mlir/test_interface_config.py),
-[scratchpad elision](../../tests/test_mlir/test_scratchpad_elision.py), and
-[storage co-simulation](../../tests/test_mlir/test_storage_cosim.py).
+[interface configuration](../../tests/synthesis/test_interface_config.py),
+[scratchpad elision](../../tests/synthesis/test_scratchpad_elision.py), and
+[storage co-simulation](../../tests/synthesis/test_storage_cosim.py).

@@ -78,6 +78,6 @@ state at admission and waits for a change before releasing the pending command.
 No fabricated register response is required. Keep completion connected when
 changing blackbox construction, even if an instruction has no result data.
 
-Tests cover [CSR matching](../../tests/test_megg_csr.py),
-[configuration export](../../tests/test_mlir/test_interface_config.py), and
-[scalar/DMA completion](../../tests/test_mlir/test_storage_cosim.py).
+Tests cover [CSR matching](../../tests/megg/test_csr.py),
+[configuration export](../../tests/synthesis/test_interface_config.py), and
+[scalar/DMA completion](../../tests/synthesis/test_storage_cosim.py).

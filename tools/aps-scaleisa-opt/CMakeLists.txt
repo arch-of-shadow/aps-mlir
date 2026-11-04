@@ -8,7 +8,7 @@ add_custom_target(check-scaleisa-adapter
   COMMAND "${CMAKE_COMMAND}" -E env
     "SCALEISA_ADAPTER_OPT=$<TARGET_FILE:scaleisa-adapter-opt>"
     "${Python3_EXECUTABLE}" -m unittest discover
-    -s "${PROJECT_SOURCE_DIR}/tests/scaleisa-adapter" -p "test_*.py" -v
+    -s "${PROJECT_SOURCE_DIR}/tests/scaleisa_adapter" -p "test_*.py" -v
   DEPENDS scaleisa-adapter-opt aps-e2e
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   USES_TERMINAL
@@ -22,7 +22,7 @@ target_link_libraries(scaleisa-compiler-opt PRIVATE ScaleISACompiler APS MLIROpt
 
 add_custom_target(check-scaleisa-compiler
   COMMAND "${Python3_EXECUTABLE}" -m unittest discover
-    -s "${PROJECT_SOURCE_DIR}/tests/scaleisa-compiler" -p "test_*.py" -v
+    -s "${PROJECT_SOURCE_DIR}/tests/scaleisa_compiler" -p "test_*.py" -v
   DEPENDS scaleisa-compiler-opt scaleisa-adapter-opt
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   USES_TERMINAL)
@@ -39,6 +39,6 @@ add_dependencies(aps-scaleisa-opt scaleisa-adapter-opt scaleisa-compiler-opt aps
 add_dependencies(check-scaleisa-compiler aps-scaleisa-opt)
 add_custom_target(check-aps-scaleisa
   COMMAND "${Python3_EXECUTABLE}" -m unittest discover
-    -s "${PROJECT_SOURCE_DIR}/tests/aps-scaleisa" -p "test_*.py" -v
+    -s "${PROJECT_SOURCE_DIR}/tests/scaleisa_driver" -p "test_*.py" -v
   DEPENDS aps-scaleisa-opt
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" USES_TERMINAL)

@@ -1,0 +1,12 @@
+{
+  "name": "Normal estimation: 12 x 12",
+  "checked_values": 1440,
+  "observe": {
+    "allocations": [
+      3,
+      2,
+      1,
+      0
+    ]
+  }
+}

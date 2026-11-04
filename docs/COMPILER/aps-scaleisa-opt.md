@@ -43,7 +43,9 @@ inapplicable. Check the report before assuming an accelerator was generated.
 one, the driver prepares a profile using ScaleISA resources; physical estimates
 use its ASAP7 table. `--resource` supplies APS execution contracts, and `--clock`
 overrides the scheduling period (otherwise read from the hardware profile).
-These modeled values do not establish post-layout timing or area.
+The default CPU/interface costs live in
+[scaleisa-aps-model.json](../../examples/scaleisa-aps-model.json). These modeled
+values do not establish post-layout timing or area.
 
 `--discovery-stages=scf` restricts discovery. `--discovery-dir=PATH` reuses a
 completed run only when its input path, target profile hash, area budget,
@@ -61,13 +63,6 @@ Use `--emit=elf --entry=_start` with repeated `--link-object`, `--link-source`,
 and `--link-arg` for an executable. Supply startup/runtime code and a linker
 script for the intended platform. Add `--cosim` to build and execute the matching
 Spike + Verilator model; object output cannot be simulated.
-
-A complete checked-in scalar campaign supplies independent references and runtime
-inputs:
-
-```sh
-pixi run python tests/aps-scaleisa/run_scalar_cases.py --cases bitcount
-```
 
 For CPU floating-point code, select compatible features and ABI, for example
 `--mattr=+m,+a,+f,+zicsr,+zifencei --abi=ilp32f`. This CPU target is separate from
@@ -92,62 +87,19 @@ The two selection forms are mutually exclusive. Supply the callback implementati
 when linking. Instrumentation follows selection, keeping reference validation
 outside discovery.
 
-Tests: [test_driver.py](../../tests/aps-scaleisa/test_driver.py).
+Tests: [test_driver.py](../../tests/scaleisa_driver/test_driver.py).
 Numerical campaigns and full Rocket measurements are indexed in the
 [benchmark section](#benchmark-reproduction-and-evidence).
 
 ## Benchmark reproduction and evidence
 
-The [archived 16-kernel report](../../reports/aps-scaleisa-16/report.md) contains
-measured results and exact artifacts. Use its manifests and validation records
-for specific numerical claims. Input sizes, provenance, harnesses, and timed
-regions define each measurement's scope.
+The [16-case examples](../../examples/aps-scaleisa/README.md) provide an entry point
+for discovery, RTL/software generation, baseline validation, and optional Rocket
+measurement.
 
-### Reproduce campaigns
-
-After [building the compiler tools](README.md) and preparing the RISC-V/Spike
-runtime, a small source-derived campaign is:
-
-```sh
-pixi run python tests/aps-scaleisa/run_scalar_cases.py --cases bitcount sq_dist
-```
-
-The runner preserves extracted kernel computation, adds deterministic inputs and
-independent C++ references, and checks accelerated and software-only execution.
-These are kernel microbenchmarks. They do not time complete upstream applications.
-The default output is `build/aps-scaleisa-scalars/`, including `summary.json`.
-
-PCL/GTSAM snapshot preparation and full Rocket measurement are separate commands:
-
-```sh
-pixi run python tests/aps-scaleisa/run_snapshot_case.py ransac \
-  --output-dir build/aps-suite-16/ransac
-pixi run python tests/aps-scaleisa/run_chipyard_pcl.py \
-  --source-dir build/aps-suite-16/ransac \
-  --output-dir build/aps-suite-16/ransac-chipyard
-```
-
-Rocket runs require initialized Chipyard and its simulator toolchain; see
-[integration](../ARCHITECTURE/README.md). Review each runner's `--help` for
-reuse and preparation options before launching a long campaign.
-
-### Collect and audit
-
-```sh
-pixi run python tests/aps-scaleisa/collect_benchmark_report.py
-pixi run python tests/aps-scaleisa/audit_result_correctness.py
-```
-
-The collector checks completed native/Chipyard runs, artifact hashes, selected
-implementation estimates, parsing, and links. Its default review output is under
-`build/aps-suite-16/review/`. `--allow-incomplete` explicitly creates an incomplete
-progress report. To replace the archived bundle intentionally, pass
-`--output-dir reports/aps-scaleisa-16`.
-
-The correctness audit replays accelerated binaries with executed comparison
-counts and corrupts an actual output in a second run, which must fail validation.
-It writes correctness evidence into the archived bundle. Numerical checks apply
-to the supplied benchmark inputs.
+Input sizes, provenance, harnesses, and timed regions define each measurement's
+scope. Supply an independent reference in the linked program and retain the
+driver's artifacts and validation output for numerical claims.
 
 ### Interpret artifacts
 
@@ -163,9 +115,3 @@ Reference generation, validation, and printing run outside the timed region.
 Standalone PCL/GTSAM snapshots measure the repository inputs, not the complete
 upstream frameworks. Compare runs only with matching input provenance, target
 profiles, timing scope, and artifact hashes.
-
-Archived cases include selected AU definitions, adapted APS MLIR, actual CPU CI
-lowering, baseline software, target profile, and measured binary/RTL provenance.
-Use [collect_benchmark_report.py](../../tests/aps-scaleisa/collect_benchmark_report.py)
-and [audit_result_correctness.py](../../tests/aps-scaleisa/audit_result_correctness.py)
-for the enforced evidence contracts.

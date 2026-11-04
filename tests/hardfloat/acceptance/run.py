@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[3]
 HERE=Path(__file__).resolve().parent
-PHYSICAL=ROOT/'hardware/hardfloat/synthesis'
+PHYSICAL=ROOT/'thirdparty/HardFloat/synthesis'
 sys.path.insert(0,str(PHYSICAL))
 from physical_flow import synthesize as synthesize_design
 OUT=ROOT/'build/hardfloat/acceptance'
@@ -28,13 +28,13 @@ RUN_SIGNATURE=''
 REQUIRE_TIMING=False
 RTL_ONLY=False
 import importlib.util
-_spec=importlib.util.spec_from_file_location('hardfloat_package',ROOT/'hardware/hardfloat/build-hardfloat-ip.py')
+_spec=importlib.util.spec_from_file_location('hardfloat_package',ROOT/'thirdparty/HardFloat/build-hardfloat-ip.py')
 _package=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(_package)
 
 
 def source_signature():
     paths=[HERE.parent/'sta.tcl',HERE.parent/'ieee_oracle.py',ROOT/'build/tools/aps-opt/aps-e2e',ROOT/'build/hardfloat/resource.json']
-    for base,patterns in [(HERE,['*.py','*.cpp','*.h']),(GENERATED,['*.c','*.cadl','cases.json','vectors/*.txt']),(PHYSICAL,['*.py','*.abc']),(ROOT/'hardware/hardfloat',['*.sv','*.yaml']),(ROOT/'cadl_frontend',['*.py','*.lark']),(ROOT/'cadl_frontend/to_mlir',['*.py']),(ROOT/'hardware/hardfloat',['build-hardfloat-ip.py'])]:
+    for base,patterns in [(HERE,['*.py','*.cpp','*.h']),(GENERATED,['*.c','*.cadl','cases.json','vectors/*.txt']),(PHYSICAL,['*.py','*.abc']),(ROOT/'thirdparty/HardFloat',['*.sv','*.yaml']),(ROOT/'cadl_frontend',['*.py','*.lark']),(ROOT/'cadl_frontend/to_mlir',['*.py']),(ROOT/'thirdparty/HardFloat',['build-hardfloat-ip.py'])]:
         for pattern in patterns:paths.extend(base.glob(pattern))
     if not RTL_ONLY: paths.append(LIB)
     digest=hashlib.sha256()
@@ -168,7 +168,7 @@ def unit_test(config):
                     value,flags=oracle.operation(op,a,b,c,rm,pred)
                     f.write(f'{a:08x} {b:08x} {c:08x} {rm:x} {value:08x} {flags:02x}\n')
         # Ensure the bundle includes current sources, using the same packager.
-        run([ROOT/'hardware/hardfloat/build-hardfloat-ip.sh',f'width={w}',f'op={ALL.index(op)}',f'pred={pred}'],d/'package.log',cwd=d)
+        run([ROOT/'thirdparty/HardFloat/build-hardfloat-ip.sh',f'width={w}',f'op={ALL.index(op)}',f'pred={pred}'],d/'package.log',cwd=d)
         source=ROOT/'build/hardfloat/rtl/HardFloatIP.sv'
         t=_package.native_timing(w,ALL.index(op));lat=t['latency_upper_bound'];cap=t['outstanding_capacity']
         parameters={'WIDTH':w,'OP':ALL.index(op),'PRED':pred,'LATENCY':lat,'CAPACITY':cap}

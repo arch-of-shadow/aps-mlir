@@ -1,6 +1,0 @@
-{
-  "vgemv3d_vv": {
-    "opcode": "0x2B",
-    "funct7": "0x31"
-  }
-}

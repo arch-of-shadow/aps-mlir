@@ -1,0 +1,12 @@
+{
+  "name": "Morphological filter: 12 x 12",
+  "checked_values": 576,
+  "observe": {
+    "allocations": [
+      3,
+      2,
+      1,
+      0
+    ]
+  }
+}

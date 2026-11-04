@@ -25,8 +25,8 @@ Implementation: [APSRaiseSCFToAffine.cpp](../../lib/APS/APSRaiseSCFToAffine.cpp)
 [LowerAffineFor.cpp](../../lib/TOR/LowerAffineFor.cpp),
 [NewArrayPartition.cpp](../../lib/TOR/NewArrayPartition.cpp), and
 [SCFToTOR.cpp](../../lib/TOR/SCFToTOR.cpp).
-Regression: [affine wrapper tests](../../tests/test_mlir/test_aps_raise_scf_to_affine_pass.py)
-and [burst partition tests](../../tests/test_mlir/test_auto_burst_partition.py).
+Regression: [affine wrapper tests](../../tests/synthesis/test_aps_raise_scf_to_affine_pass.py)
+and [burst partition tests](../../tests/synthesis/test_auto_burst_partition.py).
 
 ## Memory binding and scheduling
 
@@ -55,9 +55,9 @@ Implementation: [APSFunctionalToArch.cpp](../../lib/APS/APSFunctionalToArch.cpp)
 [TORSchedulePass.cpp](../../lib/TOR/TORSchedulePass.cpp),
 [CDFG.cpp](../../lib/Schedule/CDFG.cpp), and
 [SDCSchedule.cpp](../../lib/Schedule/SDCSchedule.cpp).
-Tests: [functional binding](../../tests/test_mlir/test_functional_to_arch.py),
-[memory ordering](../../tests/test_mlir/test_memory_ordering.py), and
-[TOR scheduling](../../tests/test_mlir/test_tor_schedule_pass.py).
+Tests: [functional binding](../../tests/synthesis/test_functional_to_arch.py),
+[memory ordering](../../tests/synthesis/test_memory_ordering.py), and
+[TOR scheduling](../../tests/synthesis/test_tor_schedule_pass.py).
 
 ## Scratchpad elision
 
@@ -70,7 +70,7 @@ comparisons and failed/regressing trials retain staging.
 
 Inspect [ScratchpadElision.cpp](../../lib/APS/ScratchpadElision.cpp), the trial
 logic in [main.cc](../../tools/aps-opt/main.cc), and
-[regressions](../../tests/test_mlir/test_scratchpad_elision.py).
+[regressions](../../tests/synthesis/test_scratchpad_elision.py).
 Debug builds expose `--debug-only=scratchpad-elision`; there is no separate public
 elision-enable or report option.
 
@@ -87,6 +87,6 @@ elision-enable or report option.
 
 These transformations preserve firing cycles and effect ordering. Do not run CSE
 again after rematerialization. Use [OptimizeStorage.cpp](../../lib/APS/OptimizeStorage.cpp)
-and [storage tests](../../tests/test_mlir/test_storage_optimization.py) for the
+and [storage tests](../../tests/synthesis/test_storage_optimization.py) for the
 exact pattern restrictions. Scalar store completion and whole-instruction context
 protection are described in [CMT2 lowering](aps-to-cmt2-transfer-model.md).

@@ -4,13 +4,13 @@ import pytest
 
 from cadl_frontend.parser import parse_proc
 from cadl_frontend.to_mlir import convert_cadl_to_mlir
-from tests.test_mlir.mlir_test_utils import MLIRCheck
+from tests.frontend.mlir_test_utils import MLIRCheck
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_explicit_bitcast_and_float_arithmetic():
-    source = (ROOT / "examples/hardfloat/add_mul.cadl").read_text()
+    source = (ROOT / "examples/aquas/hardfloat/add_mul.cadl").read_text()
     module = MLIRCheck.from_cadl(source)
     module.assert_op_count("arith.bitcast", exactly=3)
     for operation in ("arith.addf", "arith.mulf", "arith.subf"):
@@ -23,7 +23,7 @@ def test_explicit_bitcast_and_float_arithmetic():
 
 
 def test_wrong_width_bitcast_is_rejected():
-    source = (ROOT / "examples/hardfloat/add.cadl").read_text()
+    source = (ROOT / "examples/aquas/hardfloat/add.cadl").read_text()
     source = source.replace("bitcast<f32>(a_bits)", "bitcast<f64>(a_bits)")
     with pytest.raises(TypeError, match="same-width"):
         convert_cadl_to_mlir(parse_proc(source))
@@ -76,7 +76,7 @@ def test_decimal_literals_are_not_double_rounded(ty,decimal,expected):
 
 
 def test_numeric_conversion_is_not_a_bitcast():
-    source = (ROOT / "examples/hardfloat/add.cadl").read_text()
+    source = (ROOT / "examples/aquas/hardfloat/add.cadl").read_text()
     source = source.replace("bitcast<f32>(a_bits)", "a_bits")
     with pytest.raises(TypeError, match="convert unknown type"):
         convert_cadl_to_mlir(parse_proc(source))

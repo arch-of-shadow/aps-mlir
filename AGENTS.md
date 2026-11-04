@@ -52,7 +52,8 @@ Dependencies and commands are managed by Pixi; LLVM/MLIR/CIRCT live under `circt
   contracts; `lib/scaleisa-compiler/` lowers matching CI sites to RV32 code.
   `tools/aps-scaleisa-opt/` owns driver orchestration and the dedicated pass tools.
   Hardware encodings, operand/CSR bindings, alias promises, and software ABI must agree.
-- `hardware/hardfloat/` owns BF16/FP32 IP packaging and timing contracts.
+- `thirdparty/HardFloat/` owns BF16/FP32 IP packaging and timing contracts. APS
+  installs its self-contained package into CIRCT; CIRCT must not invoke APS paths.
   `tools/aps-cosim/` provides Spike + Verilator execution; `thirdparty/chipyard/`
   supplies full Rocket integration. Model estimates, accelerator cycles, processor
   cycles, and physical timing are distinct evidence.
@@ -76,7 +77,7 @@ Dependencies and commands are managed by Pixi; LLVM/MLIR/CIRCT live under `circt
   user opt-in.
 - Docs/instruction-only edits: relevant path/link, command, and diff inspection.
   Frontend changes: affected parser/emitter tests. APS/TOR/scheduling changes:
-  affected `tests/test_mlir/` regressions and a relevant lowering example.
+  affected `tests/synthesis/` regressions and a relevant lowering example.
   Adapter/compiler/driver changes: the corresponding CMake check targets.
   Memory, ABI, handshake, or completion changes: relevant RTL/co-simulation checks
   with independent output validation. Changes inside submodules follow their
@@ -84,8 +85,8 @@ Dependencies and commands are managed by Pixi; LLVM/MLIR/CIRCT live under `circt
 - Common commands (run from the repository root):
   - Setup/build: `pixi run build`
   - Incremental tools: `pixi run cmake --build build --target aps-opt aps-e2e aps-scaleisa-opt`
-  - Frontend: `pixi run python -m pytest tests/test_parser tests/test_mlir/test_mlir_conversion.py -q`
-  - Megg: `pixi run python -m pytest tests/test_megg_csr.py tests/test_megg_csr_robustness.py tests/test_megg_cleanup.py -q`
+  - Frontend: `pixi run python -m pytest tests/frontend/parser tests/frontend/test_mlir_conversion.py -q`
+  - Megg: `pixi run python -m pytest tests/megg/test_csr.py tests/megg/test_csr_robustness.py tests/megg/test_cleanup.py -q`
   - ScaleISA integration: `pixi run cmake --build build --target check-aps-scaleisa check-scaleisa-adapter check-scaleisa-compiler`
   - HardFloat packaging: `pixi run build-hardfloat-ip`
   - HardFloat tests: `pixi run python -m pytest tests/hardfloat -q`
@@ -154,4 +155,4 @@ does not authorize pushing or publishing changes.
   When removing functionality, update documentation to describe current behavior.
 - Keep documentation compact and indexed in [docs/README.md](docs/README.md).
   Consolidate overlapping guides and link implementation/tests or component docs
-  instead of duplicating them. Keep benchmark results and provenance in `reports/`.
+  instead of duplicating them.

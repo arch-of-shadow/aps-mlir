@@ -1,0 +1,47 @@
+{
+  "name": "aps-rocket-rv32",
+  "software": {
+    "cpu": "rocket-rv32imaf",
+    "execution": "serial_dependency_latency_estimate",
+    "clock_ns": 2,
+    "path_memory_cycles": 2,
+    "instructions": {
+      "alu": {"compute_cycles": 1},
+      "mul": {"compute_cycles": 6},
+      "div32": {"compute_cycles": 35},
+      "fp32": {"compute_cycles": 4},
+      "fpmul32": {"compute_cycles": 4},
+      "fpsub32": {"compute_cycles": 4},
+      "divf32": {"compute_cycles": 28},
+      "branch": {"compute_cycles": 2},
+      "return": {"compute_cycles": 3},
+      "fsgnj": {"compute_cycles": 4},
+      "fcmp": {"compute_cycles": 4}
+    },
+    "supported_operations": [
+      "arith.constant", "arith.addi", "arith.subi", "arith.andi",
+      "arith.ori", "arith.xori", "arith.shli", "arith.shrsi",
+      "arith.shrui", "arith.cmpi", "arith.select", "arith.muli",
+      "arith.divsi", "arith.divui", "arith.remsi", "arith.remui",
+      "arith.extui", "arith.extsi", "arith.trunci", "arith.index_cast",
+      "arith.index_castui", "arith.bitcast", "arith.maxsi", "arith.maxui",
+      "arith.minsi", "arith.minui", "arith.addf", "arith.subf",
+      "arith.mulf", "arith.divf", "arith.sitofp", "arith.fptosi",
+      "arith.negf", "arith.cmpf"
+    ],
+    "conversions": {
+      "arith.sitofp": {"i32->f32": 4},
+      "arith.fptosi": {"f32->i32": 4}
+    }
+  },
+  "interface": {
+    "max_extra_csrs": 5,
+    "command_cycles": 6,
+    "csr_write_cycles": 3,
+    "fp_register_move_cycles": 4,
+    "dma_setup_cycles": 10,
+    "dma_bytes_per_cycle": 8,
+    "context_cycles": 1,
+    "pipeline_loop_results": false
+  }
+}

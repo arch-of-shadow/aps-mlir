@@ -1,0 +1,12 @@
+{
+  "name": "RANSAC sphere: 32 points, 4 hypotheses",
+  "max_extra_csrs": 8,
+  "checked_values": 104,
+  "observe": {
+    "allocations": [
+      2,
+      1,
+      0
+    ]
+  }
+}

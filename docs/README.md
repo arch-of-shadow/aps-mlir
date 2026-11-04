@@ -15,6 +15,8 @@ scheduled TOR → CMT2 → FIRRTL → SystemVerilog.
 Run commands from the repository root unless a command explicitly changes directories.
 APS binaries are under `build/tools/`; CIRCT binaries are under `circt/build/bin/`.
 The Pixi environment supplies Python bindings, libraries, and tool paths.
+The [test index](../tests/README.md) maps suites and collection commands.
+The [examples index](../examples/README.md) covers CADL, the tutorial, and the 16-case APS/ScaleISA suite.
 
 ## Topic index
 
@@ -34,8 +36,6 @@ contracts when changing behavior; CLI defaults belong to the tool that owns them
 The [ScaleISA documentation](../scaleisa/docs/README.md) covers discovery,
 anti-unification, extraction, and its cost model. The
 [CMT2 concepts guide](../circt/docs/Cmt2/features/Concepts.md) covers dialect semantics.
-Benchmark evidence lives in [reports/](../reports/), with reproduction instructions
-linked above.
 
 This index covers current usage and implementation. Historical refactor notes,
 superseded transfer designs, and the Aquas-IR mapping proposal are available in

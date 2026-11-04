@@ -30,7 +30,7 @@ pixi run cmake --build build --target aps-opt aps-e2e -j 3
 
 ```sh
 mkdir -p build/docs-smoke
-pixi run mlir tutorial/cadl/hello.cadl build/docs-smoke/hello.aps.mlir
+pixi run mlir examples/aspdac26-tutorial/cadl/hello.cadl build/docs-smoke/hello.aps.mlir
 pixi run build/tools/aps-opt/aps-e2e \
   -i build/docs-smoke/hello.aps.mlir \
   --export sv -o build/docs-smoke/hello.sv \
@@ -59,10 +59,10 @@ its default period is 6 ns and its default export is CMT2.
 ## Development checks
 
 ```sh
-pixi run python -m pytest tests/test_parser tests/test_mlir/test_mlir_conversion.py -q
+pixi run python -m pytest tests/frontend/parser tests/frontend/test_mlir_conversion.py -q
 ```
 
 Tests for specific transformations are linked from the HLS and CMT2 guides.
 Frontend entry points are [tools/aps-frontend](../../tools/aps-frontend) and
-[cadl_frontend/to_mlir/](../../cadl_frontend/to_mlir/). Build targets are defined in
+[cadl_frontend/to_mlir/](../../cadl_frontend/to_mlir). Build targets are defined in
 [tools/aps-opt/CMakeLists.txt](../../tools/aps-opt/CMakeLists.txt).

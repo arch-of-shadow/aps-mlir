@@ -1,6 +1,6 @@
 # Spike + Verilator co-simulation
 
-[tools/aps-cosim/](../../tools/aps-cosim/) runs generated accelerator RTL with a
+[tools/aps-cosim/](../../tools/aps-cosim) runs generated accelerator RTL with a
 Spike CPU or a direct command harness. It supports functional checks of instruction
 results, CPU-memory effects, CSR transport, and completion. Full Rocket cycle
 measurement uses [Chipyard](../ARCHITECTURE/README.md).
@@ -61,11 +61,11 @@ build/docs-direct/Vmain --help
 ```
 
 The direct harness accepts command and memory load/dump options. Use
-[test_storage_cosim.py](../../tests/test_mlir/test_storage_cosim.py) for worked
+[test_storage_cosim.py](../../tests/synthesis/test_storage_cosim.py) for worked
 examples covering scalar/DMA outputs with and without register results.
 [run_direct.cc](../../tools/aps-cosim/run_direct.cc) defines its current options.
 
-Other regressions cover [Spike memory translation](../../tests/test_mlir/test_spike_memory_bridge.py)
-and [pipeline memory](../../tests/test_pipeline_memory.py). Independent numerical
+Other regressions cover [Spike memory translation](../../tests/synthesis/test_spike_memory_bridge.py)
+and [pipeline memory](../../tests/synthesis/test_pipeline_memory.py). Independent numerical
 checks and failing corrupted-output checks are required for a correctness campaign;
 a successful simulator build alone validates only model compilation.

@@ -69,9 +69,9 @@ pixi run cmake --build build --target check-scaleisa-compiler
 ```
 
 The dedicated pass tool is separate from `aps-opt`. See
-[test_compiler.py](../../tests/scaleisa-compiler/test_compiler.py) for ABI,
+[test_compiler.py](../../tests/scaleisa_compiler/test_compiler.py) for ABI,
 encoding, helper, and failure coverage. The
-[2mm runner](../../tests/scaleisa-compiler/run_2mm_cosim.py) builds a selected
+[2mm runner](../../tests/scaleisa_compiler/run_2mm_cosim.py) builds a selected
 program and matching RTL for execution. Full-pipeline runs and numerical/performance
 campaigns are described in the [driver](aps-scaleisa-opt.md) and
 [benchmark](aps-scaleisa-opt.md#benchmark-reproduction-and-evidence) guides.

@@ -28,7 +28,7 @@ def run(args, cwd, log):
     (16, 9, "to_i32"), (32, 10, "to_u32"),
 ])
 def test_imported_library_numerics_and_protocol(tmp_path, width, kind, operation):
-    run([sys.executable, ROOT / "hardware/hardfloat/build-hardfloat-ip.py",
+    run([sys.executable, ROOT / "thirdparty/HardFloat/build-hardfloat-ip.py",
          f"width={width}", f"op={kind}"], tmp_path, tmp_path / "import.log")
     module = next(tmp_path.glob("HardFloat*.mlir"))
     name = module.stem
@@ -103,7 +103,7 @@ def test_imported_library_numerics_and_protocol(tmp_path, width, kind, operation
 
 
 def test_legacy_library_uses_regular_firrtl(tmp_path):
-    run([sys.executable, ROOT / "hardware/hardfloat/build-hardfloat-ip.py", "op=2"],
+    run([sys.executable, ROOT / "thirdparty/HardFloat/build-hardfloat-ip.py", "op=2"],
         tmp_path, tmp_path / "import.log")
     text = next(tmp_path.glob("HardFloat32*.mlir")).read_text()
     assert "firrtl.module @HardFloat32_op2_l3_q5" in text

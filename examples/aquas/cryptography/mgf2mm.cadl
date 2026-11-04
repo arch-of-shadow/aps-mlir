@@ -1,0 +1,44 @@
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static matrix_a: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static matrix_b: [i16; 16];
+
+#[partition_dim_array([0])]
+#[partition_factor_array([4])]
+#[partition_cyclic_array([1])]
+static matrix_c: [i16; 16];
+
+#[opcode(7'b0101011)]
+#[funct7(7'b0111000)]
+rtype mgf2mm(rs1: u5, rs2: u5, rd: u5) {
+    let addr_a: u32 = _irf[rs1];
+    let addr_b: u32 = _irf[rs2];
+    matrix_a[0 +: ] = _mem[addr_a +: 16];
+    matrix_b[0 +: ] = _mem[addr_b +: 16];
+    with i: u32 = (0, i_) do {
+        [[unroll(4)]]
+        with j: u32 = (0, j_) do {
+            [[unroll(4)]]
+            with k: u32 = (0, k_) acc: i16 = (0, acc_) do {
+                let a_idx: u32 = i * 4 + k;
+                let a_val: i16 = matrix_a[a_idx];
+                let b_idx: u32 = k * 4 + j;
+                let b_val: i16 = matrix_b[b_idx];
+                let acc_: i16 = acc ^ (a_val & b_val);
+                let k_: u32 = k + 1;
+            } while (k_ < 4);
+            let c_idx: u32 = i * 4 + j;
+            matrix_c[c_idx] = acc;
+            let j_: u32 = j + 1;
+        } while (j_ < 4);
+        let i_: u32 = i + 1;
+    } while (i_ < 4);
+    let write_addr: u32 = addr_b + 32;
+    _mem[write_addr +: 16] = matrix_c[0 +: ];
+    _irf[rd] = 0;
+}

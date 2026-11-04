@@ -55,7 +55,7 @@ for 64-bit burst access. Generated interfaces expose split burst reads and write
 scalar HellaCache and DMA traffic use separate adapters.
 
 The native two-channel DMA and trigger wrapper are in
-[generators/aps resources](../../thirdparty/chipyard/generators/aps/src/main/resources/vsrc/),
+[generators/aps resources](../../thirdparty/chipyard/generators/aps/src/main/resources/vsrc),
 with TileLink integration in
 [TlDmaMultichannel.scala](../../thirdparty/chipyard/generators/aps/src/main/scala/TlDmaMultichannel.scala).
 The generated operation's issue/wait protocol defines when data is usable and
@@ -69,9 +69,9 @@ responsible for their buffer allocation and interface alignment.
 
 ## Tests
 
-[Functional binding](../../tests/test_mlir/test_functional_to_arch.py),
-[memory model analysis](../../tests/test_mlir/test_memory_analysis.py),
-[memory ordering](../../tests/test_mlir/test_memory_ordering.py), and
-[configuration](../../tests/test_mlir/test_interface_config.py) cover binding,
+[Functional binding](../../tests/synthesis/test_functional_to_arch.py),
+[memory model analysis](../../tests/synthesis/test_memory_analysis.py),
+[memory ordering](../../tests/synthesis/test_memory_ordering.py), and
+[configuration](../../tests/synthesis/test_interface_config.py) cover binding,
 models, decomposition, and capacity limits. Actual scalar/DMA completion is checked
-in [storage co-simulation](../../tests/test_mlir/test_storage_cosim.py).
+in [storage co-simulation](../../tests/synthesis/test_storage_cosim.py).

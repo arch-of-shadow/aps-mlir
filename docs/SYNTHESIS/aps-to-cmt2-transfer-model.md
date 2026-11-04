@@ -94,7 +94,7 @@ circt/build/bin/circt-opt build/design.cmt2.mlir -cmt2-inline-modules -o build/d
 
 Use [CMT2 concepts](../../circt/docs/Cmt2/features/Concepts.md) for callable,
 interface, and conflict semantics. Regression coverage includes
-[FIFO ordering](../../tests/test_mlir/test_cmt2_fifo_ordering.py),
-[memory ordering](../../tests/test_mlir/test_memory_ordering.py),
-[storage co-simulation](../../tests/test_mlir/test_storage_cosim.py), and
-[Spike memory bridging](../../tests/test_mlir/test_spike_memory_bridge.py).
+[FIFO ordering](../../tests/synthesis/test_cmt2_fifo_ordering.py),
+[memory ordering](../../tests/synthesis/test_memory_ordering.py),
+[storage co-simulation](../../tests/synthesis/test_storage_cosim.py), and
+[Spike memory bridging](../../tests/synthesis/test_spike_memory_bridge.py).

@@ -1,0 +1,13 @@
+{
+  "name": "Poisson surface: 6 cubed grid, 24 samples",
+  "max_extra_csrs": 8,
+  "checked_values": 792,
+  "observe": {
+    "allocations": [
+      3,
+      2,
+      1,
+      0
+    ]
+  }
+}

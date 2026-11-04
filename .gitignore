@@ -77,7 +77,6 @@ install/
 
 __*
 *.mlir
-!examples/scratchpad_elision.mlir
 *.sv
 *.log
 
@@ -88,9 +87,11 @@ outputs/
 
 thirdparty/firtool*/
 !tools/aps-cosim/example/*.sv
-!hardware/hardfloat/*.sv
-!examples/hardfloat/*.mlir
+!thirdparty/HardFloat/*.sv
 
-# Exact measured inputs, compiler artifacts and correctness evidence.
-!reports/aps-scaleisa-16/**/*.mlir
-!reports/aps-scaleisa-16/**/*.log
+/reports/
+
+!tests/synthesis/fixtures/*.sv
+!tests/synthesis/fixtures/*.mlir
+
+/benchmarks/

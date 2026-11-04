@@ -424,8 +424,8 @@ void fullPipeline(MLIRContext &context) {
     if (targetProfile.empty()) {
       if (resource.empty())
         run.run("resources", {findTool("python", python).string(),
-            (root / "hardware/hardfloat/build-hardfloat-ip.py").string(), "--resource-output=" + contractsPath.string()}, false, out);
-      auto profile = json::parse(read(root / "hardware/performance/rocket-rv32.json"));
+            (root / "thirdparty/HardFloat/build-hardfloat-ip.py").string(), "--resource-output=" + contractsPath.string()}, false, out);
+      auto profile = json::parse(read(root / "examples/scaleisa-aps-model.json"));
       auto model = json::parse(read(scaleisa / "resources/scaleisa-hector/resource.json"));
       auto actual = json::parse(read(contractsPath));
       for (auto &[name, entry] : model.items())

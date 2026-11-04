@@ -3,6 +3,7 @@
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,12 +19,24 @@ def run(*args):
 
 
 @pytest.fixture(scope="module")
+def add_mlir():
+    result = run(sys.executable, ROOT / "tools/aps-frontend", "mlir",
+                 ROOT / "examples/aquas/hardfloat/add.cadl")
+    assert result.returncode == 0, result.stderr
+    # Stable names keep the diagnostic mutations independent of SSA numbering.
+    values = re.findall(r"(%[\w.$-]+) = (?:aps.read_irf|arith.bitcast|arith.addf)\b", result.stdout)
+    assert len(values) == 6, result.stdout
+    names = dict(zip(values, ["%a_bits", "%b_bits", "%a", "%b", "%sum", "%result"]))
+    return re.sub(r"%[\w.$-]+", lambda match: names.get(match[0], match[0]), result.stdout)
+
+
+@pytest.fixture(scope="module")
 def resource(tmp_path_factory):
     directory = tmp_path_factory.mktemp("hardfloat")
     result = subprocess.run(
         [
             "bash",
-            str(ROOT / "hardware/hardfloat/build-hardfloat-ip.sh"),
+            str(ROOT / "thirdparty/HardFloat/build-hardfloat-ip.sh"),
             f"--resource-output={directory / 'resource.json'}",
         ],
         cwd=directory,
@@ -45,7 +58,7 @@ def resource(tmp_path_factory):
 )
 def test_frontend_and_two_phase(tmp_path, resource, example, ops):
     frontend = run(
-        ROOT / "tools/aps-frontend", "mlir", ROOT / f"examples/hardfloat/{example}.cadl"
+        ROOT / "tools/aps-frontend", "mlir", ROOT / f"examples/aquas/hardfloat/{example}.cadl"
     )
     assert frontend.returncode == 0, frontend.stderr
     source = tmp_path / "input.mlir"
@@ -69,8 +82,8 @@ def test_frontend_and_two_phase(tmp_path, resource, example, ops):
     assert "cmt2.bind.value @collect" not in text
 
 
-def test_float_constants_and_live_through(tmp_path, resource):
-    source = (ROOT / "examples/hardfloat/add.mlir").read_text()
+def test_float_constants_and_live_through(tmp_path, resource, add_mlir):
+    source = add_mlir
     source = source.replace(
         "%sum = arith.addf %a, %b : f32",
         """
@@ -95,22 +108,18 @@ def test_float_constants_and_live_through(tmp_path, resource):
     ],
 )
 def test_unsupported_operation_is_diagnostic(
-    tmp_path, resource, replacement, diagnostic
+    tmp_path, resource, replacement, diagnostic, add_mlir
 ):
     path = tmp_path / "unsupported.mlir"
-    path.write_text(
-        (ROOT / "examples/hardfloat/add.mlir")
-        .read_text()
-        .replace("arith.addf", replacement)
-    )
+    path.write_text(add_mlir.replace("arith.addf", replacement))
     result = run(E2E, "-i", path, "--resource", resource)
     assert result.returncode == 1, result.stderr
     assert diagnostic in result.stderr
     assert "LLVM ERROR" not in result.stderr
 
 
-def test_fast_math_is_not_silently_dropped(tmp_path, resource):
-    source = (ROOT / "examples/hardfloat/add.mlir").read_text()
+def test_fast_math_is_not_silently_dropped(tmp_path, resource, add_mlir):
+    source = add_mlir
     path = tmp_path / "fastmath.mlir"
     path.write_text(
         source.replace(
@@ -132,8 +141,8 @@ def test_unsupported_fp_memory_format_is_explicitly_rejected(tmp_path):
     assert "LLVM ERROR" not in result.stderr
 
 
-def test_fp64_is_diagnostic(tmp_path, resource):
-    source = (ROOT / "examples/hardfloat/add.mlir").read_text()
+def test_fp64_is_diagnostic(tmp_path, resource, add_mlir):
+    source = add_mlir
     source = source.replace("f32", "f64").replace(
         "%a = arith.bitcast %a_bits : i32 to f64",
         """
@@ -162,8 +171,8 @@ def test_fp64_is_diagnostic(tmp_path, resource):
 
 
 @pytest.mark.parametrize("operation", ["sitofp", "uitofp", "fptosi", "fptoui"])
-def test_wide_integer_conversion_is_diagnostic(tmp_path, resource, operation):
-    source = (ROOT / "examples/hardfloat/add.mlir").read_text()
+def test_wide_integer_conversion_is_diagnostic(tmp_path, resource, operation, add_mlir):
+    source = add_mlir
     if operation in ("sitofp", "uitofp"):
         source = source.replace(
             "%sum = arith.addf %a, %b : f32",
@@ -184,8 +193,8 @@ def test_wide_integer_conversion_is_diagnostic(tmp_path, resource, operation):
 
 
 @pytest.mark.parametrize("flag", ["nnan", "reassoc", "fast"])
-def test_comparison_fast_math_is_rejected(tmp_path, resource, flag):
-    source = (ROOT / "examples/hardfloat/add.mlir").read_text()
+def test_comparison_fast_math_is_rejected(tmp_path, resource, flag, add_mlir):
+    source = add_mlir
     source = source.replace("arith.addf %a, %b : f32",
                             f"arith.cmpf olt, %a, %b fastmath<{flag}> : f32")
     source = source.replace("arith.bitcast %sum : f32 to i32",
@@ -200,12 +209,12 @@ def test_comparison_fast_math_is_rejected(tmp_path, resource, flag):
 
 @pytest.mark.parametrize("kind,name", [(3, "divf"), (4, "sqrt")])
 @pytest.mark.parametrize("named", [False, True])
-def test_iterative_scheduling_uses_native_bound(tmp_path, resource, kind, name, named):
+def test_iterative_scheduling_uses_native_bound(tmp_path, resource, kind, name, named, add_mlir):
     config = json.loads(resource.read_text())[name]
     assert config["latency"][4] == (11 if kind == 3 else 10)
     assert config["latency"][5] == (27 if kind == 3 else 26)
     assert config["II"] == (27 if kind == 3 else 26)
-    source = (ROOT / "examples/hardfloat/add.mlir").read_text()
+    source = add_mlir
     if named:
         args, types = ("%a, %b", "f32, f32") if kind == 3 else ("%a", "f32")
         replacement = (f'%sum, %flags = "aps.fp"({args}) '
@@ -263,18 +272,20 @@ def test_dedicated_iterative_unit_limits_loop_ii(tmp_path, resource, kind, width
 
 
 def test_reject_stale_padding_contract(tmp_path):
-    result = subprocess.run(["bash", str(ROOT / "hardware/hardfloat/build-hardfloat-ip.sh"),
+    result = subprocess.run(["bash", str(ROOT / "thirdparty/HardFloat/build-hardfloat-ip.sh"),
                              "width=16", "op=0", "latency=33"],
                             cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode != 0
     assert "native contract requires 3" in result.stderr
 
 
-def test_reject_stale_scheduler_resources(tmp_path, resource):
+def test_reject_stale_scheduler_resources(tmp_path, resource, add_mlir):
     config = json.loads(resource.read_text())
     config["addf_fp32"]["latency"] = [33] * 7
     stale = tmp_path / "stale.json"
     stale.write_text(json.dumps(config))
-    result = run(E2E, "-i", ROOT / "examples/hardfloat/add.mlir", "--resource", stale)
+    source = tmp_path / "input.mlir"
+    source.write_text(add_mlir)
+    result = run(E2E, "-i", source, "--resource", stale)
     assert result.returncode != 0
     assert "native operation latency" in result.stderr

@@ -3,7 +3,7 @@
 The adapter converts selected kernel computations into APS instruction hardware
 contracts. Public passes are declared in
 [Passes.td](../../include/scaleisa-adapter/Passes.td); implementation lives in
-[lib/scaleisa-adapter/](../../lib/scaleisa-adapter/).
+[lib/scaleisa-adapter/](../../lib/scaleisa-adapter).
 
 ## Planning and hardware export
 
@@ -74,11 +74,11 @@ Keep this contract consistent when changing call-site analysis.
 pixi run cmake --build build --target check-scaleisa-adapter
 ```
 
-The numerical runner `tests/scaleisa-adapter/run_correctness.py` additionally
+The numerical runner `tests/scaleisa_adapter/run_correctness.py` additionally
 requires a completed compatible 2mm discovery run; select it with
 `--discovery-dir PATH`. Its default cache path is `scaleisa/tmp/scaleisa-test`.
 
-Review [test_adapter.py](../../tests/scaleisa-adapter/test_adapter.py) for positive
+Review [test_adapter.py](../../tests/scaleisa_adapter/test_adapter.py) for positive
 and rejected forms, [MaterializeAPS.cpp](../../lib/scaleisa-adapter/MaterializeAPS.cpp)
 for hardware ABI construction, and [MemoryABI.cpp](../../lib/scaleisa-adapter/MemoryABI.cpp)
 for layout/alias contracts. Numerical model checks and actual RTL/CPU execution

@@ -18,12 +18,12 @@ rtype hello(rs1: u5, rs2: u5, rd: u5) {
 
 Register selectors are five-bit values; `_irf[rs1]` obtains the operand data
 supplied by the CPU. The encoding attributes identify the custom instruction.
-Use the checked-in [hello](../../tutorial/cadl/hello.cadl) as a minimal input.
+Use the checked-in [hello](../../examples/aspdac26-tutorial/cadl/hello.cadl) as a minimal input.
 
 ```sh
-pixi run tools/aps-frontend mlir tutorial/cadl/hello.cadl -o build/hello.mlir
-pixi run tools/aps-frontend encoding tutorial/cadl/hello.cadl
-pixi run tools/aps-frontend cadl2c tutorial/cadl/hello.cadl -o build/hello.c
+pixi run tools/aps-frontend mlir examples/aspdac26-tutorial/cadl/hello.cadl -o build/hello.mlir
+pixi run tools/aps-frontend encoding examples/aspdac26-tutorial/cadl/hello.cadl
+pixi run tools/aps-frontend cadl2c examples/aspdac26-tutorial/cadl/hello.cadl -o build/hello.c
 ```
 
 Create `build/` first. The MLIR command verifies its result before writing it.
@@ -59,7 +59,7 @@ static buf: [i32; 16];
 ```
 
 For complete CPU-memory slice/copy examples use
-[tutorial/cadl/](../../tutorial/cadl/) and
+[examples/aspdac26-tutorial/cadl/](../../examples/aspdac26-tutorial/cadl) and
 [MemoryEmitter](../../cadl_frontend/to_mlir/memory.py). Synthesis binds functional
 memory operations using the [interface model](../ARCHITECTURE/aps-itfc.md).
 
@@ -98,6 +98,6 @@ alone. Floating intrinsics and restrictions are in the
 [stmt.py](../../cadl_frontend/to_mlir/stmt.py),
 [loop.py](../../cadl_frontend/to_mlir/loop.py), and
 [memory.py](../../cadl_frontend/to_mlir/memory.py) own emission.
-Use [parser tests](../../tests/test_parser/),
-[conditional tests](../../tests/test_select_expr.py), and
+Use [parser tests](../../tests/frontend/parser),
+[conditional tests](../../tests/frontend/test_select_expr.py), and
 [floating frontend tests](../../tests/hardfloat/test_frontend.py) for executable examples.

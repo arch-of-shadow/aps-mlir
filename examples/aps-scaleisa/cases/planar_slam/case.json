@@ -1,0 +1,14 @@
+{
+  "name": "Planar SLAM: 16 poses, 20 landmarks",
+  "max_extra_csrs": 8,
+  "checked_values": 344,
+  "observe": {
+    "allocations": [
+      4,
+      3,
+      2,
+      1,
+      0
+    ]
+  }
+}

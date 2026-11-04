@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+python "$PIXI_PROJECT_ROOT/thirdparty/HardFloat/install.py" --circt-root "$PIXI_PROJECT_ROOT/circt"
+
 mkdir -p "$PIXI_PROJECT_ROOT/build"
 cd "$PIXI_PROJECT_ROOT/build"
 

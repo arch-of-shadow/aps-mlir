@@ -9,7 +9,7 @@ bindings consistent with synthesis.
 
 ```sh
 mkdir -p build/integration
-pixi run mlir tutorial/cadl/hello.cadl build/integration/hello.mlir
+pixi run mlir examples/aspdac26-tutorial/cadl/hello.cadl build/integration/hello.mlir
 pixi run build/tools/aps-opt/aps-e2e \
   -i build/integration/hello.mlir --export sv -o build/integration/hello.sv \
   --interface-config examples/interface.json \
@@ -50,7 +50,7 @@ Chipyard uses the configured legacy firtool for processor elaboration, while
 APS uses its CIRCT fork for accelerator generation; the Pixi setup keeps these
 paths distinct.
 
-[generators/aps](../../thirdparty/chipyard/generators/aps/) contains the Scala
+[generators/aps](../../thirdparty/chipyard/generators/aps) contains the Scala
 configuration, blackbox interface, RoCC wrapper, and DMA implementation. The
 [port contract](aps-port-convention.md) explains CSR lanes and completion for
 instructions without register results. [Memory interfaces](aps-itfc.md) explains
@@ -64,10 +64,10 @@ cycle measurements. [Benchmark reproduction](../COMPILER/aps-scaleisa-opt.md#ben
 links current runners and artifact checks.
 
 FPGA and ASIC flows require board/process-specific configuration under
-[Chipyard nextvlsi](../../thirdparty/chipyard/nextvlsi/) and, for FPGA host access,
+[Chipyard nextvlsi](../../thirdparty/chipyard/nextvlsi) and, for FPGA host access,
 [aps-prog](../../aps-prog/README.md). Follow those component instructions for the
 actual target. This guide does not assign blanket support status to boards or
 CPU/interface combinations that the native exporter does not validate.
 
 Configuration regression coverage is in
-[test_interface_config.py](../../tests/test_mlir/test_interface_config.py).
+[test_interface_config.py](../../tests/synthesis/test_interface_config.py).

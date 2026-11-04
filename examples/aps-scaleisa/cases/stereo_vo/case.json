@@ -1,0 +1,13 @@
+{
+  "name": "Stereo VO: 32 landmarks",
+  "max_extra_csrs": 8,
+  "checked_values": 291,
+  "observe": {
+    "allocations": [
+      3,
+      2,
+      1,
+      0
+    ]
+  }
+}

@@ -136,7 +136,7 @@ npm test
 - Tree-sitter corpus tests check declarations, precedence, conditionals, casts,
   directives, and slices.
 - Parse the shared fixture plus all `.cadl` files under `examples/`,
-  `tutorial/cadl/`, and `tests/hardfloat/`, excluding intentional `wont_pass/`
+  `examples/aspdac26-tutorial/cadl/`, and `tests/hardfloat/`, excluding intentional `wont_pass/`
   errors. Any `ERROR` or missing syntax node fails the command.
 - Compile/run all four Zed queries and assert representative highlight captures.
 

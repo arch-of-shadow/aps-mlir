@@ -37,10 +37,10 @@ Algorithm and cost-model documentation belongs to
 
 ```sh
 mkdir -p build/megg-example
-pixi run compile tutorial/cadl/v3ddist_vv.cadl tutorial/csrc/test_v3ddist_vv.c build/megg-example/v3ddist_vv.riscv
+pixi run compile examples/aspdac26-tutorial/cadl/v3ddist_vv.cadl examples/aspdac26-tutorial/csrc/test_v3ddist_vv.c build/megg-example/v3ddist_vv.riscv
 ```
 
-The example uses the same CADL/C pair as `tutorial/a2-ex1compile.sh`. It requires the
+The example uses the same CADL/C pair as `examples/aspdac26-tutorial/a2-ex1compile.sh`. It requires the
 Polygeist `cgeist` frontend, APS Python bindings, Megg's compiled `mlir_utils`
 extension, and the RISC-V toolchain supplied/configured during setup.
 
@@ -53,8 +53,8 @@ Artifacts are collected in `compile_logs/` beside the executable, including
 pattern C/MLIR, encoding JSON, and available assembly/statistics/snapshots.
 
 CSR argument placement must preserve source operand positions. Use
-[CSR transport tests](../../tests/test_megg_csr.py) and
-[robustness tests](../../tests/test_megg_csr_robustness.py) when changing matching
+[CSR transport tests](../../tests/megg/test_csr.py) and
+[robustness tests](../../tests/megg/test_csr_robustness.py) when changing matching
 or emission. Compile the CADL to hardware separately through the
 [synthesis flow](../SYNTHESIS/README.md).
 
@@ -65,7 +65,7 @@ including rewrites, skeleton matching, extraction, and code generation.
 
 ```sh
 pixi run cmake --build build --target check-aps-scaleisa check-scaleisa-adapter check-scaleisa-compiler
-pixi run python -m pytest tests/test_megg_csr.py tests/test_megg_cleanup.py -q
+pixi run python -m pytest tests/megg/test_csr.py tests/megg/test_cleanup.py -q
 ```
 
 The CMake targets run driver/pass regressions. Full application correctness and

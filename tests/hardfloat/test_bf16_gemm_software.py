@@ -11,13 +11,13 @@ import pytest
 from ieee_oracle import IEEE
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "examples/hardfloat/bf16_gemm"
+EXAMPLE = ROOT / "examples/aquas/hardfloat/bf16_gemm"
 
 
 @pytest.fixture(scope="module")
 def software(tmp_path_factory):
     out = tmp_path_factory.mktemp("bf16-software")
-    subprocess.run([sys.executable, str(EXAMPLE / "generate_vectors.py"), str(out)], check=True)
+    subprocess.run([sys.executable, str(EXAMPLE / "tools.py"), "vectors", str(out)], check=True)
     wrapper = out / "wrapper.c"
     wrapper.write_text('''
 #include "bf16_software.h"
@@ -44,8 +44,8 @@ int check_gemm(void) {
 ''')
     library = out / "software.so"
     subprocess.run(["cc", "-std=c11", "-O3", "-ffp-contract=off", "-fno-fast-math",
-                    "-shared", "-fPIC", "-I", str(EXAMPLE), "-I", str(out),
-                    str(wrapper), str(EXAMPLE / "bf16_software.c"), "-o", str(library)], check=True)
+                    "-shared", "-fPIC", "-I", str(EXAMPLE / "src"), "-I", str(out),
+                    str(wrapper), str(EXAMPLE / "src/bf16_software.c"), "-o", str(library)], check=True)
     lib = ctypes.CDLL(str(library))
     for name in ("software_add", "software_mul"):
         function = getattr(lib, name)

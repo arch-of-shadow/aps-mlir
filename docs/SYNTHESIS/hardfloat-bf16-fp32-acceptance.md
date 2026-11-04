@@ -1,8 +1,8 @@
 # BF16/FP32 hardware and acceptance
 
 APS floating arithmetic executes in dedicated accelerator units. Operation timing
-comes from [ip_catalog.yaml](../../hardware/hardfloat/ip_catalog.yaml), and
-packaging lives in [hardware/hardfloat/](../../hardware/hardfloat/).
+comes from [ip_catalog.yaml](../../thirdparty/HardFloat/ip_catalog.yaml), and
+packaging lives in [thirdparty/HardFloat/](../../thirdparty/HardFloat).
 
 ## Arithmetic contract
 
@@ -42,11 +42,16 @@ metadata constrains scheduling and does not establish physical frequency.
 
 ```sh
 pixi run build-hardfloat-ip
-pixi run mlir examples/hardfloat/add.cadl build/hardfloat/input.mlir
+pixi run mlir examples/aquas/hardfloat/add.cadl build/hardfloat/input.mlir
 pixi run build/tools/aps-opt/aps-e2e \
   -i build/hardfloat/input.mlir --resource build/hardfloat/resource.json \
   --export sv -o build/hardfloat/design.sv
 ```
+
+The APS build installs a self-contained HardFloat package and an extended manifest
+under `circt/build/share/circt/ModuleLibrary/`. To install it separately, run
+`pixi run python thirdparty/HardFloat/install.py`. Packaging refreshes it when invoked directly. CIRCT builds specialized
+modules from that installed copy, without calling back into APS.
 
 The builder emits resource overlays, timing metadata, and imported FIRRTL modules.
 Use the overlay: integer-only resources lack floating-unit contracts. The backend
@@ -70,7 +75,7 @@ campaign is separate from executing a C binary on full Rocket RTL.
 For mapped-netlist simulation and STA, omit `--rtl-only`. That requires the
 IHP SG13G2 PDK and OpenSTA at the paths used by
 [acceptance/run.py](../../tests/hardfloat/acceptance/run.py) and
-[physical_flow.py](../../hardware/hardfloat/synthesis/physical_flow.py).
+[physical_flow.py](../../thirdparty/HardFloat/synthesis/physical_flow.py).
 `--units` selects standalone unit campaigns; `--only` filters cases;
 `--skip-passed` reuses signature-matching results; `--require-timing` makes
 negative slack fatal. Functional success alone does not imply timing closure.
@@ -80,7 +85,7 @@ provenance, gate logs, pipeline metadata, and setup/hold reports. Read the gener
 summary for results from the actual checkout rather than relying on historical
 case counts or performance numbers.
 
-See the [HardFloat examples](../../examples/hardfloat/README.md),
-[full Rocket BF16 GEMM](../../examples/hardfloat/bf16_gemm/README.md), and
+See the [HardFloat examples](../../examples/aquas/hardfloat/README.md),
+[full Rocket BF16 GEMM](../../examples/aquas/hardfloat/bf16_gemm/README.md), and
 [library tests](../../tests/hardfloat/test_library.py). Packaging provenance is
 in [thirdparty/HardFloat/README.aquas.md](../../thirdparty/HardFloat/README.aquas.md).

@@ -1,0 +1,11 @@
+{
+  "name": "ISS keypoints: 16 x 16",
+  "checked_values": 1280,
+  "observe": {
+    "types": [
+      "memref<16x16x3xf32>",
+      "memref<16x16xf32>",
+      "memref<16x16xi32>"
+    ]
+  }
+}

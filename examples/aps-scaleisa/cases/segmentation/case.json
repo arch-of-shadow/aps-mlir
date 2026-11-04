@@ -1,0 +1,12 @@
+{
+  "name": "Region growing: 8 x 8, 2 iterations",
+  "max_extra_csrs": 8,
+  "checked_values": 192,
+  "observe": {
+    "allocations": [
+      2,
+      1,
+      0
+    ]
+  }
+}

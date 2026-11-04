@@ -1,0 +1,7 @@
+{
+  "name": "Bitcount: 64 deterministic inputs",
+  "clock": 10,
+  "checked_values": 64,
+  "observe": {},
+  "validation_boundary": "return"
+}

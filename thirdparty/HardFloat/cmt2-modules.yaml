@@ -1,0 +1,53 @@
+modules:
+- name: HardFloat32
+  type: firrtl
+  path: firrtl/hardfloat_ip
+  description: Dedicated FP32 add/sub/mul with reserved response capacity
+  parameters:
+  - name: op
+    type: integer
+    default: 0
+    required: false
+  - name: latency
+    type: integer
+    default: 3
+    required: false
+  - name: capacity
+    type: integer
+    default: 5
+    required: false
+  build:
+    command: ./build.sh
+    args: []
+    output_pattern: HardFloat32_op${op}_l${latency}_q${capacity}.mlir
+    cache: false
+- name: HardFloat
+  type: firrtl
+  path: firrtl/hardfloat_ip
+  description: Complete BF16/FP32 operation bank, flags and reserved capacity
+  parameters:
+  - name: width
+    type: integer
+    default: 32
+    required: false
+  - name: op
+    type: integer
+    default: 0
+    required: false
+  - name: pred
+    type: integer
+    default: 0
+    required: false
+  - name: latency
+    type: integer
+    default: 3
+    required: false
+  - name: capacity
+    type: integer
+    default: 5
+    required: false
+  build:
+    command: ./build.sh
+    args: []
+    output_pattern: HardFloat_w${width}_o${op}_p${pred}_l${latency}_q${capacity}.mlir
+    cache: false

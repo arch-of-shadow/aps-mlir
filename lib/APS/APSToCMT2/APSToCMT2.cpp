@@ -89,11 +89,12 @@ void APSToCMT2Pass::runOnOperation() {
   auto &library = ModuleLibrary::getInstance();
   llvm::dbgs() << "DEBUG: Initializing CMT2 module library\n";
 
-  // Try to find the module library manifest
-  // First try: relative to build directory
+  // Prefer the library installed by APS, including its external IP modules.
   llvm::SmallString<256> manifestPath;
   llvm::sys::path::append(manifestPath,
-                          "circt/lib/Dialect/Cmt2/ModuleLibrary/manifest.yaml");
+                          "circt/build/share/circt/ModuleLibrary/manifest.yaml");
+  if (!llvm::sys::fs::exists(manifestPath))
+    manifestPath = "circt/lib/Dialect/Cmt2/ModuleLibrary/manifest.yaml";
 
   // Set library base path (parent of manifest)
   if (llvm::sys::fs::exists(manifestPath)) {
