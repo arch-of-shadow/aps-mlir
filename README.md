@@ -1,7 +1,7 @@
 ![APS Logo](assets/images/logo.png)
 # APS: Agile Processor Specialization
 
-APS (Agile Processor Specialization) is an open-source framework for agile hardware-software co-design of domain-specific processors. It provides both hardware synthesis and compiler infrastructure to facilitate the development of instruction extensions (ISAXs) for domain acceleration on RISC-V platforms.
+APS (Agile Processor Specialization) is an open-source framework for hardware-software co-design of domain-specific RISC-V processors. It covers instruction finding, hardware synthesis, software compilation, and architecture integration for instruction-set extensions (ISAXs).
 
 ## Quick Links
 
@@ -17,29 +17,41 @@ APS aims to build a comprehensive ecosystem based on the MLIR infrastructure, co
 
 ## Overview
 
-The framework consists of three major components:
+The framework consists of four major components:
+
+### Instruction Finding
+
+Finds useful custom instructions from application code:
+
+- **ISAMORE / ScaleISA**: Discovers candidate instruction extensions from application MLIR and selects implementations under area and timing constraints.
+- **APS Integration**: Adapts selected candidates for hardware synthesis and software compilation. The [ScaleISA driver](docs/COMPILER/aps-scaleisa-opt.md) coordinates discovery, selection, code generation, and optional validation.
 
 ### Hardware Synthesis
 
 - **CADL**: A high-level domain-specific language for describing ISAXs (Instruction Set Architecture eXtensions). CADL provides intuitive syntax for register file access, memory operations, bit manipulation, and loop constructs, allowing designers to focus on algorithm logic rather than hardware details.
-- **MLIR Passes**: A comprehensive set of transformation and optimization passes, including loop unrolling, array partitioning, SDC-based scheduling, and RTL generation.
+- **MLIR Passes**: Loop unrolling, array partitioning, SDC-based scheduling, and RTL generation through CMT2 → FIRRTL → SystemVerilog.
 
 ### Compiler
 
-Enables automatic utilization of custom instructions in application code:
+Compiles application software to use custom instructions:
 
-- **Megg**: An E-graph based compiler that performs pattern matching to identify code fragments that can be replaced with custom instructions.
+- **Megg**: Uses e-graph matching and rewriting to replace application computations with supplied custom instructions.
+- **ScaleISA Software Lowering**: Lowers selected custom-instruction calls to RISC-V code with matching operand and CSR bindings.
 - **C/C++ Frontend**: Integration with Polygeist/cgeist for C/C++ to MLIR conversion.
 - **LLVM Backend**: Code generation targeting RISC-V with custom instruction encodings.
 
-### Architecture
+### Architecture and System Integration
 
-Generates the complete hardware architecture for RISC-V integration:
+Specializes the accelerator's memory organization and its connection to the processor:
 
-- **CMT2 → FIRRTL → Verilog**: Multi-stage RTL generation pipeline using CIRCT infrastructure.
-- **RoCC Interface**: Generates accelerators compatible with Rocket Chip's custom coprocessor interface.
-- **Memory System**: Scratchpad memory pool with burst DMA support for efficient data movement.
-- **Chipyard Integration**: Seamless integration with the Chipyard SoC framework for full-system simulation and FPGA deployment.
+- **Configurable Memory Interfaces**: Models bandwidth, transaction limits, latency, and outstanding requests to guide memory-access selection and scheduling.
+- **Banked Scratchpads and DMA**: Generates partitioned local memories and burst-transfer adapters around the workload's data layout and parallelism.
+- **Rocket/RoCC Integration**: Exports matching accelerator ports, CSR bindings, and Chipyard configuration from the same hardware and interface descriptions.
+- **Spike + Verilator Co-simulation**: [aps-cosim](tools/aps-cosim/) runs compiled RISC-V programs with generated accelerator RTL, validating instruction results, CSR transport, and memory effects end to end.
+- **Full-System Evaluation**: Chipyard integrates the accelerator into Rocket for complete SoC RTL simulation and processor-cycle measurements.
+
+See the [processor integration guide](docs/ARCHITECTURE/README.md) and
+[co-simulation guide](docs/SYNTHESIS/aps-spike-verilator-cosim.md) for setup and execution.
 
 ## Getting Started
 
@@ -61,7 +73,7 @@ pixi run setup-chipyard
 ```
 
 `pixi run build` also builds `build/tools/scaleisa-opt/scaleisa-opt` and the Rust
-engine at `scaleisa/tools/scaleisa-engine/target/debug/scaleisa-engine`.
+engine at `scaleisa/tools/scaleisa-engine/target/release/scaleisa-engine`.
 
 ### Quick Start
 
@@ -96,3 +108,88 @@ instructions. Both recognize `.cadl` files and follow the current frontend gramm
 ./examples/aspdac26-tutorial/a6-ex1sim.sh
 ./examples/aspdac26-tutorial/a7-ex1yosys.sh
 ```
+
+## Cite us
+
+If you use APS or its components, please cite the relevant papers:
+
+- [ScaleISA](https://doi.org/10.1145/3845814.3850048), ASPLOS 2027.
+- [Aquas](https://doi.org/10.1145/3831252.3834028), ICCAD 2026.
+- [ISAMORE](https://doi.org/10.1145/3779212.3790162), ASPLOS 2026.
+- [APS](https://doi.org/10.1109/ICCAD66269.2025.11240817), ICCAD 2025.
+- [Cement](https://doi.org/10.1145/3626202.3637561), FPGA 2024.
+- [HECTOR](https://doi.org/10.1145/3508352.3549370), ICCAD 2022.
+
+<details>
+<summary>BibTeX</summary>
+
+```bibtex
+@inproceedings{zou2026aquas,
+  author = {Zou, Yuyang and Xiao, Youwei and Yin, Chenyun and Xu, Yansong and Luo, Yuhao and Sun, Yitian and Xu, Ruifan and Chen, Renze and Liang, Yun},
+  title = {{Aquas}: Enhancing Domain Specialization through Holistic Hardware-Software Co-Optimization based on {MLIR}},
+  booktitle = {IEEE/ACM International Conference on Computer-Aided Design (ICCAD)},
+  year = {2026},
+  location = {San Jose, CA, USA},
+  isbn = {979-8-4007-2873-0},
+  doi = {10.1145/3831252.3834028}
+}
+
+@inproceedings{sun2027scaleisa,
+  author = {Sun, Yitian and Xiao, Youwei and Zou, Yuyang and Yin, Chenyun and Liang, Yun},
+  title = {Customizing Scalable Instructions via Multi-Level E-Graph Anti-Unification},
+  booktitle = {Proceedings of the 32nd ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 1},
+  series = {ASPLOS '27},
+  year = {2027},
+  numpages = {16},
+  location = {Heraklion, Greece},
+  isbn = {979-8-4007-3012-2},
+  doi = {10.1145/3845814.3850048}
+}
+
+@inproceedings{xiao2026isamore,
+  author = {Xiao, Youwei and Yin, Chenyun and Sun, Yitian and Zou, Yuyang and Liang, Yun},
+  title = {Finding Reusable Instructions via E-Graph Anti-Unification},
+  booktitle = {Proceedings of the 31st ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 2},
+  series = {ASPLOS '26},
+  year = {2026},
+  pages = {749--763},
+  isbn = {9798400723599},
+  doi = {10.1145/3779212.3790162}
+}
+
+@inproceedings{xiao2025aps,
+  author = {Xiao, Youwei and Zou, Yuyang and Xu, Yansong and Luo, Yuhao and Sun, Yitian and Yin, Chenyun and Xu, Ruifan and Chen, Renze and Liang, Yun},
+  title = {Invited Paper: {APS}: Open-Source Hardware-Software Co-Design Framework for Agile Processor Specialization},
+  booktitle = {2025 IEEE/ACM International Conference on Computer Aided Design (ICCAD)},
+  year = {2025},
+  pages = {1--9},
+  doi = {10.1109/ICCAD66269.2025.11240817}
+}
+
+@inproceedings{xiao2024cement,
+  author = {Xiao, Youwei and Luo, Zizhang and Zhou, Kexing and Liang, Yun},
+  title = {{Cement}: Streamlining {FPGA} Hardware Design with Cycle-Deterministic {eHDL} and Synthesis},
+  booktitle = {Proceedings of the 2024 ACM/SIGDA International Symposium on Field Programmable Gate Arrays},
+  series = {FPGA '24},
+  year = {2024},
+  pages = {211--222},
+  location = {Monterey, CA, USA},
+  isbn = {9798400704185},
+  doi = {10.1145/3626202.3637561}
+}
+
+@inproceedings{xu2022hector,
+  author = {Xu, Ruifan and Xiao, Youwei and Luo, Jin and Liang, Yun},
+  title = {{HECTOR}: A Multi-Level Intermediate Representation for Hardware Synthesis Methodologies},
+  booktitle = {Proceedings of the 41st IEEE/ACM International Conference on Computer-Aided Design},
+  series = {ICCAD '22},
+  year = {2022},
+  articleno = {54},
+  numpages = {9},
+  location = {San Diego, California},
+  isbn = {9781450392174},
+  doi = {10.1145/3508352.3549370}
+}
+```
+
+</details>
