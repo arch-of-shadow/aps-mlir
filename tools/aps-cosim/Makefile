@@ -36,13 +36,14 @@ SPIKE_SRCS := \
   spike_aps_main.cc
 
 SPIKE_CFLAGS := -std=c++17 -I$(CURDIR) -I$(SPIKE_OBJ_SPIKE_DIR) -I$(SPIKE_OBJ_SPIKE_BUILD)
+ZLIB_LIB := $(if $(PIXI_PROJECT_ROOT),$(CONDA_PREFIX)/lib/libz.a,-lz)
 SPIKE_LIBS := \
   $(SPIKE_OBJ_SPIKE_BUILD)/libriscv.a \
   $(SPIKE_OBJ_SPIKE_BUILD)/libdisasm.a \
   $(SPIKE_OBJ_SPIKE_BUILD)/libsoftfloat.a \
   $(SPIKE_OBJ_SPIKE_BUILD)/libfesvr.a \
   $(SPIKE_OBJ_SPIKE_BUILD)/libfdt.a \
-  -ldl -lpthread -lz
+  -ldl -lpthread $(ZLIB_LIB)
 
 .PHONY: all direct spike run-spike clean FORCE
 

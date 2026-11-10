@@ -18,5 +18,6 @@ cmake .. \
 
 ninja "$@"
 
+PKG_CONFIG_PATH="$CONDA_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
 LIBRARY_PATH="$CONDA_PREFIX/lib${LIBRARY_PATH:+:$LIBRARY_PATH}" \
   cargo build --manifest-path "$PIXI_PROJECT_ROOT/scaleisa/tools/scaleisa-engine/Cargo.toml"
